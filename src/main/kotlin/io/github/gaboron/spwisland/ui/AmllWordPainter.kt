@@ -3,10 +3,13 @@
 package io.github.gaboron.spwisland.ui
 
 import io.github.gaboron.spwisland.core.Word
+import io.github.gaboron.spwisland.longtone.LongToneRuleRegistry
 import java.awt.*
 
 /** Transforms shaped graphemes, preserving fallback fonts and whole-line shaping. */
 object AmllWordPainter {
+    private val longToneRules = LongToneRuleRegistry()
+
     fun draw(g: Graphics2D, shaped: ShapedText, text: String, words: List<Word>, time: Long,
              origin: Float, baseline: Float, fontSize: Float, motion: Boolean, color: Color = Color.WHITE) {
         val geometry = WordGeometry.ready(shaped, text, words.map { it.text })
@@ -15,13 +18,15 @@ object AmllWordPainter {
             return
         }
         for ((wordIndex, word) in words.withIndex()) {
+            val longTone = motion && longToneRules.isLongTone(word)
             val cell = geometry[wordIndex]
             val wordBounds = cell.bounds
             val clusters = cell.clusters
             for ((index, cluster) in clusters.withIndex()) {
                 val bounds = cluster.bounds
                 val area = cluster.shape
-                val pose = if (motion) AmllMotion.word(word, time, index, clusters.size, wordIndex == words.lastIndex) else AmllMotion.Pose()
+                val pose = if (motion) AmllMotion.word(word, time, index, clusters.size,
+                    wordIndex == words.lastIndex, longTone) else AmllMotion.Pose()
                 val copy = g.create() as Graphics2D
                 try {
                     copy.translate(origin.toDouble(), baseline.toDouble())

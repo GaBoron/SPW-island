@@ -456,7 +456,8 @@ LyricPainter
 | `LyricPainter.kt` | 单行歌词的实际绘制入口；负责居中、长歌词滚动、逐字高亮和低性能绘制路径 |
 | `LyricTypography.kt` | 使用 `TextLayout` 统一文本塑形、测量、字体 fallback 和字形轮廓缓存 |
 | `AmllWordPainter.kt` | 对已塑形的 grapheme 应用逐字高亮、位移、缩放和辉光 |
-| `AmllMotion.kt` | AMLL 来源的逐字浮动、长音强调和歌词行切换运动曲线 |
+| `AmllMotion.kt` | AMLL 来源的逐字浮动、长音强调和歌词行切换运动曲线；只接收规则给出的长音结果 |
+| `longtone/` | 准备 Unicode 文本信息、选择语言规则，并保守判断当前 timing cell 是否为长音 |
 | `WordGeometry.kt` | 在有界后台线程中准备单词和 grapheme 的字形几何，避免动画线程做昂贵轮廓运算 |
 | `TimedKaraokeBoundary.kt` | 低性能模式下只计算当前逐字单元的高亮边界 |
 | `LyricGlow.kt` | 当前歌词强调和已唱歌词的辉光绘制 |
@@ -668,6 +669,14 @@ LyricGlow
 TimedKaraokeBoundary
 PerformanceProfile
 ```
+
+### 长音规则
+
+`longtone/` 将歌词 timing cell 的长音判断与动效分开。`LongToneRuleContext` 提供规范化文本、持续时间、字素数量与 Unicode Script 等通用信息；`LongToneRuleRegistry` 按优先级选择规则。没有匹配规则，或最高优先级存在冲突时，均不触发长音。
+
+各语言规则位于 `longtone/rules/`。规则实现 `LongToneRule`，由 `matches()` 声明适用范围，再由 `isLongTone()` 判断当前 cell；无法可靠判断时返回 `false`。通用文本处理放在 Context 中，语言特有的词形、音节或例外留在对应规则内。规则不控制辉光、缩放、位移和缓动，这些效果由 `AmllMotion` 统一处理。
+
+内置规则可参考 `HanRule`、`JapaneseRule`、`KoreanRule` 和 `EnglishRule`。语言规则在 `LongToneRuleRegistry` 中注册；优先级越高，匹配条件应越专用、越可靠。涉及优先级调整的 PR 应说明覆盖关系，并附带有持续时间的真实歌词样例，分别展示触发与不触发的情况。
 
 ### 修改字体、缺字 fallback 或文字测量
 

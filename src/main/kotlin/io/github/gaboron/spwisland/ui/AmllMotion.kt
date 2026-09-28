@@ -9,16 +9,11 @@ import kotlin.math.*
 
 object AmllMotion {
     data class Pose(val xEm: Double = 0.0, val yEm: Double = 0.0, val scale: Double = 1.0, val glow: Double = 0.0)
-    fun word(word: Word, time: Long, character: Int, count: Int, last: Boolean): Pose {
+    fun word(word: Word, time: Long, character: Int, count: Int, last: Boolean, longTone: Boolean): Pose {
         var duration = max(1000.0, (word.endMs - word.startMs).toDouble())
         val elapsed = (time - word.startMs).toDouble()
         val lift = -.05 * bezier((elapsed / duration).coerceIn(0.0, 1.0), 0.0, 0.0, .58, 1.0)
-        val cjk = word.text.codePoints().anyMatch { cp ->
-            Character.UnicodeScript.of(cp) in setOf(Character.UnicodeScript.HAN, Character.UnicodeScript.HIRAGANA,
-                Character.UnicodeScript.KATAKANA, Character.UnicodeScript.HANGUL)
-        }
-        if (word.endMs - word.startMs < 1000 || word.text.isBlank() || !cjk && word.text.trim().length !in 2..7)
-            return Pose(yEm = lift)
+        if (!longTone) return Pose(yEm = lift)
         var amount = duration / 2000
         amount = (if (amount > 1) sqrt(amount) else amount.pow(3)) * .6
         var blur = duration / 3000
