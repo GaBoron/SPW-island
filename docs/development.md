@@ -460,7 +460,7 @@ LyricPainter
 | `longtone/` | 准备 Unicode 文本信息、选择语言规则，并保守判断当前 timing cell 是否为长音 |
 | `WordGeometry.kt` | 在有界后台线程中准备单词和 grapheme 的字形几何，避免动画线程做昂贵轮廓运算 |
 | `TimedKaraokeBoundary.kt` | 低性能模式下只计算当前逐字单元的高亮边界 |
-| `LyricGlow.kt` | 当前歌词强调和已唱歌词的辉光绘制 |
+| `LyricGlow.kt` | 长音强调的辉光绘制 |
 | `SystemUiFont.kt` | 加载两平台共用的内置 MiSans、自定义歌词字体及缺字回退 |
 | `ComposeFontPickerWindow.kt` | 打开 Compose 字体窗口并回写选择结果 |
 | `FontPickerCatalog.kt` | 读取 Windows 已安装字体和可用字形，并提供搜索分类 |

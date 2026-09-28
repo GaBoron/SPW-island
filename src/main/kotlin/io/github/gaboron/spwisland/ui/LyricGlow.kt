@@ -7,19 +7,14 @@ import java.awt.Graphics2D
 import java.awt.Shape
 import kotlin.math.min
 
-/** Keeps active emphasis and the subtle sung-word afterglow visually consistent. */
+/** Paints a restrained glow only while a long tone is emphasized. */
 object LyricGlow {
-    fun draw(g: Graphics2D, shape: Shape, fontSize: Float, baseColor: Color,
-             emphasis: Double, sung: Boolean) {
-        val tint = cleanTint(baseColor)
-        if (sung) {
-            drawLayer(g, shape, tint, fontSize * .05f, 20)
-        }
-
+    fun draw(g: Graphics2D, shape: Shape, fontSize: Float, baseColor: Color, emphasis: Double) {
         val strength = emphasis.coerceIn(0.0, 1.0)
         if (strength <= .001) return
-        drawLayer(g, shape, tint, fontSize * .11f, (strength * 42).toInt())
-        drawLayer(g, shape, tint, fontSize * .045f, (strength * 92).toInt())
+        val tint = cleanTint(baseColor)
+        drawLayer(g, shape, tint, fontSize * .16f, (strength * 58).toInt())
+        drawLayer(g, shape, tint, fontSize * .06f, (strength * 124).toInt())
     }
 
     private fun cleanTint(color: Color): Color {

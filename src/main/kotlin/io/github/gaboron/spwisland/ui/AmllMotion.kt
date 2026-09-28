@@ -16,10 +16,9 @@ object AmllMotion {
         if (!longTone) return Pose(yEm = lift)
         var amount = duration / 2000
         amount = (if (amount > 1) sqrt(amount) else amount.pow(3)) * .6
-        var blur = duration / 3000
-        blur = (if (blur > 1) sqrt(blur) else blur.pow(3)) * .5
-        if (last) { amount *= 1.6; blur *= 1.5; duration *= 1.2 }
-        amount = min(1.2, amount); blur = min(.8, blur)
+        var blur = .32 + .48 * ((duration - 1000.0) / 3000.0).coerceIn(0.0, 1.0)
+        if (last) { amount *= 1.6; blur *= 1.2; duration *= 1.2 }
+        amount = min(1.2, amount); blur = min(.9, blur)
         val progress = ((elapsed - duration / 2.5 / max(1, count) * character) / duration).coerceIn(0.0, 1.0)
         val emphasis = if (progress < .5) bezier(progress * 2, .2, .4, .58, 1.0)
             else 1 - bezier((progress - .5) * 2, .3, 0.0, .58, 1.0)

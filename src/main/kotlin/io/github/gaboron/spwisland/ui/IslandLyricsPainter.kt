@@ -45,15 +45,18 @@ object IslandLyricsPainter {
             copy.translate(width / 2.0, height / 2.0 + offset)
             copy.scale(scale, scale); copy.translate(-width / 2.0, -height / 2.0)
             val available = width - inset * 2
+            val palette = IslandPalette.from(settings, snapshot.metadata.coverRgb)
             LyricPainter.draw(copy, block.main, block.timedWords,
                 if (block.timedWords.isNotEmpty()) time else (time - (line?.startMs ?: 0)).coerceAtLeast(0),
                 inset, row.mainBaseline, available, block.mainFont, settings.karaoke,
-                color = IslandPalette.from(settings, snapshot.metadata.coverRgb).lyric,
+                color = palette.lyric,
                 detailedKaraoke = settings.performance.detailedKaraoke,
-                fallbackFont = block.mainFallbackFont)
+                fallbackFont = block.mainFallbackFont,
+                contrastOutline = palette.lyricOutline)
             block.sub?.let { LyricPainter.draw(copy, it, emptyList(), (time - (line?.startMs ?: 0)).coerceAtLeast(0),
                 inset, row.subBaseline, available, block.subFont, false, Color(177, 182, 195),
-                fallbackFont = block.subFallbackFont) }
+                fallbackFont = block.subFallbackFont,
+                contrastOutline = palette.lyricOutline) }
         } finally { copy.dispose() }
     }
     private fun lerp(from: Float, to: Float, progress: Double): Float =

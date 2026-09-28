@@ -11,10 +11,11 @@ object AmllWordPainter {
     private val longToneRules = LongToneRuleRegistry()
 
     fun draw(g: Graphics2D, shaped: ShapedText, text: String, words: List<Word>, time: Long,
-             origin: Float, baseline: Float, fontSize: Float, motion: Boolean, color: Color = Color.WHITE) {
+             origin: Float, baseline: Float, fontSize: Float, motion: Boolean, color: Color = Color.WHITE,
+             contrastOutline: Boolean = false) {
         val geometry = WordGeometry.ready(shaped, text, words.map { it.text })
         if (geometry == null) {
-            drawTimed(g, shaped, words, time, origin, baseline, fontSize, color)
+            drawTimed(g, shaped, words, time, origin, baseline, fontSize, color, contrastOutline)
             return
         }
         for ((wordIndex, word) in words.withIndex()) {
@@ -33,7 +34,8 @@ object AmllWordPainter {
                     copy.translate(pose.xEm * fontSize + bounds.centerX, pose.yEm * fontSize + bounds.centerY)
                     copy.scale(pose.scale, pose.scale); copy.translate(-bounds.centerX, -bounds.centerY)
                     val progress = word.progress(time)
-                    LyricGlow.draw(copy, area, fontSize, color, pose.glow, progress >= 1.0)
+                    LyricGlow.draw(copy, area, fontSize, color, pose.glow)
+                    if (contrastOutline) LyricContrastOutline.draw(copy, area, fontSize)
                     copy.paint = highlight(shaped, wordBounds, progress, fontSize, color)
                     copy.fill(area)
                 } finally { copy.dispose() }
@@ -43,7 +45,10 @@ object AmllWordPainter {
 
     /** Timing is independent of outline readiness; only floating/glow waits for preparation. */
     internal fun drawTimed(g: Graphics2D, shaped: ShapedText, words: List<Word>, time: Long,
-                           origin: Float, baseline: Float, fontSize: Float, color: Color = Color.WHITE) {
+                           origin: Float, baseline: Float, fontSize: Float, color: Color = Color.WHITE,
+                           contrastOutline: Boolean = false) {
+        if (contrastOutline)
+            LyricContrastOutline.draw(g, shaped.outline, fontSize, origin.toDouble(), baseline.toDouble())
         var start = 0
         for (word in words) {
             val end = start + word.text.length
