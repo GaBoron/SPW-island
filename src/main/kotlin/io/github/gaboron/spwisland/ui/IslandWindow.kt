@@ -165,6 +165,22 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         val performance = settings.performance
         val clickThrough = settings.clickThrough && native.supportsClickThrough
         val snap = timeline.snapshot()
+        if (nativeAvailable && now >= nextScreenCheck) {
+            try { fullscreen = settings.hideFullscreen && native.foregroundIsFullscreen(window) }
+            catch (error: Exception) { nativeAvailable = false; fullscreen = false; report(error) }
+            nextScreenCheck = now + performance.screenCheckIntervalNs
+        }
+        val visible = settings.enabled && (!settings.hidePaused || snap.playing) && (!settings.hideFullscreen || !fullscreen)
+        if (!visible) {
+            // Avoid changing the native bounds or painting while the transparent peer is hidden.
+            if (window.isVisible) window.isVisible = false
+            surface.revealScale = 0.0
+            hoverVisibility.update(false, null, Rectangle(), dt, true)
+            hoverActive = false
+            nextTopmostCheck = 0
+            frameDelayMs = 200
+            return
+        }
         panel.settings = settings; panel.snapshot = snap
         val levels = if (!snap.playing || !settings.sideContent.showsSpectrum) FloatArray(4)
             else when (performance.spectrumMode) {
@@ -238,25 +254,19 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             input.update(window, shape, listOf(panel.bounds, settings.notch, settings.cornerRoundness,
                 placementAnchor, scale.scaleX, scale.scaleY))
         }
-        if (nativeAvailable && now >= nextScreenCheck) {
-            try { fullscreen = settings.hideFullscreen && native.foregroundIsFullscreen(window) }
-            catch (error: Exception) { nativeAvailable = false; fullscreen = false; report(error) }
-            nextScreenCheck = now + performance.screenCheckIntervalNs
-        }
-        val visible = settings.enabled && (!settings.hidePaused || snap.playing) && (!settings.hideFullscreen || !fullscreen)
         val hoverRegion = java.awt.geom.AffineTransform.getTranslateInstance(
             islandBounds.x.toDouble(), islandBounds.y.toDouble()
         ).createTransformedShape(IslandGeometry.silhouette(panel.width, panel.height, settings.notch,
             settings.cornerRoundness, panel.anchor))
         surface.revealAnchor = placementAnchor
         surface.revealScale = hoverVisibility.update(
-            visible && clickThrough && settings.autoHideOnHover, mouse, hoverRegion, dt,
+            clickThrough && settings.autoHideOnHover, mouse, hoverRegion, dt,
             !performance.animateLayout)
-        if (window.isVisible != visible) {
-            window.isVisible = visible
+        if (!window.isVisible) {
+            window.isVisible = true
             nextTopmostCheck = 0
         }
-        if (visible && topmostAvailable && now >= nextTopmostCheck) {
+        if (topmostAvailable && now >= nextTopmostCheck) {
             try { native.reinforceTopmost(window) }
             catch (error: Exception) { topmostAvailable = false; report(error) }
             nextTopmostCheck = now + performance.topmostCheckIntervalNs
@@ -265,17 +275,14 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             try { native.clickThrough(window, clickThrough); clickThroughApplied = clickThrough }
             catch (error: Exception) { nativeAvailable = false; report(error) }
         }
-        if (visible) {
-            if (Platform.isLinux()) {
-                // The isolated Linux JVM uses XRender, and publishes one complete buffered frame.
-                // Never clear the on-screen drawable or reshape it during layout animation.
-                window.graphics?.let { graphics ->
-                    try { window.paint(graphics) } finally { graphics.dispose() }
-                }
-            } else surface.repaint()
-        }
+        if (Platform.isLinux()) {
+            // The isolated Linux JVM uses XRender, and publishes one complete buffered frame.
+            // Never clear the on-screen drawable or reshape it during layout animation.
+            window.graphics?.let { graphics ->
+                try { window.paint(graphics) } finally { graphics.dispose() }
+            }
+        } else surface.repaint()
         frameDelayMs = when {
-            !visible -> 200
             press != null -> DRAG_FRAME_DELAY_MS
             !performance.animateLayout -> performance.frameDelayMs
             hoverVisibility.animating -> performance.frameDelayMs

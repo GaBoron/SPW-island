@@ -11,6 +11,7 @@ import javax.swing.*
 class IslandMenu(private val store: SettingsStore, private val report: (Throwable) -> Unit,
                  private val owner: Window) : AutoCloseable {
     private var tray: TrayIcon? = null
+    private var windowsTray: WindowsTray? = null
     private var linuxTray: GtkTray? = null
     private val commands = IslandMenuCommands(store, ::about) { ProjectLinks.openSource() }
     private val popup = if (Platform.isLinux()) null else LightweightPopupMenu(owner, report)
@@ -29,6 +30,14 @@ class IslandMenu(private val store: SettingsStore, private val report: (Throwabl
             return
         }
         popup?.prewarm(commands.entries(), !SystemTheme.isLight())
+        if (Platform.isWindows() && windowsTray == null) {
+            try {
+                windowsTray = WindowsTray(
+                    { action { store.set("enabled", !store.read().enabled) } },
+                    ::showPopup, report)
+                return
+            } catch (error: Exception) { report(error) }
+        }
         if (!SystemTray.isSupported() || tray != null) return
         val created = TrayIcon(ApplicationIdentity.icon, ApplicationIdentity.NAME).apply {
             isImageAutoSize = true
@@ -60,6 +69,7 @@ class IslandMenu(private val store: SettingsStore, private val report: (Throwabl
     override fun close() {
         popup?.close()
         linuxTray?.close(); linuxTray = null
+        windowsTray?.close(); windowsTray = null
         aboutDialog.close()
         tray?.let { SystemTray.getSystemTray().remove(it) }; tray = null
     }

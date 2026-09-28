@@ -11,7 +11,9 @@ interface PlaybackActions { fun previous(); fun toggle(); fun next(); fun seek(p
 
 class IslandPanel(private val actions: PlaybackActions) : JPanel(null) {
     private val alphaMask = IslandAlphaMask()
-    override fun paint(graphics: Graphics) = alphaMask.paint(graphics as Graphics2D, this) { super.paint(it) }
+    override fun paint(graphics: Graphics) = alphaMask.paint(
+        graphics as Graphics2D, this, (parent as? IslandSurface)?.revealScale ?: 1.0
+    ) { super.paint(it) }
     var settings = IslandSettings()
     var anchor = IslandAnchor.TOP_CENTER
     var snapshot = PlaybackSnapshot(null, null, 0, false, PlaybackStatus.IDLE)

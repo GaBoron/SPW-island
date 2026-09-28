@@ -11,9 +11,13 @@ class IslandAlphaMask {
     private var mask: BufferedImage? = null
     private var key: List<Any>? = null
 
-    fun paint(target: Graphics2D, panel: IslandPanel, draw: (Graphics2D) -> Unit) {
-        if (panel.width <= 0 || panel.height <= 0) return
-        val sx = target.transform.scaleX; val sy = target.transform.scaleY
+    fun paint(target: Graphics2D, panel: IslandPanel, presentationScale: Double,
+              draw: (Graphics2D) -> Unit) {
+        if (panel.width <= 0 || panel.height <= 0 || presentationScale <= 0.0) return
+        // The parent animates the finished island. Rasterize text at device resolution,
+        // independently of that animation, so a hidden line cannot return as soft pixels.
+        val sx = target.transform.scaleX / presentationScale
+        val sy = target.transform.scaleY / presentationScale
         val w = ceil(panel.width * sx).toInt().coerceAtLeast(1)
         val h = ceil(panel.height * sy).toInt().coerceAtLeast(1)
         val capacityW = ceil(maxOf(panel.width, panel.parent?.width ?: 0) * sx).toInt().coerceAtLeast(w)

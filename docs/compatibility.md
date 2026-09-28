@@ -38,7 +38,7 @@
 
 ## 歌词和 SPW
 
-Windows 实时频谱需要本机的 .NET Framework 4.x，其他运行条件见下文。字体选择器使用插件内置的 Compose 界面。
+Windows 托盘图标和实时频谱需要本机的 .NET Framework 4.x，频谱的其他运行条件见下文。字体选择器使用插件内置的 Compose 界面。
 
 词岛只显示 SPW 已经加载的歌词，不会自己联网搜索、上传歌词，也不会修改歌曲或歌词文件。需要自动获取逐字歌词时，可以搭配 [SPW-Lyrics](https://github.com/GaBoron/SPW-Lyrics)。
 

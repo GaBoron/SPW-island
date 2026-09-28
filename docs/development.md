@@ -491,6 +491,7 @@ IslandMenuCommands
  ↓
 PopupMenuEntry
  ├─ LightweightPopupMenu
+ ├─ WindowsTray → spw-island-tray.exe
  └─ GtkTray
 ```
 
@@ -502,6 +503,7 @@ PopupMenuEntry
 | `IslandMenuCommands.kt` | 创建共享菜单模型，并将菜单操作转换为设置或插件操作 |
 | `PopupMenuEntry.kt` | 菜单标题、说明、分隔线、开关和操作项的通用数据模型 |
 | `LightweightPopupMenu.kt` | 非 Linux 平台使用的进程内自绘弹出菜单 |
+| `WindowsTray.kt` / `native/Tray.cs` | Windows 独立托盘程序的生命周期与图标事件转发；菜单仍在插件进程内 |
 | `GtkTray.kt` | Linux 原生 GTK 托盘及其菜单同步 |
 | `AboutDialog.kt` | 项目、来源和许可证信息的自绘关于窗口 |
 | `ApplicationIdentity.kt` | 窗口/托盘共享的应用名称和图标，以及 Linux 托盘临时图标导出 |
@@ -832,6 +834,13 @@ Windows / 非 Linux 自绘弹窗：
 LightweightPopupMenu
 GlobalMenuDismisser
 SystemTheme
+```
+
+Windows 托盘身份与 SPW 分离：
+
+```text
+WindowsTray
+native/Tray.cs
 ```
 
 Linux：

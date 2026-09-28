@@ -35,7 +35,9 @@ tasks.processResources {
     from("native/shared-fonts/MiSansVF.ttf") { into("fonts") }
     if (isWindows) {
         dependsOn("buildSpectrum")
+        dependsOn("buildWindowsTray")
         from(layout.buildDirectory.file("native/spw-spectrum.exe")) { into("native") }
+        from(layout.buildDirectory.file("native/spw-island-tray.exe")) { into("native") }
         from({ zipTree(configurations.runtimeClasspath.get().single {
             it.name.startsWith("skiko-awt-runtime-windows-x64-")
         }) }) {
@@ -89,6 +91,18 @@ tasks.register<Exec>("buildSpectrum") {
     args("/nologo", "/target:winexe", "/platform:x64", "/optimize+", "/out:${output.get().asFile.absolutePath}",
         file("native/AudioInterop.cs").absolutePath, file("native/Spectrum.cs").absolutePath,
         file("native/ProcessLoopback.cs").absolutePath, file("native/SpectrumLevels.cs").absolutePath)
+}
+
+tasks.register<Exec>("buildWindowsTray") {
+    val output = layout.buildDirectory.file("native/spw-island-tray.exe")
+    inputs.file("native/Tray.cs")
+    outputs.file(output)
+    onlyIf { isWindows }
+    doFirst { output.get().asFile.parentFile.mkdirs() }
+    executable = "${System.getenv("WINDIR") ?: "C:/Windows"}/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
+    args("/nologo", "/target:winexe", "/platform:x64", "/optimize+",
+        "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",
+        "/out:${output.get().asFile.absolutePath}", file("native/Tray.cs").absolutePath)
 }
 
 fun registerPluginArchive(taskName: String, platform: String, enabled: Boolean) = tasks.register<Zip>(taskName) {
