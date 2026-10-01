@@ -12,9 +12,10 @@ object TimedKaraokeBoundary {
         for (word in words) {
             val end = (start + word.text.length).coerceAtMost(textLength)
             if (position < word.startMs) return Segment(start, end, 0.0)
-            if (position < word.endMs || word.endMs <= word.startMs) {
+            if (position < word.endMs) {
                 return Segment(start, end, word.progress(position))
             }
+            // Zero-duration cells, including spaces, finish immediately at their start time.
             start = end
         }
         return Segment(textLength, textLength, 1.0)

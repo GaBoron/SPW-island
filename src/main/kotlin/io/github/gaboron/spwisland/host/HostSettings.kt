@@ -51,14 +51,14 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         if (migrated) check(config.save()) { "词岛旧设置迁移失败，请检查 SPW 配置目录权限。" }
     }
     private fun decode(): IslandSettings = IslandSettings(
-        // An incomplete settings write must not turn a hidden island back on.
+        // An incomplete settings write must not change an accepted visibility policy.
         enabled = config.get("enabled", accepted?.enabled ?: true), translation = config.get("translation", true),
         karaoke = config.get("karaoke", true),
         experimentalMultiLine = config.get("experimental_multi_line", false),
-        hidePaused = config.get("hide_paused", false),
-        hideFullscreen = Platform.isWindows() && config.get("hide_fullscreen", true),
-        clickThrough = Platform.isWindows() && config.get("click_through", false),
-        autoHideOnHover = Platform.isWindows() && config.get("auto_hide_on_hover", false),
+        hidePaused = config.get("hide_paused", accepted?.hidePaused ?: false),
+        hideFullscreen = Platform.isWindows() && config.get("hide_fullscreen", accepted?.hideFullscreen ?: true),
+        clickThrough = Platform.isWindows() && config.get("click_through", accepted?.clickThrough ?: false),
+        autoHideOnHover = Platform.isWindows() && config.get("auto_hide_on_hover", accepted?.autoHideOnHover ?: false),
         // Keep the original key so existing users retain their enabled setting after the rename.
         lowPerformance = config.get("reduced_motion", false), notch = config.get("shape", "pill") == "notch",
         cornerRoundness = number("corner_roundness", 95, 0, 100),
@@ -114,9 +114,12 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         val positionRestored = restorePosition(retainedPosition)
         val fontRestored = restoreFont(retainedFont)
         if ((positionRestored || fontRestored) && !config.save()) return false
-        accepted = decode()
+        val value = decode()
+        val notify = value != accepted
+        accepted = value
         fingerprint = null
-        return true
+        // The host can rewrite identical settings repeatedly while playback is paused.
+        return notify
     }
 
     /** Position is plugin-owned state; SPW's settings form can write back a stale config snapshot. */
