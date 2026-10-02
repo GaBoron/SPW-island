@@ -6,8 +6,9 @@ import java.awt.Dimension
 import kotlin.math.ceil
 
 /** Measures a variable number of lyric and translation rows as one animated island body. */
-class IslandLyricsLayout(snapshot: PlaybackSnapshot, private val settings: IslandSettings) {
-    val blocks = ActiveLyrics.select(snapshot, settings.experimentalMultiLine)
+class IslandLyricsLayout private constructor(snapshot: PlaybackSnapshot, private val settings: IslandSettings,
+                                             selectedLines: List<LyricLine>) {
+    val blocks = selectedLines
         .map { IslandTextBlock(snapshot, settings, it) }
         .ifEmpty { listOf(IslandTextBlock(snapshot, settings)) }
     private val rowGap = if (blocks.size > 1) maxOf(8f, settings.fontSize * .36f) else 0f
@@ -30,7 +31,7 @@ class IslandLyricsLayout(snapshot: PlaybackSnapshot, private val settings: Islan
         }
     }
 
-    fun size(maxWidth: Int, expanded: Boolean, anchor: IslandAnchor): Dimension {
+    fun size(maxWidth: Int, expanded: Boolean): Dimension {
         val motionPad = blocks.maxOf { block ->
             if (settings.karaoke && block.timedWords.isNotEmpty()) settings.fontSize * .32f else 0f
         }
@@ -41,11 +42,28 @@ class IslandLyricsLayout(snapshot: PlaybackSnapshot, private val settings: Islan
             horizontal.textInset * 2).toInt()
         val height = preferredHeight + if (expanded) IslandTextBlock.EXPANDED_HEIGHT else 0
         val frameInset = ceil(IslandGeometry.frameInset(
-            height.toDouble(), settings.notch, settings.cornerRoundness, anchor
+            height.toDouble(), settings.notch, settings.cornerRoundness
         )).toInt()
         val limit = (maxWidth - frameInset * 2).coerceAtLeast(1)
         val natural = maxOf(needed, IslandContentLayout.minimumWidth(expanded))
         val safeWidth = (if (settings.fixedWidth) limit else natural).coerceAtMost(limit)
         return Dimension((safeWidth + frameInset * 2).coerceAtMost(maxWidth.coerceAtLeast(1)), height)
+    }
+
+    class Cache {
+        private data class Key(val lines: List<LyricLine>, val title: String?, val wordTiming: Boolean,
+                               val settings: IslandSettings)
+        private val cache = object : LinkedHashMap<Key, IslandLyricsLayout>(16, .75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, IslandLyricsLayout>) = size > 24
+        }
+
+        fun forSnapshot(snapshot: PlaybackSnapshot, settings: IslandSettings,
+                        lines: List<LyricLine> = ActiveLyrics.select(snapshot, settings.experimentalMultiLine)): IslandLyricsLayout {
+            val key = Key(lines, snapshot.track?.title, snapshot.usesWordTiming, settings)
+            synchronized(cache) { cache[key]?.let { return it } }
+            // Cold font measurement also runs on the preparation worker; never hold the cache lock for it.
+            val measured = IslandLyricsLayout(snapshot, settings, lines)
+            return synchronized(cache) { cache.getOrPut(key) { measured } }
+        }
     }
 }

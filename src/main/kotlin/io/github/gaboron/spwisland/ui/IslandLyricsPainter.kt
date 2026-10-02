@@ -7,11 +7,12 @@ import java.awt.geom.Rectangle2D
 
 object IslandLyricsPainter {
     fun draw(g: Graphics2D, current: PlaybackSnapshot, previous: PlaybackSnapshot?, settings: IslandSettings,
-             width: Float, height: Float, transition: Double, inset: Float) {
+             width: Float, height: Float, transition: Double, inset: Float, layout: IslandLyricsLayout,
+             previousLayout: IslandLyricsLayout?) {
         val progress = if (transition >= 1) 1.0 else AmllMotion.line(transition * .65)
         val outgoingAlpha = (1 - transition * 3).coerceIn(0.0, 1.0).toFloat()
-        val currentRows = IslandLyricsLayout(current, settings).rows(height)
-        val previousRows = previous?.let { IslandLyricsLayout(it, settings).rows(height) }.orEmpty()
+        val currentRows = layout.rows(height)
+        val previousRows = previousLayout?.rows(height).orEmpty()
         val currentLines = currentRows.map { it.block.line }
         if (previous != null && outgoingAlpha > 0) {
             previousRows.filter { it.block.line !in currentLines }.forEach { row ->
@@ -52,11 +53,11 @@ object IslandLyricsPainter {
                 color = palette.lyric,
                 detailedKaraoke = settings.performance.detailedKaraoke,
                 fallbackFont = block.mainFallbackFont,
-                contrastOutline = palette.lyricOutline)
+                contrastOutline = palette.lyricOutline, shapedText = block.shapedMain)
             block.sub?.let { LyricPainter.draw(copy, it, emptyList(), (time - (line?.startMs ?: 0)).coerceAtLeast(0),
                 inset, row.subBaseline, available, block.subFont, false, Color(177, 182, 195),
                 fallbackFont = block.subFallbackFont,
-                contrastOutline = palette.lyricOutline) }
+                contrastOutline = palette.lyricOutline, shapedText = block.shapedSub) }
         } finally { copy.dispose() }
     }
     private fun lerp(from: Float, to: Float, progress: Double): Float =

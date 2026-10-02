@@ -9,16 +9,36 @@ import kotlin.math.roundToInt
 
 interface PlaybackActions { fun previous(); fun toggle(); fun next(); fun seek(positionMs: Long) {} }
 
-class IslandPanel(private val actions: PlaybackActions) : JPanel(null) {
+class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> Unit = {}) : JPanel(null), AutoCloseable {
     private val alphaMask = IslandAlphaMask()
-    override fun paint(graphics: Graphics) = alphaMask.paint(
-        graphics as Graphics2D, this, (parent as? IslandSurface)?.revealScale ?: 1.0
-    ) { super.paint(it) }
+    private val expandedContent = IslandExpandedContentTransition()
+    private val backgroundProgress = IslandProgressTransition()
+    private val lyricLayouts = IslandLyricsLayout.Cache()
+    private val lyricsPreparation = IslandLyricsPreparation(lyricLayouts, report)
+    private var measuredSnapshot: PlaybackSnapshot? = null
+    private var measuredSettings: IslandSettings? = null
+    private var measuredLayout: IslandLyricsLayout? = null
+    private val infoFont = SystemUiFont.derive(Font.PLAIN, 12f)
+    private var infoTrack: Track? = null
+    private var infoLabel = IslandLyricsPreparation.trackLabel(null)
+    private var infoShape: ShapedText? = null
+    override fun paint(graphics: Graphics) = paintPresentation(graphics as Graphics2D,
+        IslandHoverGeometry.frame(width, height, settings.notch, settings.cornerRoundness,
+            IslandHoverMotion.Pose.SHOWN))
+
+    internal fun paintPresentation(target: Graphics2D, frame: IslandHoverGeometry.Frame) =
+        alphaMask.paint(target, this, frame,
+            drawBackground = { paintBackground(it, frame.shape) },
+            drawContent = ::paintContent
+        )
     var settings = IslandSettings()
     var anchor = IslandAnchor.TOP_CENTER
     var snapshot = PlaybackSnapshot(null, null, 0, false, PlaybackStatus.IDLE)
     var expanded = false
     var expansion: Double? = null
+    internal var controlsAnimating = false
+    internal var hoverSettled = true
+    internal val progressAnimating get() = backgroundProgress.animating
     var animatedWidth = 280.0
     var animatedHeight = 58.0
     var transition = 1.0
@@ -50,56 +70,80 @@ class IslandPanel(private val actions: PlaybackActions) : JPanel(null) {
         margin = Insets(0, 0, 0, 0)
         foreground = Color(223, 228, 237); font = SystemUiFont.derive(Font.PLAIN, 16f)
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        addActionListener { clicked() }; this@IslandPanel.add(this)
+        addActionListener {
+            val reveal = expansion ?: if (expanded) 1.0 else 0.0
+            if (hoverSettled && IslandExpandedContentTransition.visible(reveal)) clicked()
+        }
+        this@IslandPanel.add(this)
     }
-    fun desiredSize(availableWidth: Int): Dimension {
-        return IslandLyricsLayout(snapshot, settings).size(
-            minOf(settings.maxWidth, availableWidth), expanded, anchor)
+    fun desiredSize(availableWidth: Int, expanded: Boolean = this.expanded): Dimension {
+        return lyricsLayout().size(
+            minOf(settings.maxWidth, availableWidth), expanded)
     }
     fun collapsedHeight(availableWidth: Int): Int =
-        IslandLyricsLayout(snapshot, settings).size(
-            minOf(settings.maxWidth, availableWidth), false, anchor).height
-    override fun doLayout() {
-        progress.update(snapshot)
+        lyricsLayout().size(
+            minOf(settings.maxWidth, availableWidth), false).height
+    internal val reservedContentHeight: Int
+        get() = maxOf(lyricsLayout().preferredHeight, lyricsPreparation.preparedHeight) +
+            kotlin.math.ceil(IslandTextBlock.EXPANDED_HEIGHT * (1.0 + IslandExpandedMotion.OPEN_OVERSHOOT)).toInt() + 2
+
+    internal fun prepareLyrics(lines: List<LyricLine>) {
+        measuredLayout = lyricLayouts.forSnapshot(snapshot, settings, lines)
+        measuredSnapshot = snapshot; measuredSettings = settings
+        lyricsPreparation.update(snapshot, settings)
+    }
+
+    internal fun prepareBuffers(scale: java.awt.geom.AffineTransform) {
+        alphaMask.prepare(this, scale)
+        expandedContent.prepare(maxOf(width, (parent as? IslandSurface)?.renderCapacity?.width ?: 0), scale)
+    }
+
+    internal fun updateProgressTransition(dt: Double) {
         val reveal = expansion ?: if (expanded) 1.0 else 0.0
-        val controlsVisible = IslandExpandedContentTransition.visible(reveal)
+        val valid = settings.performance.renderBackgroundProgress && snapshot.track != null &&
+            snapshot.metadata.durationMs > 0 && snapshot.status != PlaybackStatus.IDLE
+        backgroundProgress.update(valid && hoverSettled && !controlsAnimating && !expanded && reveal == 0.0,
+            settings.backgroundProgress, dt, !settings.performance.animateLayout)
+    }
+
+    private fun lyricsLayout(): IslandLyricsLayout {
+        if (measuredSnapshot !== snapshot || measuredSettings != settings) {
+            measuredLayout = lyricLayouts.forSnapshot(snapshot, settings)
+            measuredSnapshot = snapshot; measuredSettings = settings
+        }
+        return measuredLayout!!
+    }
+    override fun doLayout() {
+        val reveal = expansion ?: if (expanded) 1.0 else 0.0
+        progress.presentationInteractive = hoverSettled && IslandExpandedContentTransition.visible(reveal)
+        progress.update(snapshot)
         val lyricAreaBottom = (height - reveal * IslandTextBlock.EXPANDED_HEIGHT).roundToInt()
-        progress.isVisible = controlsVisible
         progress.setBounds((width - PlaybackProgress.FIXED_WIDTH) / 2,
             lyricAreaBottom + 60, PlaybackProgress.FIXED_WIDTH, 28)
         progress.foreground = IslandPalette.from(settings, snapshot.metadata.coverRgb).lyric
         val buttons = listOf(previous, play, next)
         buttons.forEachIndexed { index, button ->
-            button.isVisible = controlsVisible
             button.setBounds(width / 2 - 81 + index * 56, lyricAreaBottom + 26, 50, 30)
         }
         play.icon = if (snapshot.playing) PlaybackIcon.PAUSE else PlaybackIcon.PLAY
         play.toolTipText = if (snapshot.playing) "暂停" else "播放"
     }
-    override fun paintChildren(graphics: Graphics) {
-        val reveal = expansion ?: if (expanded) 1.0 else 0.0
-        val layer = IslandExpandedContentTransition.layer(graphics, reveal) ?: return
-        try { super.paintChildren(layer) } finally { layer.dispose() }
+    private fun paintBackground(g: Graphics2D, shape: Shape) {
+        val palette = IslandPalette.from(settings, snapshot.metadata.coverRgb)
+        val background = palette.background
+        g.color = Color(background.red, background.green, background.blue, settings.opacity * 255 / 100)
+        g.fill(shape)
+        IslandBackgroundProgress.draw(g, shape, width, height, snapshot, settings, palette,
+            backgroundProgress.mode, backgroundProgress.opacity)
+        g.color = Color(255, 255, 255, 19); g.draw(shape)
     }
-    override fun paintComponent(graphics: Graphics) {
+
+    private fun paintContent(graphics: Graphics2D) {
         val g = graphics.create() as Graphics2D
         try {
-            // A resized translucent surface must not retain pixels from the previous silhouette.
-            val composite = g.composite
-            g.composite = AlphaComposite.Clear
-            g.fillRect(0, 0, width, height)
-            g.composite = composite
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
-            g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON)
-            val shape = IslandGeometry.silhouette(width, height, settings.notch, settings.cornerRoundness, anchor)
+            val shape = IslandGeometry.silhouette(width, height, settings.notch, settings.cornerRoundness)
             val palette = IslandPalette.from(settings, snapshot.metadata.coverRgb)
-            val background = palette.background
             val reveal = expansion ?: if (expanded) 1.0 else 0.0
-            g.color = Color(background.red, background.green, background.blue, settings.opacity * 255 / 100)
-            g.fill(shape)
-            IslandBackgroundProgress.draw(g, shape, width, height, anchor, snapshot, settings, palette, reveal)
-            g.color = Color(255, 255, 255, 19); g.draw(shape)
             val outerWidth = animatedWidth.toFloat()
             val contentHeight = animatedHeight.toFloat()
             val outerX = when (anchor.horizontal) {
@@ -108,7 +152,7 @@ class IslandPanel(private val actions: PlaybackActions) : JPanel(null) {
                 HorizontalAnchor.RIGHT -> width - outerWidth
             }
             val frameInset = IslandGeometry.frameInset(contentHeight.toDouble(), settings.notch,
-                settings.cornerRoundness, anchor).toFloat()
+                settings.cornerRoundness).toFloat()
             val contentWidth = (outerWidth - frameInset * 2f).coerceAtLeast(1f)
             val contentX = outerX + frameInset
             val contentY = when (anchor.vertical) {
@@ -120,12 +164,12 @@ class IslandPanel(private val actions: PlaybackActions) : JPanel(null) {
             g.clip(java.awt.geom.AffineTransform.getTranslateInstance(
                 -contentX.toDouble(), -contentY.toDouble()
             ).createTransformedShape(shape))
-            val block = IslandTextBlock(snapshot, settings)
+            val lyricLayout = lyricsLayout()
             val lyricAreaHeight = (contentHeight - reveal * IslandTextBlock.EXPANDED_HEIGHT).toFloat().coerceAtLeast(1f)
             val lyricAreaTop = 0f
             val animation = if (settings.performance.animateLayout) transition else 1.0
             val layout = IslandContentLayout.from(
-                block.mainLineHeight, settings.sideContent.showsSides
+                lyricLayout.blocks.first().mainLineHeight, settings.sideContent.showsSides
             )
             IslandLeadingContent.draw(g, settings.sideContent, snapshot.metadata.cover,
                 bands, layout.leadingCenterX, lyricAreaTop + lyricAreaHeight / 2f,
@@ -133,22 +177,33 @@ class IslandPanel(private val actions: PlaybackActions) : JPanel(null) {
             val lyrics = g.create() as Graphics2D
             try {
                 lyrics.translate(0.0, lyricAreaTop.toDouble())
+                val previousLayout = outgoing?.takeIf { animation < 1.0 }
+                    ?.let { lyricLayouts.forSnapshot(it, settings) }
                 IslandLyricsPainter.draw(lyrics, snapshot, outgoing, settings, contentWidth,
-                    lyricAreaHeight, animation, layout.textInset)
+                    lyricAreaHeight, animation, layout.textInset, lyricLayout, previousLayout)
             } finally { lyrics.dispose() }
             IslandTrailingContent.draw(g, settings.sideContent, snapshot, bands,
                 layout.statusCenterX(contentWidth), lyricAreaTop + lyricAreaHeight / 2f,
                 layout.leadingSize, palette.spectrum, settings.performance.animateLayout)
-            IslandExpandedContentTransition.layer(g, reveal)?.let { info ->
+            expandedContent.paint(graphics, width, contentY + lyricAreaHeight - 2.0, reveal) { layer ->
+                val info = layer.create() as Graphics2D
                 try {
-                    val label = listOfNotNull(snapshot.track?.title, snapshot.track?.artist)
-                        .filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "在 SPW 中播放音乐" }
-                    LyricPainter.draw(info, label, emptyList(), 0, layout.infoInset,
+                    info.translate(contentX.toDouble(), contentY.toDouble())
+                    if (infoTrack != snapshot.track) {
+                        infoTrack = snapshot.track
+                        infoLabel = IslandLyricsPreparation.trackLabel(infoTrack)
+                        infoShape = null
+                    }
+                    val shaped = infoShape ?: LyricTypography.shape(infoLabel, infoFont).also { infoShape = it }
+                    LyricPainter.draw(info, infoLabel, emptyList(), 0, layout.infoInset,
                         lyricAreaHeight + 17f,
                         contentWidth - layout.infoInset * 2,
-                        SystemUiFont.derive(Font.PLAIN, 12f), false, Color(147, 156, 174))
+                        infoFont, false, Color(147, 156, 174), fallbackFont = infoFont, shapedText = shaped)
                 } finally { info.dispose() }
+                super.paintChildren(layer)
             }
         } finally { g.dispose() }
     }
+
+    override fun close() = lyricsPreparation.close()
 }

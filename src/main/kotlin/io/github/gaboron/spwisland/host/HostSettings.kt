@@ -14,22 +14,17 @@ import java.util.concurrent.TimeUnit
 
 class HostSettings(private val manager: ConfigManager, private val changed: () -> Unit) : SettingsStore, AutoCloseable {
     private val lock = Any()
-    private var config = manager.getConfig("island.json")
+    private val config = manager.getConfig("island.json")
     private var closed = false
-    private var replacingPosition = false
-    private var replacingFont = false
+    private var saveInProgress = false
     private var accepted: IslandSettings? = null
     private var fingerprint: ByteArray? = null
     private val poller = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "SPW Island settings sync").apply { isDaemon = true }
     }
-    private val listener = Consumer<ConfigHelper> { updated ->
-        val loaded = synchronized(lock) {
-            // SPW's settings page writes through a different helper; notification values can be cached.
-            if (closed) false else reloadPreservingPluginSettings(updated)
-        }
-        if (loaded) changed()
-    }
+    // Notifications are hints only. Keep our helper instead of adopting the settings form's
+    // mutable cache, which can still contain the position from before the latest drag.
+    private val listener = Consumer<ConfigHelper> { refresh() }
     init {
         migrateSettings()
         accepted = decode()
@@ -48,7 +43,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         if (!Files.exists(config.getConfigPath()) || !config.reload()) return
         val migrated = migrateCornerRoundnessForV0100() or normalizeIntegerSettings() or
             normalizeBackgroundProgressSetting()
-        if (migrated) check(config.save()) { "词岛旧设置迁移失败，请检查 SPW 配置目录权限。" }
+        if (migrated) check(saveConfig()) { "词岛旧设置迁移失败，请检查 SPW 配置目录权限。" }
     }
     private fun decode(): IslandSettings = IslandSettings(
         // An incomplete settings write must not change an accepted visibility policy.
@@ -88,38 +83,37 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
     )
     internal fun refresh() {
         val notify = synchronized(lock) {
-            if (closed || !Files.exists(config.getConfigPath())) return
+            if (closed || saveInProgress || !Files.exists(config.getConfigPath())) return
             val bytes = Files.readAllBytes(config.getConfigPath())
             if (bytes.isEmpty() || fingerprint?.contentEquals(bytes) == true) return
             // Failed/partial writes must not replace the last usable snapshot with defaults.
             val retainedPosition = accepted?.positionState()
             val retainedFont = accepted?.fontState()
             if (!config.reload()) return
+            val value = decodePreservingPluginSettings(retainedPosition, retainedFont)
             val positionRestored = restorePosition(retainedPosition)
             val fontRestored = restoreFont(retainedFont)
             val normalized = normalizeIntegerSettings() or normalizeBackgroundProgressSetting()
-            if ((positionRestored || fontRestored || normalized) && !config.save()) return
-            val value = decode()
-            fingerprint = if (positionRestored || fontRestored || normalized) Files.readAllBytes(config.getConfigPath()) else bytes
+            val needsSave = positionRestored || fontRestored || normalized
+            if (needsSave && !saveConfig()) return
+            // A later host write can race with save(). Recheck the file on the next poll,
+            // and never decode the mutable helper again to replace our owned state.
+            fingerprint = if (needsSave) null else bytes
             (value != accepted).also { accepted = value }
         }
         if (notify) changed()
     }
 
-    private fun reloadPreservingPluginSettings(updated: ConfigHelper): Boolean {
-        val retainedPosition = if (replacingPosition) null else accepted?.positionState()
-        val retainedFont = if (replacingFont) null else accepted?.fontState()
-        if (!updated.reload()) return false
-        config = updated
-        val positionRestored = restorePosition(retainedPosition)
-        val fontRestored = restoreFont(retainedFont)
-        if ((positionRestored || fontRestored) && !config.save()) return false
-        val value = decode()
-        val notify = value != accepted
-        accepted = value
-        fingerprint = null
-        // The host can rewrite identical settings repeatedly while playback is paused.
-        return notify
+    private fun decodePreservingPluginSettings(position: PositionState?, font: FontState?): IslandSettings {
+        val decoded = decode()
+        val positioned = position?.applyTo(decoded) ?: decoded
+        return font?.applyTo(positioned) ?: positioned
+    }
+
+    private fun saveConfig(): Boolean {
+        // All writes, including stale-state restoration, can notify listeners synchronously.
+        saveInProgress = true
+        return try { config.save() } finally { saveInProgress = false }
     }
 
     /** Position is plugin-owned state; SPW's settings form can write back a stale config snapshot. */
@@ -220,18 +214,17 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
                        change: (ConfigHelper) -> Unit) {
         synchronized(lock) {
             if (closed) return
+            val retainedPosition = if (replacesPosition) null else accepted?.positionState()
+            val retainedFont = if (replacesFont) null else accepted?.fontState()
             // Preserve settings written by the host even if its notification has not arrived yet.
             if (Files.exists(config.getConfigPath())) check(config.reload()) { "词岛设置读取失败，未覆盖已有设置。" }
+            restorePosition(retainedPosition)
+            restoreFont(retainedFont)
             change(config)
-            replacingPosition = replacesPosition
-            replacingFont = replacesFont
-            try {
-                check(config.save()) { "词岛设置保存失败，请检查 SPW 配置目录权限。" }
-            } finally {
-                replacingPosition = false
-                replacingFont = false
-            }
-            accepted = decode()
+            val next = decodePreservingPluginSettings(retainedPosition, retainedFont)
+            check(saveConfig()) { "词岛设置保存失败，请检查 SPW 配置目录权限。" }
+            // Keep the requested snapshot even if the helper's cache changes during save.
+            accepted = next
             fingerprint = null
         }
         changed()
@@ -250,8 +243,15 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         val anchor: IslandAnchor?,
         val legacyCenterX: Int?,
         val legacyTop: Int?
-    )
-    private data class FontState(val family: String, val weight: LyricFontWeight)
+    ) {
+        fun applyTo(settings: IslandSettings) = settings.copy(
+            screen = screen, positionX = x, positionY = y, positionAnchor = anchor,
+            legacyCenterX = legacyCenterX, legacyTop = legacyTop
+        )
+    }
+    private data class FontState(val family: String, val weight: LyricFontWeight) {
+        fun applyTo(settings: IslandSettings) = settings.copy(fontFamily = family, fontWeight = weight)
+    }
 
     private companion object {
         val INTEGER_SETTINGS = mapOf(

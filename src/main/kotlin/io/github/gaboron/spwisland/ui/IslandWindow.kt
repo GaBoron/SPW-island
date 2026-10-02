@@ -48,9 +48,10 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         rootPane.isDoubleBuffered = false
         layeredPane.isOpaque = false
     }
-    private val panel = IslandPanel(actions)
+    private val panel = IslandPanel(actions, report)
     private val surface = IslandSurface(panel)
     private val hoverVisibility = IslandHoverVisibility()
+    private val expandedMotion = IslandExpandedMotion()
     private val native = WindowsOverlay()
     private val inputRegion = if (Platform.isLinux() && Toolkit.getDefaultToolkit().javaClass.name.contains("XToolkit"))
         runCatching { X11InputRegion() }.onFailure(report).getOrNull() else null
@@ -69,7 +70,9 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     private var previousSnapshot: PlaybackSnapshot? = null
     private var width = 280.0
     private var height = 58.0
-    private var expansion = 0.0
+    private var lyricWidth = 280.0
+    private var lyricHeight = 58.0
+    private var controlsWidth = 0.0
     private var hoverActive = false
 
     private var canvasWidth = 0
@@ -108,7 +111,8 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                     val device = devices.find { it.defaultConfiguration.bounds.contains(current.centerPoint()) }
                         ?: window.graphicsConfiguration.device
                     val workArea = IslandPlacement.workArea(device.defaultConfiguration)
-                    val automatic = IslandPlacement.automaticAnchor(workArea, current)
+                    if (settings.notch) current.y = workArea.y
+                    val automatic = IslandPlacement.automaticAnchor(workArea, current, settings.notch)
                     val point = IslandPlacement.anchorPoint(current, automatic)
                     try {
                         store.savePosition(device.iDstring, point.x, point.y, automatic)
@@ -135,7 +139,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 val device = devices.find { it.defaultConfiguration.bounds.contains(current) }
                     ?: window.graphicsConfiguration.device
                 val snapped = IslandPlacement.snapDrag(
-                    IslandPlacement.workArea(device.defaultConfiguration), candidate)
+                    IslandPlacement.workArea(device.defaultConfiguration), candidate, notch = settings.notch)
                 dragTopLeft = snapped.topLeft
                 dragAnchor = snapped.anchor
             }
@@ -174,8 +178,8 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         if (!visible) {
             // Avoid changing the native bounds or painting while the transparent peer is hidden.
             if (window.isVisible) window.isVisible = false
-            surface.revealScale = 0.0
-            hoverVisibility.update(false, null, Rectangle(), dt, true)
+            surface.hoverPose = IslandHoverMotion.Pose.HIDDEN
+            hoverVisibility.update(false, null, Rectangle(), dt, true, settings.notch)
             hoverActive = false
             nextTopmostCheck = 0
             frameDelayMs = 200
@@ -199,7 +203,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         val screen = IslandPlacement.workArea(device.defaultConfiguration)
         val mouse = MouseInfo.getPointerInfo()?.location
         val overIsland = mouse != null && IslandGeometry.silhouette(panel.width, panel.height, settings.notch,
-            settings.cornerRoundness, panel.anchor)
+            settings.cornerRoundness)
             .contains((mouse.x - window.x - panel.x).toDouble(), (mouse.y - window.y - panel.y).toDouble())
         val hoverRetention = mouse != null && Rectangle(
             window.x + panel.x - HOVER_MARGIN, window.y + panel.y - HOVER_MARGIN,
@@ -215,16 +219,23 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         panel.transition = if (performance.animateLayout) {
             (panel.transition + dt / .65).coerceAtMost(1.0)
         } else 1.0
-        val desired = panel.desiredSize(screen.width)
+        panel.prepareLyrics(visibleLines)
+        val collapsed = panel.desiredSize(screen.width, false)
+        val opened = panel.desiredSize(screen.width, true)
+        val desired = if (panel.expanded) opened else collapsed
         val factor = if (performance.animateLayout) 1 - kotlin.math.exp(-dt * 15) else 1.0
-        val expansionTarget = if (panel.expanded) 1.0 else 0.0
-        expansion += (expansionTarget - expansion) * factor
-        if (abs(expansion - expansionTarget) < .0001) expansion = expansionTarget
+        val expansion = expandedMotion.update(panel.expanded, dt, !performance.animateLayout, settings.notch)
         panel.expansion = expansion
-        width += (desired.width - width) * factor
-        height += (desired.height - height) * factor
-        if (abs(width - desired.width) < .01) width = desired.width.toDouble()
-        if (abs(height - desired.height) < .01) height = desired.height.toDouble()
+        panel.controlsAnimating = expandedMotion.animating
+        lyricWidth += (collapsed.width - lyricWidth) * factor
+        lyricHeight += (collapsed.height - lyricHeight) * factor
+        val controlsWidthTarget = (opened.width - collapsed.width).toDouble()
+        controlsWidth += (controlsWidthTarget - controlsWidth) * factor
+        if (abs(lyricWidth - collapsed.width) < .01) lyricWidth = collapsed.width.toDouble()
+        if (abs(lyricHeight - collapsed.height) < .01) lyricHeight = collapsed.height.toDouble()
+        if (abs(controlsWidth - controlsWidthTarget) < .01) controlsWidth = controlsWidthTarget
+        width = lyricWidth + controlsWidth * expansion
+        height = lyricHeight + IslandTextBlock.EXPANDED_HEIGHT * expansion
         panel.animatedWidth = width
         panel.animatedHeight = height
         val currentWidth = width.roundToInt()
@@ -234,20 +245,27 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         panel.anchor = placementAnchor
         val islandBounds = IslandPlacement.bounds(screen, position.first,
             currentWidth, currentHeight, placementAnchor)
-        canvasWidth = maxOf(canvasWidth, settings.maxWidth, islandBounds.width)
-        canvasHeight = maxOf(canvasHeight, islandBounds.height, desired.height,
+        val hoverPadding = IslandHoverGeometry.padding(currentWidth, currentHeight, settings.notch)
+        val presentationBounds = Rectangle(islandBounds.x - hoverPadding.left, islandBounds.y - hoverPadding.top,
+            islandBounds.width + hoverPadding.left + hoverPadding.right,
+            islandBounds.height + hoverPadding.top + hoverPadding.bottom).intersection(screen)
+        val targetCanvasHeight = maxOf(currentHeight, desired.height, panel.reservedContentHeight,
             settings.fontSize * 4 + IslandTextBlock.EXPANDED_HEIGHT + 60)
-        val preferredCanvas = IslandPlacement.bounds(screen, position.first,
+        val canvasPadding = IslandHoverGeometry.padding(maxOf(settings.maxWidth, currentWidth), targetCanvasHeight, settings.notch)
+        canvasWidth = maxOf(canvasWidth, settings.maxWidth + canvasPadding.left + canvasPadding.right, presentationBounds.width)
+        canvasHeight = maxOf(canvasHeight, targetCanvasHeight + canvasPadding.top + canvasPadding.bottom, presentationBounds.height)
+        surface.renderCapacity.setSize(canvasWidth, canvasHeight)
+        val preferredCanvas = IslandPlacement.bounds(screen, IslandPlacement.anchorPoint(presentationBounds, placementAnchor),
             canvasWidth, canvasHeight, placementAnchor)
         val bounds = if (stableTranslucentCanvas) {
-            IslandPlacement.stableCanvasBounds(screen, islandBounds, preferredCanvas, window.bounds)
-        } else islandBounds
+            IslandPlacement.stableCanvasBounds(screen, presentationBounds, preferredCanvas, window.bounds)
+        } else presentationBounds
         val resized = window.width != bounds.width || window.height != bounds.height
         if (window.bounds != bounds) window.bounds = bounds
         if (resized) window.validate()
         surface.setSize(bounds.width, bounds.height)
         panel.setBounds(islandBounds.x - bounds.x, islandBounds.y - bounds.y, islandBounds.width, islandBounds.height)
-        panel.doLayout()
+        panel.prepareBuffers(window.graphicsConfiguration.defaultTransform)
         inputRegion?.let { input ->
             val scale = window.graphicsConfiguration.defaultTransform
             val shape = scale.createTransformedShape(surface.inputRegion())
@@ -257,11 +275,13 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         val hoverRegion = java.awt.geom.AffineTransform.getTranslateInstance(
             islandBounds.x.toDouble(), islandBounds.y.toDouble()
         ).createTransformedShape(IslandGeometry.silhouette(panel.width, panel.height, settings.notch,
-            settings.cornerRoundness, panel.anchor))
-        surface.revealAnchor = placementAnchor
-        surface.revealScale = hoverVisibility.update(
+            settings.cornerRoundness))
+        surface.hoverPose = hoverVisibility.update(
             clickThrough && settings.autoHideOnHover, mouse, hoverRegion, dt,
-            !performance.animateLayout)
+            !performance.animateLayout, settings.notch)
+        panel.hoverSettled = surface.hoverPose.fullyShown
+        panel.updateProgressTransition(dt)
+        panel.doLayout()
         if (!window.isVisible) {
             window.isVisible = true
             nextTopmostCheck = 0
@@ -285,7 +305,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         frameDelayMs = when {
             press != null -> DRAG_FRAME_DELAY_MS
             !performance.animateLayout -> performance.frameDelayMs
-            hoverVisibility.animating -> performance.frameDelayMs
+            hoverVisibility.animating || expandedMotion.animating || panel.progressAnimating -> performance.frameDelayMs
             !snap.playing && panel.transition >= 1 && width == desired.width.toDouble() && height == desired.height.toDouble() -> 50
             else -> performance.frameDelayMs
         }
@@ -305,31 +325,34 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     }
 
     private fun anchoredPosition(screen: Rectangle, deviceId: String, width: Int, height: Int): Pair<Point, IslandAnchor> {
-        dragTopLeft?.let { topLeft ->
-            val bounds = Rectangle(topLeft.x, topLeft.y, width, height)
-            val locked = dragAnchor ?: placementAnchor
-            return IslandPlacement.anchorPoint(bounds, locked) to locked
-        }
-        if (settings.screen == deviceId) {
-            val savedAnchor = settings.positionAnchor
-            val savedX = settings.positionX
-            val savedY = settings.positionY
-            if (savedAnchor != null && savedX != null && savedY != null) {
-                return Point(savedX, savedY) to savedAnchor
+        val savedAnchor = settings.positionAnchor
+        val savedX = settings.positionX
+        val savedY = settings.positionY
+        val topLeft = dragTopLeft
+        val position = when {
+            topLeft != null -> {
+                val bounds = Rectangle(topLeft.x, topLeft.y, width, height)
+                val locked = dragAnchor ?: placementAnchor
+                IslandPlacement.anchorPoint(bounds, locked) to locked
+            }
+            settings.screen == deviceId && savedAnchor != null && savedX != null && savedY != null ->
+                Point(savedX, savedY) to savedAnchor
+            else -> {
+                val centerX = settings.legacyCenterX?.takeIf { settings.screen == deviceId }
+                    ?: (screen.x + screen.width / 2)
+                val top = settings.legacyTop?.takeIf { settings.screen == deviceId } ?: screen.y
+                val legacyBounds = Rectangle(centerX - width / 2, top, width, height)
+                val automatic = IslandPlacement.automaticAnchor(screen, legacyBounds)
+                IslandPlacement.anchorPoint(legacyBounds, automatic) to automatic
             }
         }
-        val centerX = settings.legacyCenterX?.takeIf { settings.screen == deviceId }
-            ?: (screen.x + screen.width / 2)
-        val top = settings.legacyTop?.takeIf { settings.screen == deviceId } ?: screen.y
-        val legacyBounds = Rectangle(centerX - width / 2, top, width, height)
-        val automatic = IslandPlacement.automaticAnchor(screen, legacyBounds)
-        return IslandPlacement.anchorPoint(legacyBounds, automatic) to automatic
+        return if (settings.notch) IslandPlacement.attachToTop(screen, position.first, position.second) else position
     }
 
     private fun Rectangle.centerPoint() = Point(x + width / 2, y + height / 2)
 
     override fun close() {
         if (closed) return
-        closed = true; frameScheduler.shutdownNow(); menu.close(); inputRegion?.close(); window.dispose()
+        closed = true; frameScheduler.shutdownNow(); panel.close(); menu.close(); inputRegion?.close(); window.dispose()
     }
 }

@@ -23,7 +23,7 @@ object IslandPlacement {
     }
 
     /** Selects one of nine anchors from the island centre's screen third. */
-    fun automaticAnchor(screen: Rectangle, bounds: Rectangle): IslandAnchor {
+    fun automaticAnchor(screen: Rectangle, bounds: Rectangle, notch: Boolean = false): IslandAnchor {
         val centerX = bounds.x.toLong() + bounds.width / 2
         val centerY = bounds.y.toLong() + bounds.height / 2
         val horizontal = when (third(centerX - screen.x, screen.width)) {
@@ -31,7 +31,7 @@ object IslandPlacement {
             2 -> HorizontalAnchor.RIGHT
             else -> HorizontalAnchor.CENTER
         }
-        val vertical = when (third(centerY - screen.y, screen.height)) {
+        val vertical = if (notch) VerticalAnchor.TOP else when (third(centerY - screen.y, screen.height)) {
             0 -> VerticalAnchor.TOP
             2 -> VerticalAnchor.BOTTOM
             else -> VerticalAnchor.CENTER
@@ -40,7 +40,8 @@ object IslandPlacement {
     }
 
     /** Magnetizes a dragged island to the work-area edges and centre lines. */
-    fun snapDrag(screen: Rectangle, bounds: Rectangle, threshold: Int = SNAP_DISTANCE): DragPlacement {
+    fun snapDrag(screen: Rectangle, bounds: Rectangle, threshold: Int = SNAP_DISTANCE,
+                 notch: Boolean = false): DragPlacement {
         val horizontalTargets = listOf(
             screen.x to HorizontalAnchor.LEFT,
             screen.x + (screen.width - bounds.width) / 2 to HorizontalAnchor.CENTER,
@@ -52,15 +53,19 @@ object IslandPlacement {
             screen.y + screen.height - bounds.height to VerticalAnchor.BOTTOM
         )
         val horizontal = nearest(bounds.x, horizontalTargets, threshold)
-        val vertical = nearest(bounds.y, verticalTargets, threshold)
+        val vertical = if (notch) screen.y to VerticalAnchor.TOP else nearest(bounds.y, verticalTargets, threshold)
         val snappedBounds = Rectangle(horizontal?.first ?: bounds.x, vertical?.first ?: bounds.y,
             bounds.width, bounds.height)
-        val automatic = automaticAnchor(screen, snappedBounds)
+        val automatic = automaticAnchor(screen, snappedBounds, notch)
         return DragPlacement(snappedBounds.location, IslandAnchor(
             horizontal?.second ?: automatic.horizontal,
             vertical?.second ?: automatic.vertical
         ))
     }
+
+    /** Notches retain their horizontal anchor, but always attach to the active work area's top. */
+    fun attachToTop(screen: Rectangle, point: Point, anchor: IslandAnchor): Pair<Point, IslandAnchor> =
+        Point(point.x, screen.y) to IslandAnchor(anchor.horizontal, VerticalAnchor.TOP)
 
     /** Converts current bounds to the fixed point used by its selected anchor. */
     fun anchorPoint(bounds: Rectangle, anchor: IslandAnchor): Point {

@@ -20,29 +20,30 @@ object LyricTypography {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, ShapedText>) = size > 96
     }
 
-    @Synchronized fun shape(text: String, font: Font,
-                            fallbackFont: Font = SystemUiFont.derive(font.style, font.size2D)): ShapedText {
+    fun shape(text: String, font: Font,
+              fallbackFont: Font = SystemUiFont.derive(font.style, font.size2D)): ShapedText {
         val glyphFallbackFont = SystemUiFont.glyphFallback(fallbackFont)
-        return layouts.getOrPut(Key(text, font, fallbackFont, glyphFallbackFont)) {
-            require(text.isNotEmpty())
-            val attributed = AttributedString(text)
-            val breaks = BreakIterator.getCharacterInstance(Locale.ROOT).apply { setText(text) }
-            var start = breaks.first()
-            var end = breaks.next()
-            while (end != BreakIterator.DONE) {
-                val cluster = text.substring(start, end)
-                val selectedFont = when {
-                    font.canDisplayUpTo(cluster) < 0 -> font
-                    fallbackFont.canDisplayUpTo(cluster) < 0 -> fallbackFont
-                    glyphFallbackFont.canDisplayUpTo(cluster) < 0 -> glyphFallbackFont
-                    else -> fallbackFont
-                }
-                attributed.addAttribute(TextAttribute.FONT, selectedFont, start, end)
-                start = end
-                end = breaks.next()
+        val key = Key(text, font, fallbackFont, glyphFallbackFont)
+        synchronized(layouts) { layouts[key]?.let { return it } }
+        require(text.isNotEmpty())
+        val attributed = AttributedString(text)
+        val breaks = BreakIterator.getCharacterInstance(Locale.ROOT).apply { setText(text) }
+        var start = breaks.first()
+        var end = breaks.next()
+        while (end != BreakIterator.DONE) {
+            val cluster = text.substring(start, end)
+            val selectedFont = when {
+                font.canDisplayUpTo(cluster) < 0 -> font
+                fallbackFont.canDisplayUpTo(cluster) < 0 -> fallbackFont
+                glyphFallbackFont.canDisplayUpTo(cluster) < 0 -> glyphFallbackFont
+                else -> fallbackFont
             }
-            ShapedText(TextLayout(attributed.iterator, context))
+            attributed.addAttribute(TextAttribute.FONT, selectedFont, start, end)
+            start = end
+            end = breaks.next()
         }
+        val shaped = ShapedText(TextLayout(attributed.iterator, context))
+        return synchronized(layouts) { layouts.getOrPut(key) { shaped } }
     }
 }
 

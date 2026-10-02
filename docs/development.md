@@ -206,6 +206,8 @@ PlaybackTimeline
 
 宿主公开 API 无法提供的完整歌词信息目前被隔离在 `HostPlaybackProbe` 中。它属于兼容层，不应成为其他模块的通用数据源。
 
+`HostLyricsRecovery` 将完整歌词探测放在单个有界后台线程，宿主歌词回调只提交请求。已读取的歌词行通过索引复用整首歌词轴；探测期间的新请求合并为最新一行，失败后至少间隔 2 秒再由后续回调重试。异步结果由 `PlaybackTimeline` 按歌词代次验收：切歌以及 Idle / Ended 清空歌词时推进代次，避免切歌、A → B → A 或同曲重播后复用旧结果；文档规范化在时间轴同步区外完成。低性能模式禁用私有歌词探测，插件关闭时终止该工作线程。
+
 ### 3.4 本地歌曲元数据
 
 SPW 的播放回调主要提供播放所需的曲目信息。
@@ -340,7 +342,7 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | `Lyrics.kt` | `Track`、`Word`、`LyricLine`、`PlaybackSnapshot`、`TrackMetadata`、封面数据等核心模型 |
 | `PerformanceProfile.kt` | 标准模式和低性能模式的统一性能预算 |
 | `PlaybackHeartbeatRecovery.kt` | 在启动时缺失播放状态回调的情况下，根据连续播放位置心跳恢复状态 |
-| `PlaybackTimeline.kt` | 汇总宿主回调、补间播放位置、处理 seek、合并歌词轴并生成线程安全播放快照 |
+| `PlaybackTimeline.kt` | 汇总宿主回调、补间播放位置、处理 seek；歌词源变化时合并歌词轴，帧快照复用合并结果 |
 
 修改核心播放规则时，应首先确认逻辑能否留在这里，而不是依赖 SPW 或 UI。
 
@@ -350,6 +352,7 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | --- | --- |
 | `CurrentTrackRecovery.kt` | 插件启动错过曲目回调时进行短时当前曲目恢复 |
 | `HostPlaybackProbe.kt` | 只读探测当前 SPW 内部播放对象和完整歌词轴；属于隔离的兼容代码 |
+| `HostLyricsRecovery.kt` | 有界后台完整歌词探测、行索引复用和请求合并；按歌词代次发布，失败请求延后重试 |
 | `HostSettings.kt` | 将 SPW `ConfigManager` 适配为 `SettingsStore`，负责读取、保存、同步和旧配置迁移 |
 | `IslandPlaybackExtension.kt` | 接收 SPW `PlaybackExtensionPoint` 回调并转换为项目自己的模型 |
 | `IslandPlugin.kt` | PF4J 插件生命周期；创建和释放唯一的 `IslandRuntime`，并提供配置页按钮入口 |
@@ -409,16 +412,27 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | --- | --- |
 | `IslandWindow.kt` | 顶层窗口生命周期、帧更新、拖动、hover、可见性、窗口定位和平台窗口状态 |
 | `IslandPanel.kt` | 词岛主体组件；组合背景、左右内容、歌词、播放按钮和展开内容 |
-| `IslandSurface.kt` | 稳定透明画布、整体显示/隐藏缩放以及输入区域计算 |
+| `IslandSurface.kt` | 稳定透明画布、持续更新悬停隐藏时的离屏内容并呈现动画帧，以及输入区域计算 |
 | `BufferedIslandWindow.kt` | Linux 上先离屏完成透明帧，再一次提交到窗口，降低透明窗口闪烁 |
-| `IslandPlacement.kt` | 工作区计算、九宫格锚点、拖动磁吸、锚点定位和稳定画布位置 |
-| `IslandGeometry.kt` | 胶囊/刘海轮廓、方向翻转、内容安全内缩和轮廓缓存 |
+| `IslandPlacement.kt` | 工作区计算、九宫格锚点、刘海顶部约束、拖动磁吸和稳定画布位置 |
+| `IslandGeometry.kt` | 静止胶囊/刘海轮廓、内容安全内缩、进度细线内缩和轮廓缓存 |
+| `IslandNotchGeometry.kt` | 静止与形变刘海共用的顶部粘连、主体横向拉伸与高度收缩几何 |
 | `ContinuousCornerPath.kt` | 连续圆角 / 超椭圆圆角路径生成 |
-| `IslandAlphaMask.kt` | 使用抗锯齿 alpha mask 限制词岛最终可见轮廓 |
-| `IslandHoverVisibility.kt` | 鼠标穿透模式下的悬停隐藏与恢复状态 |
-| `IslandExpandedContentTransition.kt` | 展开播放控制区统一使用的淡入和位移动画 |
+| `IslandAlphaMask.kt` | 常驻设备像素内容层，持续离屏绘制；最终合成时应用内容淡出、位移和抗锯齿轮廓蒙版 |
+| `IslandHoverVisibility.kt` | 鼠标穿透模式下的进入区域锁定与隐藏目标判定 |
+| `IslandTransitionMotion.kt` | 隐藏、控件和进度淡入淡出共用的有限时长 Hermite 运动；可配置时长、两端过冲和单次回弹，反向时接续速度 |
+| `IslandHoverMotion.kt` | 悬停隐藏运动参数及完整显示 / 动画中的状态；恢复时单次回弹 |
+| `IslandExpandedMotion.kt` | 与隐藏动画共用速率的控件打开 / 收起运动，两端各有一次过冲回弹 |
+| `IslandHoverGeometry.kt` | 将可见状态映射为刘海形变或胶囊收圆，并计算内容淡出、位移和画布留边 |
+| `IslandExpandedContentTransition.kt` | 常驻展开控件条的设备像素缓冲，最终合成时统一应用非线性淡入、位移和打开过冲 |
 
 `IslandWindow` 是窗口状态协调者，不应继续承担具体歌词、形状或菜单绘制。
+
+悬停隐藏沿 `IslandHoverVisibility → IslandHoverMotion → IslandHoverGeometry → IslandSurface / IslandPanel` 传递。进入时锁定正常轮廓，动画和歌词尺寸变化不影响本次离开判定。刘海仅沿顶部拖动；隐藏时顶部粘连区和主体同时向左右拉伸、压低高度，恢复时越过正常尺寸后回到终点。胶囊先横向收圆，再等比缩小，恢复时先长成正常高度的圆，再向两侧拉长并回弹。两种轮廓都与内容绘制分开，内容层按设备像素密度绘制后统一淡出和裁切。低性能模式沿用 `PerformanceProfile.animateLayout`，直接切换到隐藏或显示终点。
+
+画布和像素缓冲提前覆盖横向拉伸、回弹及完整控制区高度，并依据已预备的后续歌词高度扩容。内容层和展开控件条始终使用常驻缓冲，悬停完全隐藏时仍绘制最新内容；隐藏仅改变最终轮廓和合成透明度。控件持续挂载，不通过 `isVisible` 切换动画状态；恢复与正常显示使用同一合成路径。缓冲按 64 像素对齐，仅增长并复用。
+
+控件展开与歌词换行尺寸分开驱动：歌词基础尺寸保持原有连续平滑，控制区宽高直接使用 `IslandExpandedMotion` 的进度，允许打开时超过 1、收起时低于 0。打开采用 0.44 秒主运动与 0.16 秒回弹；收起采用刘海 0.38 秒 / 胶囊 0.40 秒主运动与 0.16 秒回弹。可拖动进度条持续绘入控件条，与播放按钮共用淡入淡出和位移，仅交互根据呈现状态启用。背景注水和边缘细线在进入隐藏或控件动画时淡出；悬停完整显示、控件完全收起且两套运动均结束后淡入。`IslandProgressTransition` 使用无过冲 Hermite 曲线，淡入 0.18 秒、淡出 0.12 秒，中途反向接续当前速度；关闭背景进度设置时保留原样式直到淡出完成。注水通过颜色过渡保持整体背景透明度不变，细线通过透明度过渡，低性能模式直接切换终点。
 
 ### 4.6 `ui/`：歌词布局与逐字绘制
 
@@ -450,7 +464,8 @@ LyricPainter
 
 | 文件 | 职责 |
 | --- | --- |
-| `IslandLyricsLayout.kt` | 将一个或多个活动歌词行测量为词岛中的行布局，并计算整体需要的尺寸 |
+| `IslandLyricsLayout.kt` | 测量一个或多个活动歌词行及整体尺寸；每个面板持有有界布局缓存供测量、绘制和预备线程共用 |
+| `IslandLyricsPreparation.kt` | 有界后台预备曲目信息和后续歌词布局、轮廓及逐字几何，提供后续内容所需的缓冲高度 |
 | `IslandTextBlock.kt` | 决定主歌词/翻译文本、字体、字形布局、逐字单元和单行尺寸 |
 | `IslandLyricsPainter.kt` | 绘制当前歌词行，并处理歌词切换和多行位置过渡 |
 | `LyricPainter.kt` | 单行歌词的实际绘制入口；负责居中、长歌词滚动、逐字高亮和低性能绘制路径 |
@@ -471,6 +486,8 @@ LyricPainter
 
 文本的测量和实际绘制应使用同一套塑形结果，避免窗口尺寸与最终字形不一致。
 
+`IslandPanel` 在同一帧内复用测量布局，`IslandLyricsPainter` 将其中的主歌词和翻译塑形结果直接交给 `LyricPainter`，完成换行过渡后不再准备旧行。`IslandLyricsPreparation` 只保留一个待执行请求，曲目、歌词、设置变化或明显播放位置跳变时更新请求，旧代次停止继续预备。标准模式预备后续三行；低性能模式只预备一行并跳过详细逐字几何。
+
 ### 4.7 `ui/`：侧边内容、颜色与播放控制
 
 | 文件 | 职责 |
@@ -478,7 +495,8 @@ LyricPainter
 | `IslandLeadingContent.kt` | 绘制左侧专辑封面或频谱，并缓存封面图像 |
 | `IslandTrailingContent.kt` | 绘制右侧频谱或播放状态 |
 | `IslandPalette.kt` | 根据默认配色、设置和封面主色生成歌词、背景和频谱颜色 |
-| `IslandBackgroundProgress.kt` | 在词岛背景中绘制整曲播放进度，包括注水和顶部细线模式 |
+| `IslandBackgroundProgress.kt` | 在词岛背景中绘制整曲播放进度，包括注水和边缘细线；细线位于胶囊顶部或刘海底部 |
+| `IslandProgressTransition.kt` | 背景进度的非线性淡入淡出和退出样式保留；独立状态由窗口帧更新，绘制不推进动画 |
 | `PlaybackProgress.kt` | 展开状态下的播放进度条和 seek 手势；松手时一次提交，并防止切歌后误 seek |
 | `PlaybackIcon.kt` | 与字体无关的上一首、播放、暂停和下一首矢量图标 |
 | `SyntheticSpectrum.kt` | 无需音频捕获的低成本模拟频谱 |
@@ -610,6 +628,7 @@ PlaybackTimeline
 
 ```text
 HostPlaybackProbe
+HostLyricsRecovery
 CurrentTrackRecovery
 ```
 
@@ -647,6 +666,7 @@ IslandLyricsPainter
 
 ```text
 HostPlaybackProbe
+HostLyricsRecovery
 IslandRuntime
 ```
 
@@ -709,6 +729,8 @@ IslandGeometry
 
 ```text
 IslandGeometry
+IslandNotchGeometry
+IslandHoverGeometry
 ContinuousCornerPath
 IslandAlphaMask
 IslandSurface
@@ -734,6 +756,11 @@ Windows：
 ```text
 IslandWindow
 IslandHoverVisibility
+IslandHoverMotion
+IslandTransitionMotion
+IslandHoverGeometry
+IslandNotchGeometry
+IslandSurface
 WindowsOverlay
 ```
 
@@ -796,6 +823,8 @@ SyntheticSpectrum
 
 ```text
 IslandPanel
+IslandExpandedMotion
+IslandTransitionMotion
 IslandExpandedContentTransition
 PlaybackProgress
 PlaybackIcon
@@ -1057,6 +1086,8 @@ IslandRuntime
 
 回调路径应尽量快速，只转换数据并更新内部状态，不在这里进行文件读取或复杂 UI 操作。
 
+私有完整歌词探测由 `HostLyricsRecovery` 的后台线程执行，不持有 `PlaybackCallbackBridge` 的回调锁扫描宿主文档。Windows 词岛与 SPW 共用 JVM；排查两边同时卡顿时，应采集复现阶段的线程栈或性能采样，区分宿主回调、EDT 绘制和 JVM 停顿。
+
 ### `PlaybackTimeline`
 
 时间轴内部状态通过同步访问保护。
@@ -1089,6 +1120,8 @@ Windows 的：
 不要把 Jaudiotagger 或图片解码移回 EDT。
 
 ### 逐字几何
+
+`IslandLyricsPreparation` 提前预备后续歌词的测量结果，按需请求轮廓和逐字几何。布局缓存和 `LyricTypography` 的缓存锁只用于读取与发布结果，冷塑形在锁外执行，后台任务不会因持有缓存锁阻塞绘制线程。
 
 `WordGeometry` 在有界后台线程准备昂贵的字形轮廓。
 

@@ -21,15 +21,13 @@ class IslandRuntime : AutoCloseable {
     private val metadata = TrackMetadataLoader(timeline)
     private val playbackProbe = HostPlaybackProbe()
     private val currentTrackRecovery = CurrentTrackRecovery(timeline, playbackProbe::readTrack, metadata::load)
+    private val lyricsRecovery = HostLyricsRecovery(timeline, playbackProbe::readLyrics) {
+        !closed && settings.read().performance.probeHostLyrics
+    }
     fun trackChanged(track: io.github.gaboron.spwisland.core.Track) = metadata.load(track)
     fun lineChanged(line: io.github.gaboron.spwisland.core.LyricLine?) {
         timeline.lineChanged(line)
-        val current = settings.read()
-        if (current.performance.probeHostLyrics && line != null) {
-            playbackProbe.readLyrics()?.takeIf { document ->
-                document.any { it.startMs == line.startMs && it.text == line.text }
-            }?.let(timeline::lyricsChanged)
-        }
+        if (line != null) lyricsRecovery.request(line)
     }
     private var window: IslandWindow? = null
     private var linuxWindow: LinuxIslandProcess? = null
@@ -104,7 +102,8 @@ class IslandRuntime : AutoCloseable {
         KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(keyboard)
         linuxWindow?.close(); linuxWindow = null
         try {
-            fontPicker?.close(); currentTrackRecovery.close(); metadata.close(); settings.close(); spectrum.close()
+            fontPicker?.close(); currentTrackRecovery.close(); lyricsRecovery.close()
+            metadata.close(); settings.close(); spectrum.close()
         } finally { if (window != null) onEdt { window?.close(); window = null } }
     }
     private fun onEdt(block: () -> Unit) {

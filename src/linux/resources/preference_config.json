@@ -132,10 +132,10 @@
           "type": "list",
           "key": "background_progress",
           "title": "背景播放进度样式",
-          "entries": ["关闭", "背景注水", "顶部细线"],
+          "entries": ["关闭", "背景注水", "边缘细线"],
           "entry_values": ["off", "fill", "top_line"],
           "default_value": "off",
-          "summary": "低性能模式下关闭动态背景进度。"
+          "summary": "胶囊沿顶部、刘海沿底部显示细线；开始隐藏或展开控件时淡出，恢复稳定收起状态后淡入，低性能模式下关闭。"
         },
         {
           "type": "button",

@@ -12,9 +12,9 @@ object LyricPainter {
              available: Float, font: Font, karaoke: Boolean, color: Color = Color.WHITE,
              detailedKaraoke: Boolean = true,
              fallbackFont: Font = SystemUiFont.derive(font.style, font.size2D),
-             contrastOutline: Boolean = false) {
+             contrastOutline: Boolean = false, shapedText: ShapedText? = null) {
         if (text.isEmpty() || available <= 0) return
-        val shaped = LyricTypography.shape(text, font, fallbackFont)
+        val shaped = shapedText ?: LyricTypography.shape(text, font, fallbackFont)
         val layout = shaped.layout
         val lightweight = karaoke && words.isNotEmpty() && !detailedKaraoke
         val segment = if (lightweight) TimedKaraokeBoundary.at(text.length, words, position) else null

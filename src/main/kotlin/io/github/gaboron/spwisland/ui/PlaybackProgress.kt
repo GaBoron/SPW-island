@@ -13,13 +13,19 @@ class PlaybackProgress(private val seek: (Long) -> Unit) : JComponent() {
     private var snapshot = PlaybackSnapshot(null, null, 0, false, PlaybackStatus.IDLE)
     private var gestureTrack: Track? = null
     private var preview: Long? = null
+    internal var presentationInteractive = true
+    private val timeFont = SystemUiFont.derive(Font.PLAIN, 10f)
+    private var positionSeconds = Long.MIN_VALUE
+    private var durationSeconds = Long.MIN_VALUE
+    private var positionLabel = "0:00"
+    private var durationLabel = "--:--"
     val dragging get() = preview != null
     init {
         isOpaque = false
         accessibleContext?.accessibleName = "播放进度"
         val mouse = object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
-                if (e.button != MouseEvent.BUTTON1 || !isEnabled) return
+                if (e.button != MouseEvent.BUTTON1 || !isEnabled || !presentationInteractive) return
                 gestureTrack = snapshot.track; preview = positionAt(e.x); repaint()
             }
             override fun mouseDragged(e: MouseEvent) {
@@ -28,7 +34,7 @@ class PlaybackProgress(private val seek: (Long) -> Unit) : JComponent() {
             override fun mouseReleased(e: MouseEvent) {
                 if (e.button != MouseEvent.BUTTON1 || !dragging) return
                 val target = positionAt(e.x)
-                val valid = gestureTrack == snapshot.track && isEnabled
+                val valid = gestureTrack == snapshot.track && isEnabled && presentationInteractive
                 if (valid) seek(target)
                 preview = null; gestureTrack = null
                 repaint()
@@ -37,7 +43,8 @@ class PlaybackProgress(private val seek: (Long) -> Unit) : JComponent() {
         addMouseListener(mouse); addMouseMotionListener(mouse)
     }
     fun update(value: PlaybackSnapshot) {
-        if (snapshot.track != value.track || value.metadata.durationMs <= 0 || value.status == PlaybackStatus.IDLE) {
+        if (!presentationInteractive || snapshot.track != value.track || value.metadata.durationMs <= 0 ||
+            value.status == PlaybackStatus.IDLE) {
             preview = null; gestureTrack = null
         }
         snapshot = value
@@ -61,11 +68,17 @@ class PlaybackProgress(private val seek: (Long) -> Unit) : JComponent() {
             g.color = if (isEnabled) foreground ?: Color.WHITE else Color.GRAY
             g.fillRoundRect(48, 12, filled, 4, 4, 4)
             if (isEnabled) g.fillOval(45 + filled, 9, 10, 10)
-            g.font = SystemUiFont.derive(Font.PLAIN, 10f)
-            g.drawString(time(if (duration > 0) position else snapshot.positionMs), 0, 18)
-            val end = if (duration > 0) time(duration) else "--:--"
-            g.drawString(end, width - g.fontMetrics.stringWidth(end), 18)
+            g.font = timeFont
+            val seconds = (if (duration > 0) position else snapshot.positionMs).coerceAtLeast(0) / 1000
+            if (seconds != positionSeconds) { positionSeconds = seconds; positionLabel = time(seconds) }
+            val endSeconds = if (duration > 0) duration / 1000 else -1L
+            if (endSeconds != durationSeconds) {
+                durationSeconds = endSeconds
+                durationLabel = if (endSeconds >= 0) time(endSeconds) else "--:--"
+            }
+            g.drawString(positionLabel, 0, 18)
+            g.drawString(durationLabel, width - g.fontMetrics.stringWidth(durationLabel), 18)
         } finally { g.dispose() }
     }
-    private fun time(ms: Long): String = "%d:%02d".format(ms.coerceAtLeast(0) / 60000, ms.coerceAtLeast(0) / 1000 % 60)
+    private fun time(seconds: Long): String = "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
 }

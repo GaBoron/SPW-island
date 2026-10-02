@@ -14,7 +14,7 @@ import java.nio.file.Path
 import java.util.Collections
 import java.util.IdentityHashMap
 
-/** Reads startup playback state without retaining or modifying host-owned objects. */
+/** Reads playback state on compatibility workers without modifying host-owned objects. */
 internal class HostPlaybackProbe {
     @Volatile private var service: Any? = null
 
