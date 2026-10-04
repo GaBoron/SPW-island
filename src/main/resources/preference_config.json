@@ -40,7 +40,7 @@
           "key": "auto_hide_on_hover",
           "title": "鼠标经过时自动隐藏",
           "default_value": false,
-          "summary": "仅在鼠标穿透开启时生效：鼠标进入词岛区域后缩小消失，移开后展开恢复。"
+          "summary": "开启后同时穿透鼠标，经过词岛时隐藏，移开后恢复。"
         },
         {
           "type": "switch",

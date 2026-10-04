@@ -9,18 +9,33 @@ import java.nio.file.Path
 
 /** Only Python's standard library is required; GTK is loaded directly for native menus. */
 internal object LinuxHelper {
-    private val script: Path by lazy {
-        val path = Files.createTempFile("spw-island-linux-", ".py")
-        LinuxHelper::class.java.getResourceAsStream("/native/island-linux.py").use { input ->
-            checkNotNull(input) { "Linux UI helper is missing from the plugin" }
+    private val scripts = mutableMapOf<String, Path>()
+    @Synchronized private fun extract(name: String): Path = scripts.getOrPut(name) {
+        val path = Files.createTempFile("spw-island-linux-", ".${name.substringAfterLast('.')}")
+        LinuxHelper::class.java.getResourceAsStream("/native/$name").use { input ->
+            checkNotNull(input) { "Linux helper $name is missing from the plugin" }
             Files.copy(input, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
         }
         path.toFile().deleteOnExit()
         path
     }
 
-    fun start(vararg arguments: String): Process = ProcessBuilder(
-        listOf("/usr/bin/python3", script.toString()) + arguments
+    fun start(vararg arguments: String): Process = startScript("island-linux.py", *arguments)
+
+    fun installGnomePointer(): String {
+        val archive = extract("spw-island-pointer@gaboron.github.io.shell-extension.zip")
+        val process = startScript("install-gnome-pointer.py", archive.toString())
+        if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            error("GNOME 指针扩展安装超时")
+        }
+        val message = process.inputStream.bufferedReader().readText().trim()
+        check(process.exitValue() == 0) { message.ifBlank { "GNOME 指针扩展安装失败" } }
+        return message
+    }
+
+    fun startScript(name: String, vararg arguments: String): Process = ProcessBuilder(
+        listOf("/usr/bin/python3", extract(name).toString()) + arguments
     ).redirectError(ProcessBuilder.Redirect.INHERIT).apply {
         // GTK menus and AWT use the same X11/XWayland coordinate and popup-grab space.
         environment()["GDK_BACKEND"] = "x11"

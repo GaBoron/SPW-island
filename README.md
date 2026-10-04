@@ -12,7 +12,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0%20%2B%20AGPL--3.0-blue" alt="License"></a>
 </p>
 
-把 SPW 当前播放的歌词放到桌面上方，支持逐字歌词、翻译、AMLL 风格动效、专辑封面与取色、播放控制，以及 Windows 下的实时频谱、鼠标穿透和全屏自动隐藏。
+把 SPW 当前播放的歌词放到桌面上方，支持逐字歌词、翻译、AMLL 风格动效、专辑封面与取色、播放控制、实时频谱、鼠标穿透和自动隐藏。
 
 QQ 交流群：`1054809039`
 
@@ -22,8 +22,8 @@ QQ 交流群：`1054809039`
 - 胶囊 / 刘海外观，支持圆角、宽度、透明度、字体和多种封面取色；
 - 悬停展开上一首、播放 / 暂停、下一首和可拖动进度条；
 - 九宫格拖动吸附，顶部和底部会自动调整展开方向；
-- Windows 可显示 SPW 进程的四频段实时频谱，并支持鼠标穿透、悬停隐藏和全屏隐藏；
-- Linux x64 提供实验性支持，共用主要歌词与界面功能。
+- Windows 和 Linux 均支持 SPW 进程的四频段实时频谱、频谱取色和鼠标穿透；
+- 悬停隐藏支持 Windows、X11、KDE Wayland 与安装配套扩展的 GNOME Wayland；全屏隐藏目前仅支持 Windows。
 
 详细设置见 [使用与设置](docs/usage.md)，平台差异见 [兼容性与限制](docs/compatibility.md)。
 
@@ -47,7 +47,7 @@ Windows 使用 `windows-x64` 包；Linux 使用 `linux-x64` 包。不要导入�
 | Linux x64 | 实验性支持 |
 | macOS | 暂无计划 |
 
-Linux 当前没有 Windows 的进程实时频谱、鼠标穿透和前台全屏检测等能力，具体差异见 [兼容性与限制](docs/compatibility.md)。
+Linux 实时频谱需要 PipeWire 与 `pw-record` / `pw-dump`；悬停隐藏支持 X11、KDE Wayland 与安装配套扩展的 GNOME Wayland，前台全屏检测仍仅支持 Windows。具体差异见 [兼容性与限制](docs/compatibility.md)。
 
 ## 文档
 

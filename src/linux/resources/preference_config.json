@@ -31,6 +31,27 @@
         },
         {
           "type": "switch",
+          "key": "click_through",
+          "title": "鼠标穿透",
+          "default_value": false,
+          "summary": "点击穿过词岛，不影响下方窗口；可通过托盘或插件设置解除。"
+        },
+        {
+          "type": "switch",
+          "key": "auto_hide_on_hover",
+          "title": "鼠标经过时自动隐藏",
+          "default_value": false,
+          "summary": "开启后同时穿透鼠标，经过词岛时隐藏、移开后恢复。支持 X11、KDE Wayland；GNOME Wayland 需先安装下方配套扩展。"
+        },
+        {
+          "type": "button",
+          "title": "安装 GNOME 悬停隐藏支持",
+          "summary": "GNOME 45–50 配套指针扩展；首次安装或更新后需重新登录。",
+          "arrow_type": "none",
+          "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.installGnomePointer"
+        },
+        {
+          "type": "switch",
           "key": "hide_paused",
           "title": "暂停时隐藏",
           "default_value": false
@@ -40,14 +61,20 @@
           "key": "reduced_motion",
           "title": "低性能模式",
           "default_value": false,
-          "summary": "降低刷新率，使用按单字时间推进的简化高亮，并关闭复杂动效与可选歌词探测。"
+          "summary": "降低刷新率，使用简化高亮和模拟频谱，停用实时音频捕获与复杂动效。"
         },
         {
           "type": "list",
           "key": "shape",
           "title": "外观",
-          "entries": ["胶囊", "顶部刘海"],
-          "entry_values": ["pill", "notch"],
+          "entries": [
+            "胶囊",
+            "顶部刘海"
+          ],
+          "entry_values": [
+            "pill",
+            "notch"
+          ],
           "default_value": "pill"
         },
         {
@@ -70,8 +97,24 @@
           "type": "list",
           "key": "font_weight",
           "title": "歌词字重",
-          "entries": ["极细 100", "细体 300", "次细 350", "常规 400", "中等 500", "粗体 700", "极粗 900"],
-          "entry_values": ["100", "300", "350", "400", "500", "700", "900"],
+          "entries": [
+            "极细 100",
+            "细体 300",
+            "次细 350",
+            "常规 400",
+            "中等 500",
+            "粗体 700",
+            "极粗 900"
+          ],
+          "entry_values": [
+            "100",
+            "300",
+            "350",
+            "400",
+            "500",
+            "700",
+            "900"
+          ],
           "default_value": "400",
           "summary": "内置 MiSans 提供字重预设；自选字体优先使用对应的真实字重，缺少该档时使用最接近的已有字重。"
         },
@@ -99,6 +142,25 @@
           "summary": "开启后始终使用“最大宽度”的值，不再随歌词长度收缩。"
         },
         {
+          "type": "list",
+          "key": "leading_content",
+          "title": "两侧信息",
+          "entries": [
+            "左侧封面 + 右侧频谱",
+            "左侧实时频谱",
+            "左侧专辑封面",
+            "都不显示"
+          ],
+          "entry_values": [
+            "cover_spectrum",
+            "spectrum",
+            "cover",
+            "none"
+          ],
+          "default_value": "cover_spectrum",
+          "summary": "实时频谱需要 PipeWire 及 pw-record / pw-dump，只采集 SPW 播放流；不可用时使用模拟频谱，状态可在托盘查看。"
+        },
+        {
           "type": "seekbar",
           "key": "opacity",
           "title": "背景不透明度 %",
@@ -123,6 +185,13 @@
         },
         {
           "type": "switch",
+          "key": "spectrum_cover_color",
+          "title": "频谱使用封面颜色",
+          "default_value": false,
+          "summary": "从本地音频内嵌封面或同目录 cover/folder 图片取色，无封面时使用默认颜色。"
+        },
+        {
+          "type": "switch",
           "key": "background_cover_color",
           "title": "背景使用封面颜色",
           "default_value": false,
@@ -132,8 +201,16 @@
           "type": "list",
           "key": "background_progress",
           "title": "背景播放进度样式",
-          "entries": ["关闭", "背景注水", "边缘细线"],
-          "entry_values": ["off", "fill", "top_line"],
+          "entries": [
+            "关闭",
+            "背景注水",
+            "边缘细线"
+          ],
+          "entry_values": [
+            "off",
+            "fill",
+            "top_line"
+          ],
           "default_value": "off",
           "summary": "胶囊沿顶部、刘海沿底部显示细线；开始隐藏或展开控件时淡出，恢复稳定收起状态后淡入，低性能模式下关闭。"
         },
@@ -147,7 +224,7 @@
         {
           "type": "button",
           "title": "找回词岛",
-          "summary": "显示词岛并回到主屏幕顶部。",
+          "summary": "解除鼠标穿透、显示词岛并回到主屏幕顶部。",
           "arrow_type": "none",
           "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.recover"
         },

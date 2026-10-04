@@ -12,8 +12,9 @@ internal class IslandHoverVisibility {
 
     fun update(enabled: Boolean, mouse: Point?, region: Shape, dt: Double, instant: Boolean,
                notch: Boolean): IslandHoverMotion.Pose {
-        if (!enabled) entryRegion = null
-        else if (mouse != null) {
+        // An unavailable/stale pointer must fail open, including after compositor restart.
+        if (!enabled || mouse == null) entryRegion = null
+        else {
             if (entryRegion?.contains(mouse) == false) entryRegion = null
             if (entryRegion == null && region.contains(mouse)) entryRegion = region
         }

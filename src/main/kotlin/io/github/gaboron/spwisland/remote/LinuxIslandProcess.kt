@@ -3,15 +3,18 @@ package io.github.gaboron.spwisland.remote
 
 import io.github.gaboron.spwisland.core.*
 import io.github.gaboron.spwisland.platform.LinuxHelper
+import io.github.gaboron.spwisland.platform.SpectrumSource
 import io.github.gaboron.spwisland.ui.PlaybackActions
 import java.io.*
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** The host's Skiko swapBuffers can block its EDT when minimized; never render on that EDT. */
-class LinuxIslandProcess(private val timeline: PlaybackSource, private val settings: SettingsStore,
+internal class LinuxIslandProcess(private val timeline: PlaybackSource, private val settings: SettingsStore,
                          private val actions: PlaybackActions, private val report: (Throwable) -> Unit,
+                         private val spectrum: SpectrumSource,
                          javaHome: String = System.getProperty("java.home")) : AutoCloseable {
     private val process = LinuxHelper.startUi(javaHome)
     @Volatile var presentedFrames: Long = 0
@@ -20,29 +23,51 @@ class LinuxIslandProcess(private val timeline: PlaybackSource, private val setti
     private val sender = Executors.newSingleThreadScheduledExecutor { Thread(it, "SPW Island IPC").apply { isDaemon = true } }
     private val closed = AtomicBoolean()
     private val showAbout = AtomicBoolean()
+    private val acknowledgedCommand = AtomicLong()
     private var previousSettings: IslandSettings? = null
     private var previousMetadata: TrackMetadata? = null
     private var previousLyrics: List<LyricLine>? = null
+    private var nextState = 0L
+    private var audioEnabled = false
+    private var lastAudioStatus = ""
 
     init {
         sender.scheduleWithFixedDelay({
             if (!closed.get()) try {
+                // Read the watermark BEFORE the state: never acknowledge a command with its old snapshot.
+                val acknowledged = acknowledgedCommand.get()
                 val snapshot = timeline.snapshot()
                 val currentSettings = settings.read()
-                val state = IslandState(snapshot.copy(metadata = TrackMetadata(), lyrics = emptyList()),
-                    currentSettings.takeIf { it != previousSettings },
-                    snapshot.metadata.takeIf { it != previousMetadata },
-                    snapshot.lyrics.takeIf { it != previousLyrics }, showAbout.getAndSet(false))
-                output.writeObject(state)
+                val now = System.nanoTime()
+                if (now >= nextState) {
+                    spectrum.setEnabled(currentSettings.enabled && snapshot.playing &&
+                        currentSettings.sideContent.showsSpectrum && currentSettings.performance.spectrumMode == SpectrumMode.LIVE)
+                    val state = IslandState(snapshot.copy(metadata = TrackMetadata(), lyrics = emptyList()),
+                        currentSettings.takeIf { it != previousSettings },
+                        snapshot.metadata.takeIf { it != previousMetadata },
+                        snapshot.lyrics.takeIf { it != previousLyrics }, showAbout.getAndSet(false), acknowledged)
+                    output.writeObject(state)
+                    previousSettings = currentSettings
+                    previousMetadata = snapshot.metadata
+                    previousLyrics = snapshot.lyrics
+                    // Maintain approximately 10 Hz state without raising lyric/cover traffic to audio cadence.
+                    nextState = if (nextState == 0L || now - nextState > 100_000_000L)
+                        now + 100_000_000L else nextState + 100_000_000L
+                }
+                val live = currentSettings.enabled && snapshot.playing && currentSettings.sideContent.showsSpectrum &&
+                    currentSettings.performance.spectrumMode == SpectrumMode.LIVE
+                if (live || live != audioEnabled || spectrum.status != lastAudioStatus) {
+                    output.writeObject(IslandSpectrum(if (live) spectrum.levels() else FloatArray(4),
+                        live && spectrum.usesSyntheticFallback(), spectrum.status))
+                    lastAudioStatus = spectrum.status
+                    audioEnabled = live
+                }
                 output.reset() // Bound the stream's object table over long listening sessions.
                 output.flush()
-                previousSettings = currentSettings
-                previousMetadata = snapshot.metadata
-                previousLyrics = snapshot.lyrics
             } catch (error: Exception) {
                 if (!closed.get()) { close(); report(IllegalStateException("Linux 词岛进程已断开", error)) }
             }
-        }, 0, 100, TimeUnit.MILLISECONDS)
+        }, 0, 33, TimeUnit.MILLISECONDS)
         Thread({
             try {
                 ObjectInputStream(BufferedInputStream(process.inputStream)).use { input ->
@@ -71,11 +96,13 @@ class LinuxIslandProcess(private val timeline: PlaybackSource, private val setti
                 "error" -> report(IllegalStateException(a.single()))
             }
         } catch (error: Exception) { report(error) }
+        finally { acknowledgedCommand.set(command.requestId) }
     }
 
     fun about() { showAbout.set(true) }
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        spectrum.setEnabled(false)
         sender.shutdownNow()
         // Killing the process also closes a blocked pipe writer; do not wait for the host EDT.
         process.destroy()

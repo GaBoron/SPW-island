@@ -10,7 +10,7 @@ import java.awt.Window
 internal class X11InputRegion : AutoCloseable {
     private interface ShapeApi : Library {
         fun XShapeCombineRectangles(display: X11.Display, window: X11.Window, kind: Int,
-            x: Int, y: Int, rectangles: Pointer, count: Int, operation: Int, ordering: Int)
+            x: Int, y: Int, rectangles: Pointer?, count: Int, operation: Int, ordering: Int)
     }
     private val x = X11.INSTANCE
     private val display = checkNotNull(x.XOpenDisplay(null))
@@ -28,7 +28,13 @@ internal class X11InputRegion : AutoCloseable {
             while (right > left && !region.contains(right - .5, y + .5)) right--
             if (right > left) rows += intArrayOf(left, y, right - left)
         }
-        if (rows.isEmpty()) return
+        if (rows.isEmpty()) {
+            shape.XShapeCombineRectangles(display, X11.Window(Native.getWindowID(window)),
+                2, 0, 0, null, 0, 0, 3)
+            x.XFlush(display)
+            last = key
+            return
+        }
         Memory(rows.size * 8L).use { data ->
             rows.forEachIndexed { index, row ->
                 val offset = index * 8L // XRectangle: signed x/y, unsigned width/height (16 bits each)

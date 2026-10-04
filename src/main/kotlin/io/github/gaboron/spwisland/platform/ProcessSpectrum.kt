@@ -6,7 +6,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /** Runs the private process-loopback reader only while live spectrum is enabled. */
-class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}) : AutoCloseable {
+internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}) : SpectrumSource {
     @Volatile private var closed = false
     @Volatile private var enabled = false
     @Volatile private var process: Process? = null
@@ -14,13 +14,13 @@ class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}) : AutoC
     @Volatile private var receivedAt = 0L
     @Volatile private var syntheticFallback = false
     @Volatile private var fallbackNotified = false
-    @Volatile var status = "正在连接 SPW 音频"
+    @Volatile override var status = "正在连接 SPW 音频"
         private set
     private val worker = Executors.newSingleThreadExecutor { task ->
         Thread(task, "SPW Island audio").apply { isDaemon = true }
     }
 
-    @Synchronized fun setEnabled(value: Boolean) {
+    @Synchronized override fun setEnabled(value: Boolean) {
         if (closed || enabled == value) return
         enabled = value
         if (value) {
@@ -101,8 +101,8 @@ class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}) : AutoC
         }
     }
 
-    fun usesSyntheticFallback(): Boolean = enabled && syntheticFallback
-    fun levels(): FloatArray = if (System.nanoTime() - receivedAt < 350_000_000) sample else FloatArray(4)
+    override fun usesSyntheticFallback(): Boolean = enabled && syntheticFallback
+    override fun levels(): FloatArray = if (System.nanoTime() - receivedAt < 350_000_000) sample else FloatArray(4)
     override fun close() {
         val helper = synchronized(this) {
             if (closed) return
