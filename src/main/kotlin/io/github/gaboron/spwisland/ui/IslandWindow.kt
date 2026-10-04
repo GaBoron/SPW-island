@@ -5,6 +5,7 @@ import com.sun.jna.Platform
 import io.github.gaboron.spwisland.core.*
 import io.github.gaboron.spwisland.platform.WindowsOverlay
 import io.github.gaboron.spwisland.platform.X11InputRegion
+import io.github.gaboron.spwisland.platform.LinuxGlobalPointer
 import java.awt.*
 import java.awt.event.*
 import javax.swing.*
@@ -25,7 +26,8 @@ private fun overlayGraphicsConfiguration(): GraphicsConfiguration {
 class IslandWindow(private val timeline: PlaybackSource, private val store: SettingsStore,
                    actions: PlaybackActions, private val report: (Throwable) -> Unit,
                    private val spectrum: () -> FloatArray = { FloatArray(4) },
-                   private val spectrumFallback: () -> Boolean = { false }) : AutoCloseable {
+                   private val spectrumFallback: () -> Boolean = { false },
+                   private val spectrumStatus: () -> String = { "" }) : AutoCloseable {
     companion object {
         private const val DRAG_FRAME_DELAY_MS = 8
         private const val HOVER_MARGIN = 18
@@ -55,8 +57,16 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     private val native = WindowsOverlay()
     private val inputRegion = if (Platform.isLinux() && Toolkit.getDefaultToolkit().javaClass.name.contains("XToolkit"))
         runCatching { X11InputRegion() }.onFailure(report).getOrNull() else null
+    private val pointerPresence = if (Platform.isLinux()) IslandPointerPresence(window) else null
+    private val globalPointer = if (Platform.isLinux()) LinuxGlobalPointer() else null
     private val stableTranslucentCanvas = Platform.isWindows() || window.graphicsConfiguration.isTranslucencyCapable
-    private val menu = IslandMenu(store, report, window)
+    private val menu = IslandMenu(store, report, window) {
+        IslandRuntimeStatus.describe(store.read(), timeline.snapshot(), window.isVisible,
+            surface.hoverPose.reveal < .01, fullscreen, inputRegion != null || native.supportsClickThrough && nativeAvailable,
+            if (globalPointer != null) globalPointer.location() != null else
+                runCatching { MouseInfo.getPointerInfo() != null }.getOrDefault(false),
+            globalPointer?.status.orEmpty(), spectrumFallback(), spectrumStatus())
+    }
     private var settings = store.read()
     private var nativeAvailable = true
     private var clickThroughApplied: Boolean? = null
@@ -95,7 +105,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         panel.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
                 if (!Platform.isLinux() && e.isPopupTrigger) menu.popup(panel, e.x, e.y)
-                if (SwingUtilities.isLeftMouseButton(e) && !settings.clickThrough) {
+                if (SwingUtilities.isLeftMouseButton(e) && !settings.clickThrough && !settings.autoHideOnHover) {
                     press = e.locationOnScreen
                     dragOrigin = Point(window.x + panel.x, window.y + panel.y)
                     dragAnchor = placementAnchor
@@ -163,11 +173,16 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
 
     private fun tick() {
         if (closed) return
+        // Local optimistic edits must take effect even before the next host notification.
+        settings = store.read()
         val now = System.nanoTime()
+        val controlsBlocked = menu.aboutVisible
+        pointerPresence?.setSuppressed(controlsBlocked)
         val dt = ((now - lastFrame) / 1_000_000_000.0).coerceIn(0.0, .1)
         lastFrame = now
         val performance = settings.performance
-        val clickThrough = settings.clickThrough && native.supportsClickThrough
+        val clickThrough = (settings.clickThrough || settings.autoHideOnHover) &&
+            (native.supportsClickThrough || inputRegion != null)
         val snap = timeline.snapshot()
         if (nativeAvailable && now >= nextScreenCheck) {
             try { fullscreen = settings.hideFullscreen && native.foregroundIsFullscreen(window) }
@@ -175,12 +190,14 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             nextScreenCheck = now + performance.screenCheckIntervalNs
         }
         val visible = settings.enabled && (!settings.hidePaused || snap.playing) && (!settings.hideFullscreen || !fullscreen)
+        globalPointer?.setEnabled(clickThrough && settings.autoHideOnHover && visible)
         if (!visible) {
             // Avoid changing the native bounds or painting while the transparent peer is hidden.
             if (window.isVisible) window.isVisible = false
             surface.hoverPose = IslandHoverMotion.Pose.HIDDEN
             hoverVisibility.update(false, null, Rectangle(), dt, true, settings.notch)
             hoverActive = false
+            pointerPresence?.reset()
             nextTopmostCheck = 0
             frameDelayMs = 200
             return
@@ -201,15 +218,23 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         val device = draggedScreen ?: devices.find { it.iDstring == settings.screen } ?:
             GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice
         val screen = IslandPlacement.workArea(device.defaultConfiguration)
-        val mouse = MouseInfo.getPointerInfo()?.location
+        val mouse = if (globalPointer != null) {
+            if (clickThrough && settings.autoHideOnHover) globalPointer.location() else null
+        }
+            else runCatching { MouseInfo.getPointerInfo()?.location }.getOrNull()
         val overIsland = mouse != null && IslandGeometry.silhouette(panel.width, panel.height, settings.notch,
             settings.cornerRoundness)
             .contains((mouse.x - window.x - panel.x).toDouble(), (mouse.y - window.y - panel.y).toDouble())
         val hoverRetention = mouse != null && Rectangle(
             window.x + panel.x - HOVER_MARGIN, window.y + panel.y - HOVER_MARGIN,
             panel.width + HOVER_MARGIN * 2, panel.height + HOVER_MARGIN * 2).contains(mouse)
-        hoverActive = if (!window.isVisible || clickThrough) false else if (hoverActive) hoverRetention else overIsland
-        panel.expanded = !clickThrough && (dragging || panel.progress.dragging || hoverActive)
+        hoverActive = when {
+            controlsBlocked || !window.isVisible || clickThrough -> { pointerPresence?.reset(); false }
+            pointerPresence != null -> pointerPresence.active(now)
+            hoverActive -> hoverRetention
+            else -> overIsland
+        }
+        panel.expanded = !controlsBlocked && !clickThrough && (dragging || panel.progress.dragging || hoverActive)
         val visibleLines = ActiveLyrics.select(snap, settings.experimentalMultiLine)
         if (visibleLines != lastLines || snap.track != previousSnapshot?.track) {
             panel.outgoing = previousSnapshot?.takeIf { it.track == snap.track }
@@ -268,9 +293,9 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         panel.prepareBuffers(window.graphicsConfiguration.defaultTransform)
         inputRegion?.let { input ->
             val scale = window.graphicsConfiguration.defaultTransform
-            val shape = scale.createTransformedShape(surface.inputRegion())
+            val shape = if (clickThrough) Rectangle() else scale.createTransformedShape(surface.inputRegion())
             input.update(window, shape, listOf(panel.bounds, settings.notch, settings.cornerRoundness,
-                placementAnchor, scale.scaleX, scale.scaleY))
+                placementAnchor, scale.scaleX, scale.scaleY, clickThrough))
         }
         val hoverRegion = java.awt.geom.AffineTransform.getTranslateInstance(
             islandBounds.x.toDouble(), islandBounds.y.toDouble()
@@ -353,6 +378,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
 
     override fun close() {
         if (closed) return
-        closed = true; frameScheduler.shutdownNow(); panel.close(); menu.close(); inputRegion?.close(); window.dispose()
+        closed = true; frameScheduler.shutdownNow(); panel.close(); menu.close()
+        pointerPresence?.close(); globalPointer?.close(); inputRegion?.close(); window.dispose()
     }
 }

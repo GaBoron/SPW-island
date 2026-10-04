@@ -9,13 +9,14 @@ import javax.swing.*
 
 /** Recovery controls remain available in SPW settings even if the tray is unavailable. */
 class IslandMenu(private val store: SettingsStore, private val report: (Throwable) -> Unit,
-                 private val owner: Window) : AutoCloseable {
+                 private val owner: Window, status: () -> List<IslandStatusEntry> = { emptyList() }) : AutoCloseable {
     private var tray: TrayIcon? = null
     private var windowsTray: WindowsTray? = null
     private var linuxTray: GtkTray? = null
-    private val commands = IslandMenuCommands(store, ::about) { ProjectLinks.openSource() }
+    private val commands = IslandMenuCommands(store, ::about)
     private val popup = if (Platform.isLinux()) null else LightweightPopupMenu(owner, report)
-    private val aboutDialog = AboutDialog(owner, report)
+    private val aboutDialog = AboutDialog(owner, report, status)
+    val aboutVisible: Boolean get() = aboutDialog.isVisible
     private fun action(block: () -> Unit) { try { block() } catch (e: Exception) { report(e) } }
     fun popup(owner: Component, x: Int, y: Int) {
         // Linux surface right-click is deferred; all quick settings live in the native tray.

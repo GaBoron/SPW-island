@@ -8,6 +8,8 @@ import io.github.gaboron.spwisland.core.SpectrumMode
 import io.github.gaboron.spwisland.core.performance
 import io.github.gaboron.spwisland.ui.*
 import io.github.gaboron.spwisland.platform.ProcessSpectrum
+import io.github.gaboron.spwisland.platform.LinuxProcessSpectrum
+import io.github.gaboron.spwisland.platform.SpectrumSource
 import io.github.gaboron.spwisland.ui.ComposeFontPickerWindow
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.remote.LinuxIslandProcess
@@ -31,7 +33,8 @@ class IslandRuntime : AutoCloseable {
     }
     private var window: IslandWindow? = null
     private var linuxWindow: LinuxIslandProcess? = null
-    private val spectrum = ProcessSpectrum(::notifySpectrumFallback)
+    private val spectrum: SpectrumSource = if (Platform.isLinux()) LinuxProcessSpectrum()
+        else ProcessSpectrum(::notifySpectrumFallback)
     @Volatile private var closed = false
     private val settings = HostSettings(WorkshopApi.manager.createConfigManager()) {
         updateSpectrumMode()
@@ -63,20 +66,28 @@ class IslandRuntime : AutoCloseable {
                 }
         }
         if (Platform.isLinux()) {
-            linuxWindow = LinuxIslandProcess(timeline, settings, actions, ::report)
+            linuxWindow = LinuxIslandProcess(timeline, settings, actions, ::report, spectrum)
         } else onEdt {
             window = IslandWindow(timeline, settings, actions, ::report,
-                spectrum::levels, spectrum::usesSyntheticFallback)
+                spectrum::levels, spectrum::usesSyntheticFallback, { spectrum.status })
         }
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(keyboard)
     }
     private fun updateSpectrumMode() {
         val current = settings.read()
-        spectrum.setEnabled(current.performance.spectrumMode == SpectrumMode.LIVE &&
-            current.sideContent.showsSpectrum)
+        spectrum.setEnabled(current.enabled && current.performance.spectrumMode == SpectrumMode.LIVE &&
+            current.sideContent.showsSpectrum && (!Platform.isLinux() || timeline.snapshot().playing))
     }
     fun recover() = safely {
-        settings.set("click_through", false); settings.set("enabled", true); settings.resetPosition()
+        settings.set("auto_hide_on_hover", false); settings.set("click_through", false)
+        settings.set("enabled", true); settings.resetPosition()
+    }
+    fun installGnomePointer() {
+        if (!Platform.isLinux() || closed) return
+        Thread({ safely {
+            val message = io.github.gaboron.spwisland.platform.LinuxHelper.installGnomePointer()
+            if (!closed) WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning)
+        } }, "SPW Island GNOME setup").apply { isDaemon = true }.start()
     }
     fun resetSettings() = safely { settings.resetAll() }
     fun about() {

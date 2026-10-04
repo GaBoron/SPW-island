@@ -45,6 +45,8 @@ Linux x64 目前仍是实验性支持，需要：
 
 界面使用 SPW 自带的 JVM，不需要单独安装 Java；Python helper 只使用标准库，不需要 PyGObject。
 
+可选的实时频谱还需要 PipeWire，以及 `pw-record` / `pw-dump`（发行版通常放在 `pipewire-bin` 或 `pipewire` 包中）。悬停隐藏支持 X11 与 KDE Wayland。GNOME Wayland 45–50 需点击插件配置的“安装 GNOME 悬停隐藏支持”，首次安装或更新后保存工作并重新登录。
+
 安装方式与 Windows 类似：导入 `linux-x64` ZIP 并启用插件即可。Linux 的快捷设置入口在系统托盘，部分 Windows 专属功能不会出现，具体见 [兼容性与限制](compatibility.md#linux-实验性支持)。
 
 ## 更新

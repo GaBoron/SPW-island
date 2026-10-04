@@ -28,8 +28,15 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.17.0")
     implementation("net.java.dev.jna:jna-platform:5.17.0")
     implementation("net.jthink:jaudiotagger:3.0.1")
+    implementation("com.google.code.gson:gson:2.11.0")
     implementation(compose.desktop.currentOs)
     metadataSources("net.jthink:jaudiotagger:3.0.1:sources")
+}
+val gnomePointer = tasks.register<Zip>("gnomePointer") {
+    archiveFileName.set("spw-island-pointer@gaboron.github.io.shell-extension.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+    from("src/linux/resources/native/gnome-pointer")
+    from("LICENSE")
 }
 tasks.processResources {
     from("native/shared-fonts/MiSansVF.ttf") { into("fonts") }
@@ -45,8 +52,10 @@ tasks.processResources {
             include("skiko-windows-x64.dll", "icudtl.dat")
         }
     } else if (isLinux) {
+        dependsOn(gnomePointer)
         exclude { it.file == file("src/main/resources/preference_config.json") }
-        from("src/linux/resources")
+        from("src/linux/resources") { exclude("**/__pycache__/**", "**/*.pyc", "native/gnome-pointer/**") }
+        from(gnomePointer) { into("native") }
     }
     inputs.property("projectUrl", projectUrl)
     filesMatching("project.properties") { expand("projectUrl" to projectUrl.get()) }
@@ -66,7 +75,7 @@ tasks.jar {
 tasks.register<Zip>("sourceArchive") {
     archiveFileName.set("spw-island-${project.version}-source.zip")
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
-    from("src") { into("src") }
+    from("src") { into("src"); exclude("test/**", "**/__pycache__/**", "**/*.pyc") }
     from("native") {
         into("native")
         exclude("**/bin/**", "**/obj/**")
@@ -129,7 +138,8 @@ fun registerPluginArchive(taskName: String, platform: String, enabled: Boolean) 
                 if (platform == "linux" &&
                     !file.name.startsWith("jna-") &&
                     !file.name.startsWith("jna-platform-") &&
-                    !file.name.startsWith("jaudiotagger-")) {
+                    !file.name.startsWith("jaudiotagger-") &&
+                    !file.name.startsWith("gson-")) {
                     exclude()
                 } else {
                     name = libraryNames[file.canonicalPath] ?: name

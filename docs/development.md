@@ -257,7 +257,7 @@ IslandPanel
 
 `IslandWindow` 负责窗口生命周期和整体状态，不负责具体歌词绘制。
 
-实时频谱由 `ProcessSpectrum` 读取 Windows 音频 helper 的四频段结果，并交给词岛两侧内容绘制。低性能模式使用模拟频谱。
+实时频谱通过 `SpectrumSource` 提供：Windows 使用 `ProcessSpectrum`，Linux 使用 `LinuxProcessSpectrum`。Linux PCM 在 Python helper 中完成 FFT，只将四个频段值送往宿主；`IslandSpectrum` 以约 30 Hz 独立传给界面，不增加歌词/封面状态频率。低性能模式、暂停或不显示频谱时停止 Linux 捕获。
 
 ### 3.6 Linux UI
 
@@ -289,7 +289,7 @@ LinuxIslandProcess
 SPW / HostSettings
 ```
 
-`IslandWire` 定义两边共享的状态与命令模型。
+`IslandWire` 定义两边共享的状态、频谱帧与命令模型。每个命令有递增 ID；宿主在操作完成后记录确认水位，并在读取播放 / 设置快照之前读取水位。界面的 `RemotePlayback` 和 `RemoteSettingsStore` 保留最新 seek、位置和菜单设置预览，忽略旧状态，确认后交接到宿主值；失败则随确认状态恢复，切歌会取消旧 seek。这样松手后不会先跳回旧位置。音频帧不进入 EDT，界面读取最近有效样本；350 ms 无新数据时归零。
 
 ### 3.7 设置
 
@@ -319,7 +319,9 @@ HostSettings
 island.json
 ```
 
-因此托盘菜单不是第二套配置系统。
+托盘菜单只保留四个常用开关和三个操作，状态详情集中在“关于与状态”窗口。该窗口打开时读取状态，并在显示期间每秒更新；关闭后停止定时器。显示、性能、频谱、鼠标交互各自列出当前状态与说明，区分配置停用、等待播放、连接中和异常回退；GNOME 指针扩展未连接时提供安装与重新登录提示。源码入口与简短版权卡片保留在窗口内，完整署名和许可随 ZIP 提供。菜单中的穿透勾选包含悬停隐藏自动启用的穿透，关闭穿透时也关闭悬停隐藏。
+
+因此托盘菜单不是第二套配置系统。`IslandConfigFile` 使用 Gson 解析一次读取到的字节，而不再次读取宿主共享的可变 `ConfigHelper`；空文件、部分 JSON 和并发修改不会覆盖已接受设置。写入先检查读取后的新编辑，再通过同目录临时文件原子替换。SPW 表单短暂截断文件时，显式设置操作最多重试 6 次，间隔 10 ms。Linux 表单拥有字体字段，不再用旧字体强行恢复；插件拥有的位置仍与表单编辑合并。
 
 Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应平台没有可靠实现的设置。
 
@@ -353,7 +355,8 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | `CurrentTrackRecovery.kt` | 插件启动错过曲目回调时进行短时当前曲目恢复 |
 | `HostPlaybackProbe.kt` | 只读探测当前 SPW 内部播放对象和完整歌词轴；属于隔离的兼容代码 |
 | `HostLyricsRecovery.kt` | 有界后台完整歌词探测、行索引复用和请求合并；按歌词代次发布，失败请求延后重试 |
-| `HostSettings.kt` | 将 SPW `ConfigManager` 适配为 `SettingsStore`，负责读取、保存、同步和旧配置迁移 |
+| `HostSettings.kt` | 适配 `SettingsStore`，负责配置同步、合并、保存重试和旧配置迁移 |
+| `IslandConfigFile.kt` | 解析同一次读取的完整 JSON 快照，拒绝空/部分内容，检查新编辑并原子保存 |
 | `IslandPlaybackExtension.kt` | 接收 SPW `PlaybackExtensionPoint` 回调并转换为项目自己的模型 |
 | `IslandPlugin.kt` | PF4J 插件生命周期；创建和释放唯一的 `IslandRuntime`，并提供配置页按钮入口 |
 | `IslandRuntime.kt` | 宿主侧组合根；组装时间轴、设置、元数据、频谱、窗口、平台远程 UI 和播放操作 |
@@ -400,6 +403,7 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 
 | 文件 | 职责 |
 | --- | --- |
+| `RemoteSettingsStore.kt` | 即时应用 Linux 菜单与位置操作，宿主确认后移除待确认编辑 |
 | `IslandWire.kt` | 定义宿主与子 JVM 之间的 `IslandState`、`IslandCommand`，以及子进程使用的 `RemotePlayback` |
 | `LinuxIslandProcess.kt` | 宿主侧独立界面进程管理；发送播放状态和设置，接收播放/seek/设置等命令 |
 | `LinuxIslandMain.kt` | Linux 子 JVM 入口；接收状态、创建 `IslandWindow` 并把用户操作传回宿主 |
@@ -524,11 +528,18 @@ PopupMenuEntry
 | `LightweightPopupMenu.kt` | 非 Linux 平台使用的进程内自绘弹出菜单 |
 | `WindowsTray.kt` / `native/Tray.cs` | Windows 独立托盘程序的生命周期与图标事件转发；菜单仍在插件进程内 |
 | `GtkTray.kt` | Linux 原生 GTK 托盘及其菜单同步 |
-| `AboutDialog.kt` | 项目、来源和许可证信息的自绘关于窗口 |
+| `AboutDialog.kt` | 四项实时状态和简短版权卡片；按文本实际宽度计算高度，窄屏或长说明可滚动 |
+| `BufferedAboutWindow.kt` | 独立关于窗口；Linux 子控件重绘先完成整帧透明缓冲，再一次提交 |
+| `IslandRuntimeStatus.kt` | 将设置、播放、频谱和指针状态转换为可读说明及异常处理提示 |
+| `DialogButton.kt` | 关于窗口统一按钮；绘制与命中使用同一圆角区域，关闭图标始终居中 |
 | `ApplicationIdentity.kt` | 窗口/托盘共享的应用名称和图标，以及 Linux 托盘临时图标导出 |
 | `ProjectLinks.kt` | 从构建资源读取项目地址并调用系统浏览器打开 |
 
 完整设置仍由 SPW 原生插件配置页提供。托盘菜单只提供高频操作，不应逐渐演变成第二套完整设置界面。
+
+关于窗口在 EDT 上更新已有状态行，状态变化不重建窗口；相同内容不重复替换文本。所有文字统一用内置 MiSans；说明文本不可选中或获取焦点。顶部关闭按钮用固定尺寸容器避免布局拉伸；按钮固定使用 BasicButtonUI 提供事件处理，自行绘制悬停、按下与键盘焦点，并将所有绘制裁剪到圆角轮廓，避免 GTK/Synth 改写字体或绘制默认按钮动画。Linux 使用整帧透明缓冲，避免子控件重绘时先清空矩形背景。
+
+关于窗口不再属于词岛窗口。显示期间抑制歌词控件展开，打开、关闭时清空悬停记录；其他窗口收到鼠标进入或移动事件时也清除旧记录，处理合成器漏发离开事件的情况。关闭关于窗口后，只有新的词岛鼠标事件才触发展开。临时验证覆盖按钮命中、主题切换、MiSans、禁止选中、窗口独立性、悬停清理及状态映射；另以隐藏窗口实际渲染检查 GTK、深浅主题、长说明和窄屏换行。
 
 ### 4.9 Windows 原生频谱 helper
 
@@ -590,6 +601,57 @@ IslandLeadingContent / IslandTrailingContent
 菜单数据来自 `GtkTray`。
 
 GTK 与 Swing/AWT 不在同一个 JVM 中初始化，以减少线程和桌面工具包冲突。
+
+另有 `island-spectrum.py`（PipeWire 目标流监控与四频段 FFT）和 `island-pointer.py`（GIO/D-Bus 临时 KWin 脚本或 GNOME 配套扩展客户端）。都只使用 Python 标准库。普通 Linux 悬停使用 `IslandPointerPresence` 聚合自身窗口事件；120 ms 离开延迟避免子控件切换导致收起。穿透通过 `X11InputRegion` 设置空 ShapeInput；隐藏区域保持进入时的轮廓，KWin 坐标超过 750 ms 失效时恢复显示。
+
+#### 方案选择
+
+[Issue #30](https://github.com/GaBoron/SPW-island/issues/30) 的直接问题是：XWayland 窗口失去指针焦点后，全局指针查询可能保留旧坐标。普通悬停展开可以依靠自身窗口的进入/离开事件解决。原生 Wayland 窗口迁移还涉及渲染、输入区域、置顶、定位、GTK/JVM 生命周期与桌面兼容性，不能单靠换窗口后端解决全部功能。
+
+本次采用三个独立改动，保留现有离屏 Swing 渲染及 Linux 独立界面进程：
+
+| 任务 | 实现 | 预期效果 |
+| --- | --- | --- |
+| 普通悬停展开/收起 | 聚合词岛及子控件的进入、移动、离开事件；120 ms 离开延迟 | 移到原生 Wayland 窗口后收起，不被旧的全局坐标重新展开；按钮间移动保持展开，拖动期间不收起 |
+| 穿透时悬停隐藏 | X11 空 ShapeInput；X11 指针查询、KDE Wayland 临时 KWin 桥接或 GNOME Shell 配套扩展 | 点击交给下层窗口；保持进入时的退出边界，避免隐藏动画触发反复显隐 |
+| Linux 实时频谱 | 严格匹配宿主/子进程的 PipeWire 播放节点，原始 PCM → FFT → 四个频段 | 不混入其他应用与麦克风；复用现有频谱动画和封面配色 |
+
+GNOME Wayland 使用配套的 `SPW Island Pointer` 扩展（GNOME 45–50），以只读、按需 D-Bus 方法返回 `global.get_pointer()`；不在 Shell 中运行定时器或修改窗口。其他未提供桥接的 Wayland 桌面仍可使用普通悬停及穿透，自动隐藏保持显示。完整 Wayland 窗口后端作为单独迁移处理。
+
+#### 实现约束
+
+- KWin 桥接只在请求隐藏时启动，临时脚本通过会话 D-Bus 加载，不写入永久设置。指针每 50 ms 更新，超过 750 ms 未收到有效样本时恢复显示。桥接会重连；EOF、退出、过期及辅助进程被终止时清理脚本。脚本也会检测桥接进程的 D-Bus 名称消失并自行卸载。
+- 开启“悬停自动隐藏”时自动使用空输入区域，无需再单独开启穿透。关闭隐藏后按独立穿透开关恢复；找回词岛同时关闭两个开关。GNOME 扩展通过插件配置按钮安装，保留其他扩展设置；首次安装或更新需要重新登录。GNOME 50 的本地扩展发现发生在会话启动时，[`ReloadExtension` 已不支持](https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/50.1/js/ui/shellDBus.js#L449)，[本地扩展在会话启动时被发现](https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/50.1/js/ui/extensionSystem.js#L630)，因此首次安装需重新登录。
+- PipeWire 的服务端客户端 PID 优先于应用自报 PID。只允许 `Stream/Output/Audio`，使用 `object.serial` 指定目标，禁止自动回退和自动连接到其他节点。多个 SPW 流同时存在时优先选择最新的活动流。
+- 捕获使用 `pw-record` 的 48 kHz、双声道 float32 数据，不保存 PCM。2048 点 Hann FFT，双声道分别计算功率再合并，避免反相抵消；频段为 40–250、250–1000、1000–4000、4000–16000 Hz。
+- 一个渐变参考电平保留频段间相对能量；UI 继续使用原有攻击/释放平滑。四个浮点值与来源状态经 `IslandSpectrum` 单独传递，最多约 30 Hz；歌词/封面仍约 10 Hz。350 ms 无新频谱数据时归零。
+- 暂停、关闭显示、不显示频谱及低性能模式都会停止 Linux 捕获。缺少工具或目标流时标明模拟来源；目标流重建后重新发现并连接。
+- 插件设置和托盘中的“找回词岛”始终可恢复操作。
+
+#### 验证
+
+```bash
+./gradlew pluginLinux
+```
+
+测试脚本和测试依赖仅用于临时验证，完成后删除；项目及源码包不保留测试集。以下内容记录已完成验证的方法与范围。
+
+音频集成测试创建临时空输出，不更改默认音频设备，不产生可听声音。两个进程向同一空输出分别播放 100 Hz 与 8 kHz，只监控目标进程；随后断开/重建目标流，确认不改采另一个进程。结束时删除临时输出。
+
+D-Bus 集成测试运行在私有会话，模拟 KWin 的脚本加载、运行、指针更新与卸载接口，检查真实 GIO 调用、发送方限制、数据停止后的退出和临时文件清理。它不代表已经通过 KDE 真机验证。
+
+JVM 回归覆盖窗口事件、原生 X11 输入区域、隐藏状态、频谱 IPC、松手后的进度绘制、连续 seek / 位置提交与设置确认，以及空配置、部分写入、字体修改和并发保存。GNOME 安装测试使用临时配置与 keyfile 后端，检查安装、更新备份及保留其他扩展设置。GNOME 集成测试在私有 D-Bus 和隔离数据目录中启动 headless GNOME Shell，实际加载扩展，检查查询、禁用、重新启用与父进程 EOF 清理。安装包应包含指针扩展 ZIP、音频辅助程序与设置项，不包含 Python 缓存文件。
+
+开发环境为 GNOME Wayland，真实 SPW / PipeWire 已取得连续四频段数据，GNOME 50.1 隔离会话已通过扩展连接测试。临时验证已完成 26 项 JVM 检查；音频与桥接另有 9 项验证记录（5 项 Python 音频、KWin / GNOME / PipeWire / GNOME 安装各 1 项集成验证），验证结束后已删除测试集及依赖。当前桌面首次激活扩展需重新登录；KDE Plasma 5/6 真机、混合缩放及多显示器仍需桌面验收：
+
+1. 普通模式进入词岛、移入播放按钮/进度条、移到原生窗口；确认展开、保持、收起。
+2. 拖动词岛或进度条越过边界，松开后恢复正常悬停判断。
+3. 开启穿透及自动隐藏，在词岛区域进入、静止、移开；确认点击下层窗口与一次隐藏/恢复。
+4. 隐藏中关闭桥接或禁用 GNOME 扩展 / 重启 KWin；确认自动显示与重新连接。
+5. 在不同缩放的屏幕间移动词岛，检查指针与隐藏轮廓对齐。
+6. 切歌、输出设备变化及音频服务重启；检查重新连接、来源标注和进程清理。
+
+`native/gnome-pointer/extension.js` 和 `metadata.json` 提供只读 GNOME Shell 扩展；`install-gnome-pointer.py` 安装配套 ZIP，保留其他扩展设置，并提醒重新登录。Gradle 的 `gnomePointer` 任务生成独立扩展包，同时装入 Linux 插件资源。
 
 ### 4.11 资源与构建入口
 
@@ -1341,6 +1403,7 @@ SPW 提供：
 - JNA；
 - JNA Platform；
 - Jaudiotagger；
+- Gson（配置快照解析）；
 - Windows 字体窗口使用的 Compose 运行库；
 - 插件资源；
 - 平台需要的 native/helper 文件。

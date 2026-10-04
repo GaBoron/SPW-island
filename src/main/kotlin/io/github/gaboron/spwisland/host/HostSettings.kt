@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 
 class HostSettings(private val manager: ConfigManager, private val changed: () -> Unit) : SettingsStore, AutoCloseable {
     private val lock = Any()
-    private val config = manager.getConfig("island.json")
+    private val config = IslandConfigFile(manager.getConfig("island.json").getConfigPath())
     private var closed = false
     private var saveInProgress = false
     private var accepted: IslandSettings? = null
@@ -52,8 +52,8 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         experimentalMultiLine = config.get("experimental_multi_line", false),
         hidePaused = config.get("hide_paused", accepted?.hidePaused ?: false),
         hideFullscreen = Platform.isWindows() && config.get("hide_fullscreen", accepted?.hideFullscreen ?: true),
-        clickThrough = Platform.isWindows() && config.get("click_through", accepted?.clickThrough ?: false),
-        autoHideOnHover = Platform.isWindows() && config.get("auto_hide_on_hover", accepted?.autoHideOnHover ?: false),
+        clickThrough = config.get("click_through", accepted?.clickThrough ?: false),
+        autoHideOnHover = config.get("auto_hide_on_hover", accepted?.autoHideOnHover ?: false),
         // Keep the original key so existing users retain their enabled setting after the rename.
         lowPerformance = config.get("reduced_motion", false), notch = config.get("shape", "pill") == "notch",
         cornerRoundness = number("corner_roundness", 95, 0, 100),
@@ -62,7 +62,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         backgroundProgress = backgroundProgressMode(),
         spectrumCoverColor = config.get("spectrum_cover_color", false),
         fixedWidth = config.get("fixed_width", false),
-        sideContent = if (!Platform.isWindows()) SideContent.COVER else when (config.get("leading_content", "cover_spectrum")) {
+        sideContent = when (config.get("leading_content", "cover_spectrum")) {
             "spectrum" -> SideContent.SPECTRUM
             "cover" -> SideContent.COVER
             "none" -> SideContent.NONE
@@ -88,13 +88,14 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
             if (bytes.isEmpty() || fingerprint?.contentEquals(bytes) == true) return
             // Failed/partial writes must not replace the last usable snapshot with defaults.
             val retainedPosition = accepted?.positionState()
-            val retainedFont = accepted?.fontState()
-            if (!config.reload()) return
+            // Linux exposes font keys in SPW's form; those edits must be accepted too.
+            val retainedFont = if (Platform.isWindows()) accepted?.fontState() else null
+            if (!config.reload(bytes)) return
             val value = decodePreservingPluginSettings(retainedPosition, retainedFont)
             val positionRestored = restorePosition(retainedPosition)
             val fontRestored = restoreFont(retainedFont)
-            val normalized = normalizeIntegerSettings() or normalizeBackgroundProgressSetting()
-            val needsSave = positionRestored || fontRestored || normalized
+            // Decode numeric sliders without writing back during every form edit.
+            val needsSave = positionRestored || fontRestored
             if (needsSave && !saveConfig()) return
             // A later host write can race with save(). Recheck the file on the next poll,
             // and never decode the mutable helper again to replace our owned state.
@@ -215,17 +216,26 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         synchronized(lock) {
             if (closed) return
             val retainedPosition = if (replacesPosition) null else accepted?.positionState()
-            val retainedFont = if (replacesFont) null else accepted?.fontState()
-            // Preserve settings written by the host even if its notification has not arrived yet.
-            if (Files.exists(config.getConfigPath())) check(config.reload()) { "词岛设置读取失败，未覆盖已有设置。" }
-            restorePosition(retainedPosition)
-            restoreFont(retainedFont)
-            change(config)
-            val next = decodePreservingPluginSettings(retainedPosition, retainedFont)
-            check(saveConfig()) { "词岛设置保存失败，请检查 SPW 配置目录权限。" }
-            // Keep the requested snapshot even if the helper's cache changes during save.
-            accepted = next
-            fingerprint = null
+            val retainedFont = if (replacesFont || !Platform.isWindows()) null else accepted?.fontState()
+            // Brief truncation and concurrent edits are normal for SPW's form. Retry a complete
+            // read/merge/save, rather than saving defaults or reporting a transient race as failure.
+            var saved = false
+            for (attempt in 0 until 6) {
+                if (!Files.exists(config.getConfigPath()) || config.reload()) {
+                    restorePosition(retainedPosition)
+                    restoreFont(retainedFont)
+                    change(config)
+                    val next = decodePreservingPluginSettings(retainedPosition, retainedFont)
+                    if (saveConfig()) {
+                        accepted = next
+                        fingerprint = null
+                        saved = true
+                        break
+                    }
+                }
+                if (attempt < 5) Thread.sleep(10)
+            }
+            check(saved) { "词岛设置保存失败或配置仍在写入，未覆盖已有设置。" }
         }
         changed()
     }

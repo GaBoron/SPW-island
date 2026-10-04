@@ -6,3 +6,5 @@ build/
 .codex/
 .agents/
 AGENTS.md
+__pycache__/
+*.pyc
