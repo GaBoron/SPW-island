@@ -6,7 +6,7 @@
 
 | 平台 | 状态 | 说明 |
 | --- | --- | --- |
-| Windows 10 / 11 x64 | 主要支持平台 | 功能最完整，也是主要验证环境 |
+| Windows 10 / 11 x64 | 主要支持平台 | 原生窗口功能较完整；音频环境要求见下文 |
 | Linux x64 | 实验性支持 | 需要 GTK 3、`/usr/bin/python3` 和 X11 / XWayland |
 | macOS | 暂无计划 | 当前没有构建和平台适配 |
 | Android / iOS / HarmonyOS | 不支持 | Salt Player 当前没有对应插件运行环境 |
