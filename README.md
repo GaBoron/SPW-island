@@ -12,7 +12,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0%20%2B%20AGPL--3.0-blue" alt="License"></a>
 </p>
 
-把 SPW 当前播放的歌词放到桌面上方，支持逐字歌词、翻译、AMLL 风格动效、专辑封面与取色、播放控制，以及实时频谱、鼠标穿透与按平台支持的自动隐藏。
+把 SPW 当前播放的歌词放到桌面上方，支持逐字歌词、翻译、AMLL 风格动效、专辑封面与取色、播放控制、实时频谱、鼠标穿透和自动隐藏。
 
 QQ 交流群：`1054809039`
 
@@ -22,7 +22,7 @@ QQ 交流群：`1054809039`
 - 胶囊 / 刘海外观，支持圆角、宽度、透明度、字体和多种封面取色；
 - 悬停展开上一首、播放 / 暂停、下一首和可拖动进度条；
 - 九宫格拖动吸附，顶部和底部会自动调整展开方向；
-- Windows 和 Linux 可显示 SPW 进程的四频段实时频谱、频谱取色和鼠标穿透；
+- Windows 和 Linux 均支持 SPW 进程的四频段实时频谱、频谱取色和鼠标穿透；
 - 悬停隐藏支持 Windows、X11、KDE Wayland 与安装配套扩展的 GNOME Wayland；全屏隐藏目前仅支持 Windows。
 
 详细设置见 [使用与设置](docs/usage.md)，平台差异见 [兼容性与限制](docs/compatibility.md)。

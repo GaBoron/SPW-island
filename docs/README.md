@@ -17,5 +17,3 @@
 - [下载最新版本](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest)
 - [提交 Issue](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/issues)
 - [SPW-Lyrics](https://github.com/GaBoron/SPW-Lyrics)：可选的歌词获取插件
-
-用户文档尽量只解释使用和平台行为；具体实现放在开发指南里，避免同一件事在几篇文档里重复维护。涉及测试时，只提供方法建议、环境准备和判定条件，不记录执行状态或数量统计。
