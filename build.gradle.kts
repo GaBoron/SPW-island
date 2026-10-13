@@ -21,6 +21,8 @@ require(targetPlatform == null || targetPlatform == "windows" || targetPlatform 
 val isWindows = targetPlatform?.let { it == "windows" } ?: currentOs.isWindows
 val isLinux = targetPlatform?.let { it == "linux" } ?: currentOs.isLinux
 val metadataSources by configurations.creating { isTransitive = false }
+val linuxSkikoRuntime by configurations.creating { isTransitive = false }
+val skikoVersion = "0.150.1"
 dependencies {
     compileOnly(kotlin("stdlib"))
     compileOnly(workshop) { isTransitive = false }
@@ -30,6 +32,8 @@ dependencies {
     implementation("net.jthink:jaudiotagger:3.0.1")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation(compose.desktop.currentOs)
+    implementation("org.jetbrains.skiko:skiko-awt:$skikoVersion")
+    linuxSkikoRuntime("org.jetbrains.skiko:skiko-awt-runtime-linux-x64:$skikoVersion")
     metadataSources("net.jthink:jaudiotagger:3.0.1:sources")
 }
 val gnomePointer = tasks.register<Zip>("gnomePointer") {
@@ -139,13 +143,17 @@ fun registerPluginArchive(taskName: String, platform: String, enabled: Boolean) 
                     !file.name.startsWith("jna-") &&
                     !file.name.startsWith("jna-platform-") &&
                     !file.name.startsWith("jaudiotagger-") &&
-                    !file.name.startsWith("gson-")) {
+                    !file.name.startsWith("gson-") &&
+                    !file.name.startsWith("kotlin-stdlib-") &&
+                    !file.name.startsWith("kotlinx-coroutines-core-jvm-") &&
+                    !(file.name.startsWith("skiko-awt-") && !file.name.startsWith("skiko-awt-runtime-"))) {
                     exclude()
                 } else {
                     name = libraryNames[file.canonicalPath] ?: name
                 }
             }
         }
+        if (platform == "linux") from(linuxSkikoRuntime)
     }
     into("licenses") { from("licenses") }
     into("source") { from(tasks.named("sourceArchive")); from(metadataSources) }

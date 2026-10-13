@@ -9,8 +9,6 @@ import io.github.gaboron.spwisland.core.*
 import java.util.function.Consumer
 import java.nio.file.Files
 import kotlin.math.roundToInt
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 class HostSettings(private val manager: ConfigManager, private val changed: () -> Unit) : SettingsStore, AutoCloseable {
     private val lock = Any()
@@ -19,21 +17,17 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
     private var saveInProgress = false
     private var accepted: IslandSettings? = null
     private var fingerprint: ByteArray? = null
-    private val poller = Executors.newSingleThreadScheduledExecutor { task ->
-        Thread(task, "SPW Island settings sync").apply { isDaemon = true }
+    private val watcher = IslandConfigWatch(config.getConfigPath(), ::refresh) {
+        System.err.println("[SPW Island] Settings sync: ${it.message}")
     }
     // Notifications are hints only. Keep our helper instead of adopting the settings form's
     // mutable cache, which can still contain the position from before the latest drag.
-    private val listener = Consumer<ConfigHelper> { refresh() }
+    private val listener = Consumer<ConfigHelper> { watcher.request() }
     init {
         migrateSettings()
         accepted = decode()
         manager.addConfigChangeListener("island.json", listener)
-        // SPW can fail to register its watcher when a plugin's data directory does not yet exist.
-        // Re-read the actual file independently; notifications remain a fast path only.
-        poller.scheduleWithFixedDelay({ runCatching { refresh() }.onFailure {
-            System.err.println("[SPW Island] Settings sync: ${it.message}")
-        } }, 250, 250, TimeUnit.MILLISECONDS)
+        watcher.start()
     }
 
     override fun read(): IslandSettings = synchronized(lock) { accepted ?: decode() }
@@ -81,28 +75,33 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         legacyCenterX = optionalNumber("center_x"),
         legacyTop = optionalNumber("top")
     )
-    internal fun refresh() {
+    internal fun refresh(): Boolean {
+        var retry = false
         val notify = synchronized(lock) {
-            if (closed || saveInProgress || !Files.exists(config.getConfigPath())) return
+            if (closed) return true
+            if (saveInProgress || !Files.exists(config.getConfigPath())) return false
             val bytes = Files.readAllBytes(config.getConfigPath())
-            if (bytes.isEmpty() || fingerprint?.contentEquals(bytes) == true) return
+            if (bytes.isEmpty()) return false
+            if (fingerprint?.contentEquals(bytes) == true) return true
             // Failed/partial writes must not replace the last usable snapshot with defaults.
             val retainedPosition = accepted?.positionState()
             // Linux exposes font keys in SPW's form; those edits must be accepted too.
             val retainedFont = if (Platform.isWindows()) accepted?.fontState() else null
-            if (!config.reload(bytes)) return
+            if (!config.reload(bytes)) return false
             val value = decodePreservingPluginSettings(retainedPosition, retainedFont)
             val positionRestored = restorePosition(retainedPosition)
             val fontRestored = restoreFont(retainedFont)
             // Decode numeric sliders without writing back during every form edit.
             val needsSave = positionRestored || fontRestored
-            if (needsSave && !saveConfig()) return
+            if (needsSave && !saveConfig()) return false
             // A later host write can race with save(). Recheck the file on the next poll,
             // and never decode the mutable helper again to replace our owned state.
             fingerprint = if (needsSave) null else bytes
+            retry = needsSave
             (value != accepted).also { accepted = value }
         }
         if (notify) changed()
+        return !retry
     }
 
     private fun decodePreservingPluginSettings(position: PositionState?, font: FontState?): IslandSettings {
@@ -241,7 +240,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
     }
     override fun close() {
         synchronized(lock) { closed = true }
-        poller.shutdownNow()
+        watcher.close()
         manager.removeConfigChangeListener(listener)
     }
 

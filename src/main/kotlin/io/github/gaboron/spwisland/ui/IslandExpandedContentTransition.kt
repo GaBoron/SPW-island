@@ -13,6 +13,8 @@ import kotlin.math.floor
 internal class IslandExpandedContentTransition {
     private var pixels: BufferedImage? = null
 
+    fun release() { pixels?.flush(); pixels = null }
+
     fun prepare(width: Int, scale: AffineTransform) = reserve(
         ceil(width * scale.scaleX).toInt(), ceil(STRIP_HEIGHT * scale.scaleY).toInt())
 
@@ -20,6 +22,8 @@ internal class IslandExpandedContentTransition {
         val sx = target.transform.scaleX
         val sy = target.transform.scaleY
         val rasterTop = floor(top * sy) / sy
+        val alpha = opacity(expansion)
+        val shift = 7.0 * (1.0 - alpha) + (expansion - 1.0).coerceAtLeast(0.0) * 30.0
         reserve(ceil(width * sx).toInt(), ceil(STRIP_HEIGHT * sy).toInt())
         val buffer = pixels!!
         val layer = buffer.createGraphics()
@@ -33,8 +37,6 @@ internal class IslandExpandedContentTransition {
             layer.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON)
             draw(layer)
         } finally { layer.dispose() }
-        val alpha = opacity(expansion)
-        val shift = 7.0 * (1.0 - alpha) + (expansion - 1.0).coerceAtLeast(0.0) * 30.0
         val presentation = target.create() as Graphics2D
         try {
             val composite = presentation.composite as? AlphaComposite ?: AlphaComposite.SrcOver
@@ -53,10 +55,10 @@ internal class IslandExpandedContentTransition {
     }
 
     companion object {
-        private const val STRIP_HEIGHT = IslandTextBlock.EXPANDED_HEIGHT + 14
+        internal const val STRIP_HEIGHT = IslandTextBlock.EXPANDED_HEIGHT + 14
         fun visible(expansion: Double): Boolean = opacity(expansion) > .001f
 
-        private fun opacity(expansion: Double): Float {
+        internal fun opacity(expansion: Double): Float {
             val progress = ((expansion.coerceIn(0.0, 1.0) - .08) / .92).coerceIn(0.0, 1.0)
             return (progress * progress * (3.0 - 2.0 * progress)).toFloat()
         }

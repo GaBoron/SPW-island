@@ -12,6 +12,14 @@ internal class IslandAlphaMask {
     private var mask: BufferedImage? = null
     private var foreground: BufferedImage? = null
     private var key: List<Any>? = null
+    private var contentWidth = 0
+    private var contentHeight = 0
+
+    fun release() {
+        pixels?.flush(); mask?.flush(); foreground?.flush()
+        pixels = null; mask = null; foreground = null; key = null
+        contentWidth = 0; contentHeight = 0
+    }
 
     fun prepare(panel: IslandPanel, scale: AffineTransform) =
         reserveFor(panel, scale.scaleX, scale.scaleY, 1, 1)
@@ -26,11 +34,13 @@ internal class IslandAlphaMask {
         val w = ceil(bounds.width * sx).toInt().coerceAtLeast(1)
         val h = ceil(bounds.height * sy).toInt().coerceAtLeast(1)
         reserveFor(panel, sx, sy, w, h)
+        val nextContentWidth = ceil(panel.width * sx).toInt()
+        val nextContentHeight = ceil(panel.height * sy).toInt()
         // A resident, unmasked content layer keeps text and controls warm even at zero visibility.
         foreground!!.createGraphics().let { layer ->
             try {
                 layer.composite = AlphaComposite.Clear
-                layer.fillRect(0, 0, foreground!!.width, foreground!!.height)
+                layer.fillRect(0, 0, maxOf(contentWidth, nextContentWidth), maxOf(contentHeight, nextContentHeight))
                 layer.composite = AlphaComposite.SrcOver
                 layer.clipRect(0, 0, ceil(panel.width * sx).toInt(), ceil(panel.height * sy).toInt())
                 layer.scale(sx, sy)
@@ -38,6 +48,7 @@ internal class IslandAlphaMask {
                 drawContent(layer)
             } finally { layer.dispose() }
         }
+        contentWidth = nextContentWidth; contentHeight = nextContentHeight
         if (frame.opacity <= 0.0) return
         val next = listOf(bounds, frame.maskKey, sx, sy)
         if (key != next) {
@@ -89,6 +100,7 @@ internal class IslandAlphaMask {
             pixels = BufferedImage(capacityW, capacityH, BufferedImage.TYPE_INT_ARGB_PRE)
             mask = BufferedImage(capacityW, capacityH, BufferedImage.TYPE_INT_ARGB_PRE)
             foreground = BufferedImage(capacityW, capacityH, BufferedImage.TYPE_INT_ARGB_PRE)
+            contentWidth = 0; contentHeight = 0
             key = null
         }
     }

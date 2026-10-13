@@ -26,9 +26,9 @@ data class PlaybackSnapshot(val track: Track?, val line: LyricLine?, val positio
                             val playing: Boolean, val status: PlaybackStatus,
                             val metadata: TrackMetadata = TrackMetadata(),
                             val lyrics: List<LyricLine> = emptyList(),
-                            val playbackRate: Double = 1.0) : java.io.Serializable {
-    val usesWordTiming: Boolean = lyrics.ifEmpty { listOfNotNull(line) }.any { it.hasWordTimingEvidence }
-}
+                            val playbackRate: Double = 1.0,
+                            val usesWordTiming: Boolean = lyrics.ifEmpty { listOfNotNull(line) }
+                                .any { it.hasWordTimingEvidence }) : java.io.Serializable
 
 class CoverArtwork(val width: Int, val height: Int, internal val argb: IntArray) : java.io.Serializable
 data class TrackMetadata(val durationMs: Long = 0, val coverRgb: Int? = null,

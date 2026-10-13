@@ -12,17 +12,20 @@ object AmllWordPainter {
 
     fun draw(g: Graphics2D, shaped: ShapedText, text: String, words: List<Word>, time: Long,
              origin: Float, baseline: Float, fontSize: Float, motion: Boolean, color: Color = Color.WHITE,
-             contrastOutline: Boolean = false) {
-        val geometry = WordGeometry.ready(shaped, text, words.map { it.text })
+             contrastOutline: Boolean = false,
+             geometry: List<WordGeometry.Cell>? = WordGeometry.ready(shaped, text, words),
+             longTones: BooleanArray? = null) {
         if (geometry == null) {
             drawTimed(g, shaped, words, time, origin, baseline, fontSize, color, contrastOutline)
             return
         }
         for ((wordIndex, word) in words.withIndex()) {
-            val longTone = motion && longToneRules.isLongTone(word)
+            val longTone = motion && (longTones?.get(wordIndex) ?: longToneRules.isLongTone(word))
             val cell = geometry[wordIndex]
             val wordBounds = cell.bounds
             val clusters = cell.clusters
+            val progress = word.progress(time)
+            val paint = highlight(shaped, wordBounds, progress, fontSize, color)
             for ((index, cluster) in clusters.withIndex()) {
                 val bounds = cluster.bounds
                 val area = cluster.shape
@@ -33,10 +36,9 @@ object AmllWordPainter {
                     copy.translate(origin.toDouble(), baseline.toDouble())
                     copy.translate(pose.xEm * fontSize + bounds.centerX, pose.yEm * fontSize + bounds.centerY)
                     copy.scale(pose.scale, pose.scale); copy.translate(-bounds.centerX, -bounds.centerY)
-                    val progress = word.progress(time)
                     LyricGlow.draw(copy, area, fontSize, color, pose.glow)
                     if (contrastOutline) LyricContrastOutline.draw(copy, area, fontSize)
-                    copy.paint = highlight(shaped, wordBounds, progress, fontSize, color)
+                    copy.paint = paint
                     copy.fill(area)
                 } finally { copy.dispose() }
             }
@@ -58,7 +60,7 @@ object AmllWordPainter {
                 copy.translate(origin.toDouble(), baseline.toDouble())
                 copy.clip(region)
                 copy.paint = highlight(shaped, region.bounds2D, word.progress(time), fontSize, color)
-                shaped.layout.draw(copy, 0f, 0f)
+                LyricPainter.drawShaped(copy, shaped, 0f, 0f)
             } finally { copy.dispose() }
             start = end
         }

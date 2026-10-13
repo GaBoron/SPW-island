@@ -6,6 +6,9 @@ import com.sun.jna.Native
 import com.sun.jna.platform.unix.X11
 import java.nio.file.Files
 import java.nio.file.Path
+import org.jetbrains.skiko.SkiaLayer
+import kotlinx.coroutines.Job
+import java.net.JarURLConnection
 
 /** Only Python's standard library is required; GTK is loaded directly for native menus. */
 internal object LinuxHelper {
@@ -41,15 +44,30 @@ internal object LinuxHelper {
         environment()["GDK_BACKEND"] = "x11"
     }.start()
 
-    fun startUi(javaHome: String = System.getProperty("java.home")): Process {
-        val classes = listOf(LinuxHelper::class.java, kotlin.Unit::class.java, Native::class.java, X11::class.java)
-        val paths = classes.map { Path.of(it.protectionDomain.codeSource.location.toURI()).toString() }.toMutableList()
+    internal fun uiClasspath(): String {
+        val classes = listOf(LinuxHelper::class.java, kotlin.Unit::class.java, Native::class.java, X11::class.java,
+            SkiaLayer::class.java, Job::class.java)
+        val own = Path.of(LinuxHelper::class.java.protectionDomain.codeSource.location.toURI())
+        val paths = mutableListOf(own.toString())
+        // Prefer the plugin's bundled versions to similarly named libraries already loaded by SPW.
+        val libraries = own.parent.resolve("lib")
+        if (Files.isDirectory(libraries)) Files.list(libraries).use { jars ->
+            jars.filter { it.fileName.toString().endsWith(".jar") }.sorted().forEach { paths += it.toString() }
+        }
+        paths += classes.map { Path.of(it.protectionDomain.codeSource.location.toURI()).toString() }
         // Gradle keeps classes/resources separate; an installed plugin contains both in classes/.
         LinuxHelper::class.java.getResource("/native/island-linux.py")?.takeIf { it.protocol == "file" }?.let {
             paths += Path.of(it.toURI()).parent.parent.toString()
         }
-        val classpath = paths.distinct().joinToString(java.io.File.pathSeparator)
-        return start("jvm", javaHome, classpath,
+        // The native runtime is a separate JAR; resolve its resource without loading Skiko in the host.
+        SkiaLayer::class.java.getResource("/libskiko-linux-x64.so")?.takeIf { it.protocol == "jar" }?.let {
+            paths += Path.of((it.openConnection() as JarURLConnection).jarFileURL.toURI()).toString()
+        }
+        return paths.distinct().joinToString(java.io.File.pathSeparator)
+    }
+
+    fun startUi(javaHome: String = System.getProperty("java.home")): Process {
+        return start("jvm", javaHome, uiClasspath(),
             "io/github/gaboron/spwisland/remote/LinuxIslandMain", ApplicationIdentity.NAME)
     }
 }

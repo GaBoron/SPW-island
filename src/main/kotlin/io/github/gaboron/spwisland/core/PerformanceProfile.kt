@@ -5,7 +5,7 @@ enum class SpectrumMode { LIVE, SYNTHETIC }
 
 /** Central performance budget for rendering, background work and optional host integration. */
 enum class PerformanceProfile(
-    val frameDelayMs: Int,
+    val maxFrameRate: Int,
     val animateLayout: Boolean,
     val detailedKaraoke: Boolean,
     val renderBackgroundProgress: Boolean,
@@ -14,8 +14,8 @@ enum class PerformanceProfile(
     val screenCheckIntervalNs: Long,
     val topmostCheckIntervalNs: Long
 ) {
-    STANDARD(8, true, true, true, SpectrumMode.LIVE, true, 400_000_000L, 100_000_000L),
-    LOW(67, false, false, false, SpectrumMode.SYNTHETIC, false, 1_500_000_000L, 500_000_000L)
+    STANDARD(120, true, true, true, SpectrumMode.LIVE, true, 400_000_000L, 100_000_000L),
+    LOW(15, false, false, false, SpectrumMode.SYNTHETIC, false, 1_500_000_000L, 500_000_000L)
 }
 
 val IslandSettings.performance: PerformanceProfile

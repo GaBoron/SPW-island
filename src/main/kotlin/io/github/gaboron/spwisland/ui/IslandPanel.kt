@@ -6,6 +6,8 @@ import io.github.gaboron.spwisland.core.*
 import java.awt.*
 import javax.swing.*
 import kotlin.math.roundToInt
+import io.github.gaboron.spwisland.longtone.LongToneAnalysis
+import io.github.gaboron.spwisland.ui.gpu.IslandGpuFrame
 
 interface PlaybackActions { fun previous(); fun toggle(); fun next(); fun seek(positionMs: Long) {} }
 
@@ -14,7 +16,8 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
     private val expandedContent = IslandExpandedContentTransition()
     private val backgroundProgress = IslandProgressTransition()
     private val lyricLayouts = IslandLyricsLayout.Cache()
-    private val lyricsPreparation = IslandLyricsPreparation(lyricLayouts, report)
+    private val longTones = LongToneAnalysis()
+    private val lyricsPreparation = IslandLyricsPreparation(lyricLayouts, longTones, report)
     private var measuredSnapshot: PlaybackSnapshot? = null
     private var measuredSettings: IslandSettings? = null
     private var measuredLayout: IslandLyricsLayout? = null
@@ -26,11 +29,13 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
         IslandHoverGeometry.frame(width, height, settings.notch, settings.cornerRoundness,
             IslandHoverMotion.Pose.SHOWN))
 
-    internal fun paintPresentation(target: Graphics2D, frame: IslandHoverGeometry.Frame) =
+    internal fun paintPresentation(target: Graphics2D, frame: IslandHoverGeometry.Frame) {
         alphaMask.paint(target, this, frame,
             drawBackground = { paintBackground(it, frame.shape) },
             drawContent = ::paintContent
         )
+    }
+    internal var gpuDrawing = false
     var settings = IslandSettings()
     var anchor = IslandAnchor.TOP_CENTER
     var snapshot = PlaybackSnapshot(null, null, 0, false, PlaybackStatus.IDLE)
@@ -94,8 +99,34 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
     }
 
     internal fun prepareBuffers(scale: java.awt.geom.AffineTransform) {
+        if (gpuDrawing) return
         alphaMask.prepare(this, scale)
         expandedContent.prepare(maxOf(width, (parent as? IslandSurface)?.renderCapacity?.width ?: 0), scale)
+    }
+
+    internal fun releaseBuffers() { alphaMask.release(); expandedContent.release() }
+
+    internal fun gpuFrame(): IslandGpuFrame {
+        val reveal = expansion ?: if (expanded) 1.0 else 0.0
+        val animation = if (settings.performance.animateLayout) transition else 1.0
+        val controls = if (reveal > .08) listOf(previous, play, next).map {
+            IslandGpuFrame.Control(it.bounds, it.icon as PlaybackIcon, it.foreground.rgb,
+                it.model.isPressed && it.model.isArmed)
+        } else emptyList()
+        val info = if (controls.isNotEmpty()) trackInfo() else null
+        return IslandGpuFrame(width, height, animatedWidth, animatedHeight, anchor, settings, snapshot,
+            outgoing, lyricsLayout(), outgoing?.takeIf { animation < 1.0 }?.let { lyricLayouts.forSnapshot(it, settings) },
+            longTones, bands, reveal, animation, backgroundProgress.mode, backgroundProgress.opacity,
+            info, if (info != null) infoLabel else null, controls,
+            if (controls.isNotEmpty()) progress.presentation() else null,
+            if (controls.isNotEmpty()) progress.bounds else null)
+    }
+
+    private fun trackInfo(): ShapedText {
+        if (infoTrack != snapshot.track) {
+            infoTrack = snapshot.track; infoLabel = IslandLyricsPreparation.trackLabel(infoTrack); infoShape = null
+        }
+        return infoShape ?: LyricTypography.shape(infoLabel, infoFont).also { infoShape = it }
     }
 
     internal fun updateProgressTransition(dt: Double) {
@@ -126,7 +157,8 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
             button.setBounds(width / 2 - 81 + index * 56, lyricAreaBottom + 26, 50, 30)
         }
         play.icon = if (snapshot.playing) PlaybackIcon.PAUSE else PlaybackIcon.PLAY
-        play.toolTipText = if (snapshot.playing) "暂停" else "播放"
+        val tooltip = if (snapshot.playing) "暂停" else "播放"
+        if (play.toolTipText != tooltip) play.toolTipText = tooltip
     }
     private fun paintBackground(g: Graphics2D, shape: Shape) {
         val palette = IslandPalette.from(settings, snapshot.metadata.coverRgb)
@@ -160,10 +192,8 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
                 VerticalAnchor.CENTER -> (height / 2).toFloat() - contentHeight / 2f
                 VerticalAnchor.BOTTOM -> height - contentHeight
             }
+            g.clip(shape)
             g.translate(contentX.toDouble(), contentY.toDouble())
-            g.clip(java.awt.geom.AffineTransform.getTranslateInstance(
-                -contentX.toDouble(), -contentY.toDouble()
-            ).createTransformedShape(shape))
             val lyricLayout = lyricsLayout()
             val lyricAreaHeight = (contentHeight - reveal * IslandTextBlock.EXPANDED_HEIGHT).toFloat().coerceAtLeast(1f)
             val lyricAreaTop = 0f
@@ -180,7 +210,7 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
                 val previousLayout = outgoing?.takeIf { animation < 1.0 }
                     ?.let { lyricLayouts.forSnapshot(it, settings) }
                 IslandLyricsPainter.draw(lyrics, snapshot, outgoing, settings, contentWidth,
-                    lyricAreaHeight, animation, layout.textInset, lyricLayout, previousLayout)
+                    lyricAreaHeight, animation, layout.textInset, lyricLayout, previousLayout, longTones)
             } finally { lyrics.dispose() }
             IslandTrailingContent.draw(g, settings.sideContent, snapshot, bands,
                 layout.statusCenterX(contentWidth), lyricAreaTop + lyricAreaHeight / 2f,
@@ -189,12 +219,7 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
                 val info = layer.create() as Graphics2D
                 try {
                     info.translate(contentX.toDouble(), contentY.toDouble())
-                    if (infoTrack != snapshot.track) {
-                        infoTrack = snapshot.track
-                        infoLabel = IslandLyricsPreparation.trackLabel(infoTrack)
-                        infoShape = null
-                    }
-                    val shaped = infoShape ?: LyricTypography.shape(infoLabel, infoFont).also { infoShape = it }
+                    val shaped = trackInfo()
                     LyricPainter.draw(info, infoLabel, emptyList(), 0, layout.infoInset,
                         lyricAreaHeight + 17f,
                         contentWidth - layout.infoInset * 2,
@@ -205,5 +230,5 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
         } finally { g.dispose() }
     }
 
-    override fun close() = lyricsPreparation.close()
+    override fun close() { lyricsPreparation.close(); longTones.clear(); releaseBuffers() }
 }

@@ -24,14 +24,27 @@ internal object IslandRuntimeStatus {
     fun describe(settings: IslandSettings, snapshot: PlaybackSnapshot, visible: Boolean,
                  hoverHidden: Boolean, fullscreen: Boolean, inputAvailable: Boolean,
                  pointerReady: Boolean, pointerStatus: String, fallback: Boolean,
-                 spectrumStatus: String): List<IslandStatusEntry> = listOf(
+                 spectrumStatus: String, gpuActive: Boolean = false,
+                 gpuFallback: Boolean = false): List<IslandStatusEntry> = listOf(
         display(settings, snapshot, visible, hoverHidden, fullscreen),
-        if (settings.lowPerformance) IslandStatusEntry("性能模式", "低性能模式",
-            "降低刷新率与动效，使用模拟频谱。")
-        else IslandStatusEntry("性能模式", "标准模式", "完整高亮与动效，支持实时频谱。"),
+        performance(settings, gpuActive, gpuFallback),
         spectrum(settings, snapshot, fallback, spectrumStatus),
         interaction(settings, visible, inputAvailable, pointerReady, pointerStatus)
     )
+
+    private fun performance(settings: IslandSettings, gpuActive: Boolean, fallback: Boolean): IslandStatusEntry {
+        val mode = if (settings.lowPerformance) "低性能模式" else "标准模式"
+        val effects = if (settings.lowPerformance) "降低刷新率与动效，使用模拟频谱。"
+            else "完整高亮与动效，支持实时频谱。"
+        val rendering = when {
+            !settings.enabled -> "显示词岛时启用绘制。"
+            gpuActive -> "GPU 绘制已启用。"
+            fallback -> "GPU 不可用，已切换兼容绘制；重启插件后重试。"
+            else -> "等待窗口初始化。"
+        }
+        return IslandStatusEntry("性能模式", mode + if (fallback) " · 兼容绘制" else "",
+            "$effects$rendering", settings.enabled && fallback)
+    }
 
     private fun display(s: IslandSettings, p: PlaybackSnapshot, visible: Boolean, hoverHidden: Boolean,
                         fullscreen: Boolean): IslandStatusEntry {

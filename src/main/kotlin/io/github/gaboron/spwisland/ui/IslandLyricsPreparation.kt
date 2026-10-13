@@ -8,9 +8,11 @@ import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import io.github.gaboron.spwisland.longtone.LongToneAnalysis
 
 /** Prepares a few imminent lines without waiting on the presentation thread or warming an entire song. */
 internal class IslandLyricsPreparation(private val layouts: IslandLyricsLayout.Cache,
+                                      private val longTones: LongToneAnalysis,
                                       private val report: (Throwable) -> Unit) : AutoCloseable {
     private val worker = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, ArrayBlockingQueue(1),
         { task -> Thread(task, "island-lyrics-preparation").apply { isDaemon = true } },
@@ -25,6 +27,8 @@ internal class IslandLyricsPreparation(private val layouts: IslandLyricsLayout.C
     @Volatile private var closed = false
     @Volatile var preparedHeight = 0
         private set
+    private var analyzedLyrics: List<LyricLine>? = null
+    private var analyzedTrack: Track? = null
 
     fun update(snapshot: PlaybackSnapshot, nextSettings: IslandSettings) {
         if (closed) return
@@ -44,6 +48,19 @@ internal class IslandLyricsPreparation(private val layouts: IslandLyricsLayout.C
     }
 
     private fun prepare(snapshot: PlaybackSnapshot, settings: IslandSettings, request: Long) {
+        if (analyzedTrack != snapshot.track) {
+            longTones.clear(); analyzedLyrics = null; analyzedTrack = snapshot.track
+        }
+        if (settings.karaoke && settings.performance.detailedKaraoke && snapshot.usesWordTiming) {
+            snapshot.line?.let { longTones.forWords(it.timedWords) }
+            if (analyzedLyrics !== snapshot.lyrics) {
+                for (line in snapshot.lyrics) {
+                    if (closed || request != generation) return
+                    longTones.forWords(line.timedWords)
+                }
+                analyzedLyrics = snapshot.lyrics
+            }
+        }
         val infoFont = SystemUiFont.derive(Font.PLAIN, 12f)
         LyricTypography.shape(trackLabel(snapshot.track), infoFont)
         val reached = maxOf(snapshot.positionMs, snapshot.line?.startMs ?: 0L)
@@ -51,19 +68,17 @@ internal class IslandLyricsPreparation(private val layouts: IslandLyricsLayout.C
         val upcoming = snapshot.lyrics.asSequence().filter { it.text.isNotBlank() && it.startMs > reached }
             .sortedWith(compareBy<LyricLine> { it.startMs }.thenBy { it.endMs })
             .take(lookAhead).toList()
-        val outline = IslandPalette.from(settings, snapshot.metadata.coverRgb).lyricOutline
         for (sample in listOf(snapshot) + upcoming.map { snapshot.copy(line = it, positionMs = it.startMs) }) {
             if (closed || request != generation) return
             val layout = layouts.forSnapshot(sample, settings)
             preparedHeight = maxOf(preparedHeight, layout.preferredHeight)
             for (block in layout.blocks) {
                 if (closed || request != generation) return
-                if (outline) {
-                    block.shapedMain.outline
-                    block.shapedSub?.outline
-                }
+                // The native GPU painter uses outlines for every line, including low-performance text.
+                block.shapedMain.outline
+                block.shapedSub?.outline
                 if (settings.karaoke && settings.performance.detailedKaraoke && block.timedWords.isNotEmpty())
-                    WordGeometry.ready(block.shapedMain, block.main, block.timedWords.map { it.text })
+                    WordGeometry.ready(block.shapedMain, block.main, block.timedWords)
             }
         }
     }

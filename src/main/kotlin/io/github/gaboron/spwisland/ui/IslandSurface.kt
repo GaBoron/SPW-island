@@ -10,8 +10,10 @@ import javax.swing.JPanel
 class IslandSurface(val island: IslandPanel) : JPanel(null) {
     internal var hoverPose = IslandHoverMotion.Pose.SHOWN
     internal val renderCapacity = Dimension()
+    internal var gpuRedraw: (() -> Unit)? = null
     init { isOpaque = false; isDoubleBuffered = false; island.isDoubleBuffered = false; add(island) }
     override fun paintChildren(graphics: Graphics) {
+        gpuRedraw?.let { it(); return }
         val g = graphics.create() as Graphics2D
         try {
             g.translate(island.x.toDouble(), island.y.toDouble())
@@ -20,6 +22,7 @@ class IslandSurface(val island: IslandPanel) : JPanel(null) {
         } finally { g.dispose() }
     }
     override fun paintComponent(graphics: Graphics) {
+        if (gpuRedraw != null) return
         val g = graphics.create() as Graphics2D
         try {
             g.composite = AlphaComposite.Clear

@@ -30,6 +30,8 @@ object AmllMotion {
     // Independent damped-spring line transition; starts with zero position and velocity.
     fun line(seconds: Double): Double = 1 - exp(-10 * seconds) * (cos(14 * seconds) + 10.0 / 14 * sin(14 * seconds))
     private fun bezier(x: Double, x1: Double, y1: Double, x2: Double, y2: Double): Double {
+        if (x <= 0.0) return 0.0
+        if (x >= 1.0) return 1.0
         fun curve(t: Double, a: Double, b: Double) = 3 * (1 - t).pow(2) * t * a + 3 * (1 - t) * t * t * b + t.pow(3)
         var low = 0.0; var high = 1.0
         repeat(18) { val middle = (low + high) / 2; if (curve(middle, x1, x2) < x) low = middle else high = middle }

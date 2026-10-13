@@ -5,7 +5,7 @@
 “灵动词岛 / Dynamic Lyrics Island”原创为 **Lyricify / WXRIW（XY Wang）**，首次创作于 2022-09-30。
 [原始声明](https://github.com/WXRIW/Lyricify-App#lyricify-原创)将这项创作以 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) 许可。
 
-本项目是面向 SPW 的独立改编：重新实现播放接入、Java2D 文字绘制、逐字高亮、窗口伸缩、播放控制、设置和 Windows 悬浮窗口行为。视觉和交互改编继续采用 CC BY-SA 4.0；保留署名、原始来源、许可链接和改动说明，不暗示原作者认可或参与本项目。没有复制或分发 Lyricify 应用程序、标志、截图或未公开源码。
+本项目是面向 SPW 的独立改编：重新实现播放接入、文字塑形与绘制、逐字高亮、窗口伸缩、播放控制、设置和 Windows 悬浮窗口行为。视觉和交互改编继续采用 CC BY-SA 4.0；保留署名、原始来源、许可链接和改动说明，不暗示原作者认可或参与本项目。没有复制或分发 Lyricify 应用程序、标志、截图或未公开源码。
 
 新增程序代码采用 [GPL-3.0-only](LICENSE)。Creative Commons 将 GPLv3 列为 [CC BY-SA 4.0 的单向兼容许可](https://creativecommons.org/compatible-licenses/)，因此代码贡献采用 GPLv3 不会替换原始创作的 CC BY-SA 许可。视觉设计及本文等文档按 CC BY-SA 4.0 提供。完整文本见 [CC-BY-SA-4.0.txt](licenses/CC-BY-SA-4.0.txt)。
 
@@ -27,7 +27,10 @@
 | [Gson](https://github.com/google/gson/tree/gson-parent-2.11.0)，Google | 随包提供 2.11.0；配置 JSON 的读取与序列化 | Apache-2.0；保留 JAR 内声明及 [完整文本](licenses/Apache-2.0.txt) |
 | [Jaudiotagger](https://www.jthink.net/jaudiotagger/)，Paul Taylor 与 contributors | 随包提供未修改的 3.0.1，仅读取本地音频时长与内嵌封面；独立 JAR 可替换 | LGPL-2.1-or-later；附带 [许可全文](licenses/LGPL-2.1.txt) 与 `source/jaudiotagger-3.0.1-sources.jar` |
 | [MiSans](https://hyperos.mi.com/font)，Xiaomi | Windows/Linux 默认歌词、插件界面、Windows 右键菜单与字体窗口预览使用内置 MiSans VF | MiSans 字体许可；附带 [许可文件](licenses/MiSans-License.pdf) |
-| [Kotlin](https://github.com/JetBrains/kotlin)，JetBrains | 编译工具和宿主标准库，不装入插件 | Apache-2.0 |
+| [Compose Multiplatform](https://github.com/JetBrains/compose-multiplatform)，JetBrains / Android Open Source Project | Windows 字体窗口使用 Compose Desktop 1.12.0；随 Windows 包提供运行库 | Apache-2.0；保留 JAR 内声明与 [完整文本](licenses/Apache-2.0.txt) |
+| [Skiko](https://github.com/JetBrains/skiko/tree/v0.150.1)，JetBrains | 两平台词岛使用 0.150.1，Windows 字体窗口共用；随包提供对应平台原生库 | Apache-2.0；[完整文本](licenses/Apache-2.0.txt) 与 [Skiko NOTICE](licenses/Skiko-NOTICE.txt) |
+| [Skia](https://skia.org/)，Google 与 contributors | Skiko 原生库中的绘制引擎 | BSD-3-Clause；附带 [许可全文](licenses/Skia-LICENSE.txt) |
+| [Kotlin / kotlinx.coroutines](https://github.com/JetBrains/kotlin)，JetBrains | 编译工具、标准库与绘制调度运行库；随包提供，Linux 独立 JVM 使用插件自带版本 | Apache-2.0；[完整文本](licenses/Apache-2.0.txt) |
 | [PF4J](https://github.com/pf4j/pf4j)，Decebal Suiu | 编译使用 3.12.0，由宿主提供 | Apache-2.0 |
 | [Gradle](https://github.com/gradle/gradle)，Gradle contributors | Wrapper 来自 SPW API 0.1.0-dev20，构建使用 9.2.1 | Apache-2.0；Wrapper 自带声明保留，发行包不内嵌 Gradle 发行版 |
 

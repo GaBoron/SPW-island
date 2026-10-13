@@ -208,6 +208,8 @@ PlaybackTimeline
 
 `HostLyricsRecovery` 将完整歌词探测放在单个有界后台线程，宿主歌词回调只提交请求。已读取的歌词行通过索引复用整首歌词轴；探测期间的新请求合并为最新一行，失败后至少间隔 2 秒再由后续回调重试。异步结果由 `PlaybackTimeline` 按歌词代次验收：切歌以及 Idle / Ended 清空歌词时推进代次，避免切歌、A → B → A 或同曲重播后复用旧结果；歌词规范化在时间轴同步区外完成。低性能模式禁用私有歌词探测，插件关闭时终止该工作线程。
 
+`LyricsDocument` 缓存合并后的歌词轴和整曲逐字类型；相同歌词回调复用已有文档，帧快照不再扫描整首歌词。歌词内容更新时重新合并，暂停时保留当时的文档与分类。
+
 ### 3.4 本地歌曲元数据
 
 SPW 的播放回调主要提供播放所需的曲目信息。
@@ -240,7 +242,7 @@ TrackMetadata
 
 ### 3.5 Windows UI
 
-Windows 由 `IslandRuntime` 创建 `IslandWindow`，使用 Java2D 绘制词岛与歌词动画。Compose 字体窗口由插件设置按需打开。
+Windows 由 `IslandRuntime` 创建 `IslandWindow`，通过 Skia / Direct3D 绘制词岛；Linux 独立界面进程使用 Skia / OpenGL。文字仍由 AWT 塑形，轮廓、渐变、辉光和图层合成交给 GPU。GPU 初始化或绘制失败时切回 Java2D，关于窗口的性能状态会说明回退。Compose 字体窗口由插件设置按需打开。
 
 ```text
 PlaybackTimeline
@@ -325,6 +327,8 @@ island.json
 
 `IslandConfigFile` 使用 Gson 解析单次读取的 JSON 快照。空文件或无法解析的内容不会替换已接受设置；保存前检查文件是否已被其他操作修改，再通过同目录临时文件原子替换。显式设置操作最多重试 6 次，间隔 10 ms。位置由插件保存，并与 SPW 表单编辑合并；Windows 字体由字体窗口管理，Linux 字体字段直接接受表单修改。
 
+`IslandConfigWatch` 监听配置文件创建、修改与替换，宿主通知也通过同一后台队列合并。读取不完整时在 2 秒窗口内每 250 ms 重试；正常静置时每 5 秒兜底检查，并重新注册失效的目录监听。
+
 Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应平台没有可靠实现的设置。
 
 ---
@@ -344,6 +348,7 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | `IslandSettings.kt` | 稳定的设置快照、两侧内容模式、背景进度模式，以及通用 `SettingsStore` 接口 |
 | `LyricFontWeight.kt` | 歌词字重的稳定存储值与解析 |
 | `Lyrics.kt` | `Track`、`Word`、`LyricLine`、`PlaybackSnapshot`、`TrackMetadata`、封面数据等核心模型 |
+| `LyricsDocument.kt` | 缓存歌词行索引、合并结果和整曲逐字类型；内容未变时复用文档 |
 | `PerformanceProfile.kt` | 标准模式和低性能模式的统一性能预算 |
 | `PlaybackHeartbeatRecovery.kt` | 在启动时缺失播放状态回调的情况下，根据连续播放位置心跳恢复状态 |
 | `PlaybackTimeline.kt` | 汇总宿主回调、补间播放位置、处理 seek；歌词源变化时合并歌词轴，帧快照复用合并结果 |
@@ -359,6 +364,7 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | `HostLyricsRecovery.kt` | 有界后台完整歌词探测、行索引复用和请求合并；按歌词代次发布，失败请求延后重试 |
 | `HostSettings.kt` | 适配 `SettingsStore`，负责配置同步、合并、保存重试和旧配置迁移 |
 | `IslandConfigFile.kt` | 解析同一次读取的完整 JSON 快照，拒绝空/部分内容，检查新编辑并原子保存 |
+| `IslandConfigWatch.kt` | 文件事件与宿主通知合并、短时读取重试和低频兜底检查 |
 | `IslandPlaybackExtension.kt` | 接收 SPW `PlaybackExtensionPoint` 回调并转换为项目自己的模型 |
 | `IslandPlugin.kt` | PF4J 插件生命周期；创建和释放唯一的 `IslandRuntime`，并提供配置页按钮入口 |
 | `IslandRuntime.kt` | 宿主侧组合根；组装时间轴、设置、元数据、频谱、窗口、平台远程 UI 和播放操作 |
@@ -425,27 +431,43 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | 文件 | 职责 |
 | --- | --- |
 | `IslandWindow.kt` | 顶层窗口生命周期、帧更新、拖动、hover、可见性、窗口定位和平台窗口状态 |
+| `IslandFrameClock.kt` | 查询词岛所在显示器的刷新率，按性能预算计算帧间隔并扣除本帧处理时间 |
 | `IslandPanel.kt` | 词岛主体组件；组合背景、左右内容、歌词、播放按钮和展开内容 |
-| `IslandSurface.kt` | 稳定透明画布、持续更新悬停隐藏时的离屏内容并呈现动画帧，以及输入区域计算 |
-| `BufferedIslandWindow.kt` | Linux 上先离屏完成透明帧，再一次提交到窗口，降低透明窗口闪烁 |
+| `IslandSurface.kt` | 稳定透明画布、GPU 与兼容绘制入口，以及输入区域计算 |
+| `BufferedIslandWindow.kt` | Linux 兼容绘制时先完成透明缓冲，再一次提交；GPU 绘制不使用该缓冲 |
+| `gpu/IslandGpuRenderer.kt` | 管理 Skia 原生层、后端选择、故障回退和资源释放 |
+| `gpu/IslandGpuScene.kt` | 直接用 Skia Canvas 组合背景、左右内容、歌词和控件；不调用 Swing 绘制 |
+| `gpu/IslandGpuFrame.kt` | 面板提供的帧数据，包含布局、动画和交互预览状态 |
+| `gpu/IslandGpuLyrics.kt` | 原生字形路径、逐字渐变、长音辉光和低性能高亮 |
+| `gpu/IslandGpuBackground.kt` | 原生背景、注水和边缘进度 |
+| `gpu/IslandGpuSides.kt` | 原生封面、频谱和播放状态 |
+| `gpu/IslandGpuControls.kt` | 原生控制图标、歌曲信息和可拖动进度的呈现 |
+| `gpu/IslandGpuResources.kt` | 有界原生路径与封面缓存、复用画笔和透明图层资源 |
+| `IslandLyricPresentation.kt` | GPU 与兼容绘制共用的行位置、换行透明度和缩放 |
+| `LyricTextPlacement.kt` | 共用的逐字边界、双向 caret、居中与滚动计算 |
+| `gpu/IslandGpuInput.kt` | 将原生输入转给已有按钮、进度和拖动逻辑，保留拖动捕获 |
+| `platform/WindowsGpuInput.kt` | 独立的非聚焦输入窗口；轮廓外穿透，不裁切 GPU 画面 |
+| `platform/SkikoRuntime.kt` | 加载插件自己的 Skiko 原生库，供词岛与字体窗口共用 |
 | `IslandPlacement.kt` | 工作区计算、九宫格锚点、刘海顶部约束、拖动磁吸和稳定画布位置 |
 | `IslandGeometry.kt` | 静止胶囊/刘海轮廓、内容安全内缩、进度细线内缩和轮廓缓存 |
 | `IslandNotchGeometry.kt` | 静止与形变刘海共用的顶部粘连、主体横向拉伸与高度收缩几何 |
 | `ContinuousCornerPath.kt` | 连续圆角 / 超椭圆圆角路径生成 |
-| `IslandAlphaMask.kt` | 常驻设备像素内容层，持续离屏绘制；最终合成时应用内容淡出、位移和抗锯齿轮廓蒙版 |
+| `IslandAlphaMask.kt` | Java2D 兼容路径的设备像素内容层与抗锯齿轮廓蒙版 |
 | `IslandHoverVisibility.kt` | 鼠标穿透模式下的进入区域锁定与隐藏目标判定 |
 | `IslandPointerPresence.kt` | 聚合 Linux 词岛与子控件的鼠标事件，以离开延迟保持控件间的悬停连续性 |
 | `IslandTransitionMotion.kt` | 隐藏、控件和进度淡入淡出共用的有限时长 Hermite 运动；可配置时长、两端过冲和单次回弹，反向时接续速度 |
 | `IslandHoverMotion.kt` | 悬停隐藏运动参数及完整显示 / 动画中的状态；恢复时单次回弹 |
 | `IslandExpandedMotion.kt` | 与隐藏动画共用速率的控件打开 / 收起运动，两端各有一次过冲回弹 |
 | `IslandHoverGeometry.kt` | 将可见状态映射为刘海形变或胶囊收圆，并计算内容淡出、位移和画布留边 |
-| `IslandExpandedContentTransition.kt` | 常驻展开控件条的设备像素缓冲，最终合成时统一应用非线性淡入、位移和打开过冲 |
+| `IslandExpandedContentTransition.kt` | 展开控件条共用的透明度曲线，以及兼容路径的像素缓冲 |
 
 `IslandWindow` 是窗口状态协调者，不应继续承担具体歌词、形状或菜单绘制。
 
 悬停隐藏沿 `IslandHoverVisibility → IslandHoverMotion → IslandHoverGeometry → IslandSurface / IslandPanel` 传递。进入时锁定正常轮廓，动画和歌词尺寸变化不影响本次离开判定。刘海仅沿顶部拖动；隐藏时顶部粘连区和主体同时向左右拉伸、压低高度，恢复时越过正常尺寸后回到终点。胶囊先横向收圆，再等比缩小，恢复时先长成正常高度的圆，再向两侧拉长并回弹。两种轮廓都与内容绘制分开，内容层按设备像素密度绘制后统一淡出和裁切。低性能模式沿用 `PerformanceProfile.animateLayout`，直接切换到隐藏或显示终点。
 
-画布和像素缓冲提前覆盖横向拉伸、回弹及完整控制区高度，并依据已预备的后续歌词高度扩容。内容层和展开控件条始终使用常驻缓冲，悬停完全隐藏时仍绘制最新内容；隐藏仅改变最终轮廓和合成透明度。控件持续挂载，不通过 `isVisible` 切换动画状态；恢复与正常显示使用同一合成路径。缓冲按 64 像素对齐，仅增长并复用。
+画布提前覆盖横向拉伸、回弹及完整控制区高度，并依据已预备的后续歌词高度扩容。GPU 路径直接调用 Skia Canvas；字体塑形和回退仍共用 `LyricTypography`，字形轮廓首次使用时转成缓存的原生路径。原生画笔复用，裁剪按内容区域设置，完整不透明时不创建额外透明图层，完全透明的控制区不录制指令。GPU 路径不生成逐帧整块 CPU 位图；封面仅在缓存未命中时转换。悬停隐藏仍更新歌词，只改变最终轮廓和透明度；控件持续挂载并负责输入。关闭“显示词岛”时释放原生层、输入窗口及绘制缓存，临时隐藏保留资源。Java2D 兼容路径继续复用按 64 像素对齐的缓冲，只清空当前与上一帧内容范围的并集。
+
+Windows 的 DirectComposition 画面不进入 AWT 的逐像素输入映射，因此使用仅承担命中的独立输入窗口。它采用最低非零的整体透明度和正常轮廓，不获取键盘焦点；鼠标穿透、悬停隐藏及窗口临时隐藏时撤下该输入窗口。输入区域变化不影响可见动画的裁剪。
 
 控件展开与歌词换行尺寸分开驱动：歌词基础尺寸保持原有连续平滑，控制区宽高直接使用 `IslandExpandedMotion` 的进度，允许打开时超过 1、收起时低于 0。打开采用 0.44 秒主运动与 0.16 秒回弹；收起采用刘海 0.38 秒 / 胶囊 0.40 秒主运动与 0.16 秒回弹。可拖动进度条持续绘入控件条，与播放按钮共用淡入淡出和位移，仅交互根据呈现状态启用。背景注水和边缘细线在进入隐藏或控件动画时淡出；悬停完整显示、控件完全收起且两套运动均结束后淡入。`IslandProgressTransition` 使用无过冲 Hermite 曲线，淡入 0.18 秒、淡出 0.12 秒，中途反向接续当前速度；关闭背景进度设置时保留原样式直到淡出完成。注水通过颜色过渡保持整体背景透明度不变，细线通过透明度过渡，低性能模式直接切换终点。
 
@@ -488,6 +510,7 @@ LyricPainter
 | `AmllWordPainter.kt` | 对已塑形的 grapheme 应用逐字高亮、位移、缩放和辉光 |
 | `AmllMotion.kt` | AMLL 来源的逐字浮动、长音强调和歌词行切换运动曲线；只接收规则给出的长音结果 |
 | `longtone/` | 准备 Unicode 文本信息、选择语言规则，并保守判断当前 timing cell 是否为长音 |
+| `longtone/LongToneAnalysis.kt` | 按逐字单元列表缓存长音判定，供后台预备与绘制共用；不依赖字体 |
 | `WordGeometry.kt` | 在有界后台线程中准备单词和 grapheme 的字形几何，避免动画线程做昂贵轮廓运算 |
 | `TimedKaraokeBoundary.kt` | 低性能模式下只计算当前逐字单元的高亮边界 |
 | `LyricGlow.kt` | 长音强调的辉光绘制 |
@@ -502,6 +525,8 @@ LyricPainter
 文本的测量和实际绘制应使用同一套塑形结果，避免窗口尺寸与最终字形不一致。
 
 `IslandPanel` 在同一帧内复用测量布局，`IslandLyricsPainter` 将其中的主歌词和翻译塑形结果直接交给 `LyricPainter`，完成换行过渡后不再准备旧行。`IslandLyricsPreparation` 只保留一个待执行请求，曲目、歌词、设置变化或明显播放位置跳变时更新请求，旧代次停止继续预备。标准模式预备后续三行；低性能模式只预备一行并跳过详细逐字几何。
+
+完整逐字歌词到达后，预备线程分析整首歌词的长音标记；字形与轮廓仍只预备当前及随后几行。绘制复用长音结果、同一词的渐变和本帧逐字几何查询。切歌清空长音分析缓存，字体变化只影响字形准备；低性能模式跳过长音预分析。
 
 ### 4.7 `ui/`：侧边内容、颜色与播放控制
 
@@ -1271,6 +1296,8 @@ preference_config.json
 
 `PerformanceProfile` 是统一入口。
 
+普通模式跟随词岛所在显示器的刷新率，上限 120 FPS；低性能模式上限 15 FPS。刷新率未知时按 60 Hz 计算，跨屏时重新查询，同一屏幕每 2 秒检查显示模式。调度扣除本帧已花的处理时间，始终只保留一个待执行帧；这些是调度目标，实际呈现帧率取决于绘制和桌面环境。
+
 低性能模式可以：
 
 - 降低刷新率；
@@ -1412,6 +1439,8 @@ SPW 提供：
 - Jaudiotagger；
 - Gson（配置快照解析）；
 - Windows 字体窗口使用的 Compose 运行库；
+- 两平台词岛使用的 Skiko 及对应平台原生库；
+- Kotlin 标准库与协程运行库（Linux 子 JVM 优先使用插件自带版本）；
 - 插件资源；
 - 平台需要的 native/helper 文件。
 
