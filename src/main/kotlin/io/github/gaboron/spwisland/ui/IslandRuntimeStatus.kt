@@ -25,14 +25,14 @@ internal object IslandRuntimeStatus {
                  hoverHidden: Boolean, fullscreen: Boolean, inputAvailable: Boolean,
                  pointerReady: Boolean, pointerStatus: String, fallback: Boolean,
                  spectrumStatus: String, gpuActive: Boolean = false,
-                 gpuFallback: Boolean = false): List<IslandStatusEntry> = listOf(
+                 gpuFallback: Boolean = false, glassStatus: String = ""): List<IslandStatusEntry> = listOf(
         display(settings, snapshot, visible, hoverHidden, fullscreen),
-        performance(settings, gpuActive, gpuFallback),
+        performance(settings, gpuActive, gpuFallback, glassStatus),
         spectrum(settings, snapshot, fallback, spectrumStatus),
         interaction(settings, visible, inputAvailable, pointerReady, pointerStatus)
     )
 
-    private fun performance(settings: IslandSettings, gpuActive: Boolean, fallback: Boolean): IslandStatusEntry {
+    private fun performance(settings: IslandSettings, gpuActive: Boolean, fallback: Boolean, glassStatus: String): IslandStatusEntry {
         val mode = if (settings.lowPerformance) "低性能模式" else "标准模式"
         val effects = if (settings.lowPerformance) "降低刷新率与动效，使用模拟频谱。"
             else "完整高亮与动效，支持实时频谱。"
@@ -42,8 +42,13 @@ internal object IslandRuntimeStatus {
             fallback -> "GPU 不可用，已切换兼容绘制；重启插件后重试。"
             else -> "等待窗口初始化。"
         }
+        val material = if (settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS) when {
+            settings.lowPerformance -> "低性能模式使用经典背景。"
+            fallback -> "液态玻璃需要 GPU 绘制。"
+            else -> glassStatus.ifBlank { "液态玻璃等待桌面捕获。" }
+        } else ""
         return IslandStatusEntry("性能模式", mode + if (fallback) " · 兼容绘制" else "",
-            "$effects$rendering", settings.enabled && fallback)
+            "$effects$rendering$material", settings.enabled && (fallback || material.contains("使用经典背景")))
     }
 
     private fun display(s: IslandSettings, p: PlaybackSnapshot, visible: Boolean, hoverHidden: Boolean,

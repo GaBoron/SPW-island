@@ -67,7 +67,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             if (globalPointer != null) globalPointer.location() != null else
                 runCatching { MouseInfo.getPointerInfo() != null }.getOrDefault(false),
             globalPointer?.status.orEmpty(), spectrumFallback(), spectrumStatus(),
-            renderer.active, renderer.fallbackRendering)
+            renderer.active, renderer.fallbackRendering, renderer.glassStatus)
     }
     private var settings = store.read()
     private var nativeAvailable = true

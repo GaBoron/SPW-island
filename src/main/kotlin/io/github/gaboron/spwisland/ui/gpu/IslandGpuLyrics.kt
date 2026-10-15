@@ -10,6 +10,8 @@ import java.awt.geom.Rectangle2D
 
 /** Draws cached native glyph paths directly, sharing the existing timing and font shaping. */
 internal class IslandGpuLyrics(private val resources: IslandGpuResources) {
+    val adaptiveContrast = IslandLyricContrast()
+
     fun rows(canvas: Canvas, frame: IslandGpuFrame, width: Float, height: Float, inset: Float) {
         IslandLyricPresentation.rows(frame.lyrics, frame.previousLyrics, height, frame.transition, frame.settings.fontSize).forEach { pose ->
             val snapshot = if (pose.previous) frame.outgoing ?: return@forEach else frame.snapshot
@@ -24,33 +26,39 @@ internal class IslandGpuLyrics(private val resources: IslandGpuResources) {
                     if (block.timedWords.isNotEmpty()) time else (time - (block.line?.startMs ?: 0)).coerceAtLeast(0),
                     inset, pose.layout.mainBaseline, width - inset * 2, block.mainFont.size2D,
                     frame.settings.karaoke, frame.settings.performance.detailedKaraoke, palette.lyric.rgb,
-                    palette.lyricOutline, pose.opacity, frame.longTones)
+                    palette.lyricOutline, pose.opacity, frame.longTones, adaptive = true)
                 block.shapedSub?.let { shaped -> line(canvas, shaped, block.sub.orEmpty(), emptyList(),
                     (time - (block.line?.startMs ?: 0)).coerceAtLeast(0), inset, pose.layout.subBaseline,
                     width - inset * 2, block.subFont.size2D, false, false, 0xffb1b6c3.toInt(),
-                    palette.lyricOutline, pose.opacity, frame.longTones) }
+                    palette.lyricOutline, pose.opacity, frame.longTones, adaptive = true) }
             }
         }
     }
 
     fun line(canvas: Canvas, shaped: ShapedText, text: String, words: List<Word>, time: Long,
              x: Float, baseline: Float, available: Float, size: Float, karaoke: Boolean, detailed: Boolean,
-             color: Int, contrast: Boolean, alpha: Float, longTones: LongToneAnalysis? = null) {
+             color: Int, contrast: Boolean, alpha: Float, longTones: LongToneAnalysis? = null,
+             adaptive: Boolean = false) {
         if (text.isEmpty() || available <= 0) return
+        val adaptiveLine = adaptive && adaptiveContrast.active
         val placement = LyricTextPlacement.calculate(shaped, text, words, time, x, available, karaoke, detailed)
         canvas.scoped {
             canvas.clipRect(Rect.makeXYWH(x - size * .16f, baseline - shaped.layout.ascent - size * .3f,
                 available + size * .32f, shaped.layout.ascent + shaped.layout.descent + size * .6f), ClipMode.INTERSECT, true)
             canvas.translate(placement.origin, baseline)
+            if (adaptiveLine) adaptiveContrast.prepareLine(canvas,
+                maxOf(shaped.left, x - placement.origin), minOf(shaped.right, x + available - placement.origin),
+                shaped.layout.ascent, shaped.layout.descent, color)
             when {
                 !karaoke || words.isEmpty() -> {
                     val path = resources.path(shaped.outline)
-                    if (contrast) outline(canvas, path, size, alpha)
-                    canvas.drawPath(path, resources.fill(color, alpha))
+                    val paint = resources.fill(color, alpha)
+                    outline(canvas, path, size, contrast, alpha, adaptiveLine)
+                    canvas.drawPath(path, paint)
                 }
                 placement.lightweight -> {
                     val path = resources.path(shaped.outline)
-                    if (contrast) outline(canvas, path, size, alpha)
+                    outline(canvas, path, size, contrast, alpha, adaptiveLine)
                     canvas.drawPath(path, resources.fill(DIM, alpha))
                     val width = if (shaped.layout.isLeftToRight) placement.boundary - shaped.left else shaped.right - placement.boundary
                     if (width > 0) {
@@ -59,14 +67,15 @@ internal class IslandGpuLyrics(private val resources: IslandGpuResources) {
                         canvas.drawPath(path, resources.fill(color, alpha))
                     }
                 }
-                placement.geometry == null -> timed(canvas, shaped, words, time, size, color, contrast, alpha)
-                else -> words(canvas, shaped, words, placement.geometry, time, size, color, contrast, alpha, longTones)
+                placement.geometry == null -> timed(canvas, shaped, words, time, size, color, contrast, alpha, adaptiveLine)
+                else -> words(canvas, shaped, words, placement.geometry, time, size, color, contrast, alpha, longTones, adaptiveLine)
             }
         }
     }
 
     private fun words(canvas: Canvas, shaped: ShapedText, words: List<Word>, geometry: List<WordGeometry.Cell>,
-                      time: Long, size: Float, color: Int, contrast: Boolean, alpha: Float, longTones: LongToneAnalysis?) {
+                      time: Long, size: Float, color: Int, contrast: Boolean, alpha: Float,
+                      longTones: LongToneAnalysis?, adaptive: Boolean) {
         val flags = longTones?.forWords(words)
         for ((wordIndex, word) in words.withIndex()) {
             val cell = geometry[wordIndex]
@@ -80,7 +89,7 @@ internal class IslandGpuLyrics(private val resources: IslandGpuResources) {
                     canvas.scale(pose.scale.toFloat(), pose.scale.toFloat())
                     canvas.translate(-bounds.centerX.toFloat(), -bounds.centerY.toFloat())
                     glow(canvas, path, size, color, pose.glow, alpha)
-                    if (contrast) outline(canvas, path, size, alpha)
+                    outline(canvas, path, size, contrast, alpha, adaptive)
                     canvas.drawPath(path, paint)
                 }
             }
@@ -88,20 +97,28 @@ internal class IslandGpuLyrics(private val resources: IslandGpuResources) {
     }
 
     private fun timed(canvas: Canvas, shaped: ShapedText, words: List<Word>, time: Long, size: Float,
-                      color: Int, contrast: Boolean, alpha: Float) {
+                      color: Int, contrast: Boolean, alpha: Float, adaptive: Boolean) {
         val path = resources.path(shaped.outline)
-        if (contrast) outline(canvas, path, size, alpha)
+        outline(canvas, path, size, contrast, alpha, adaptive)
         var start = 0
         for (word in words) {
             val end = start + word.text.length
             canvas.scoped {
                 val region = resources.region(shaped, start, end)
                 canvas.clipPath(region, ClipMode.INTERSECT, true)
-                canvas.drawPath(path, highlight(shaped.layout.isLeftToRight,
-                    shaped.layout.getLogicalHighlightShape(start, end).bounds2D, word.progress(time), size, color, alpha))
+                val paint = highlight(shaped.layout.isLeftToRight,
+                    shaped.layout.getLogicalHighlightShape(start, end).bounds2D, word.progress(time), size, color, alpha)
+                canvas.drawPath(path, paint)
             }
             start = end
         }
+    }
+
+    private fun outline(canvas: Canvas, path: Path, size: Float,
+                        contrast: Boolean, alpha: Float, adaptive: Boolean) {
+        if (adaptive && adaptiveContrast.draw(canvas, path,
+                resources.stroke(0xc8000000.toInt(), (size * .09f).coerceAtLeast(1.5f), alpha))) return
+        if (contrast) outline(canvas, path, size, alpha)
     }
 
     private fun highlight(ltr: Boolean, bounds: Rectangle2D, progress: Double, size: Float, color: Int, alpha: Float): Paint {

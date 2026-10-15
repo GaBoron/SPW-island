@@ -439,7 +439,13 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | `gpu/IslandGpuScene.kt` | 直接用 Skia Canvas 组合背景、左右内容、歌词和控件；不调用 Swing 绘制 |
 | `gpu/IslandGpuFrame.kt` | 面板提供的帧数据，包含布局、动画和交互预览状态 |
 | `gpu/IslandGpuLyrics.kt` | 原生字形路径、逐字渐变、长音辉光和低性能高亮 |
+| `gpu/IslandLyricContrast.kt` | 在 GPU 上比较最终玻璃与当前歌词颜色，低对比位置补充中性描边 |
 | `gpu/IslandGpuBackground.kt` | 原生背景、注水和边缘进度 |
+| `gpu/IslandLiquidGlass.kt` | Windows 实验性玻璃光学：真实后景的边缘折射、轻微色散与方向高光 |
+| `gpu/IslandGlassContour.kt` | 从原始 Shape 展平线段生成最短距离场，另保留原 Path 的覆盖 mask，按几何和 DPI 缓存 |
+| `gpu/IslandGlassImage.kt` | GPU 裁片或兼容像素帧的 Backdrop Vibrancy → Blur 缓存，仅在背景帧或 DPI 改变时更新 |
+| `gpu/IslandGlassShaders.kt` | 移植的 Lens、七采样色散与 Default Highlight Shader，以及轮廓距离适配程序 |
+| `gpu/IslandGlassHighlight.kt` | 原轮廓内侧的模糊细边，在内容之后独立使用 PLUS 合成 |
 | `gpu/IslandGpuSides.kt` | 原生封面、频谱和播放状态 |
 | `gpu/IslandGpuControls.kt` | 原生控制图标、歌曲信息和可拖动进度的呈现 |
 | `gpu/IslandGpuResources.kt` | 有界原生路径与封面缓存、复用画笔和透明图层资源 |
@@ -447,6 +453,12 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | `LyricTextPlacement.kt` | 共用的逐字边界、双向 caret、居中与滚动计算 |
 | `gpu/IslandGpuInput.kt` | 将原生输入转给已有按钮、进度和拖动逻辑，保留拖动捕获 |
 | `platform/WindowsGpuInput.kt` | 独立的非聚焦输入窗口；轮廓外穿透，不裁切 GPU 画面 |
+| `platform/WindowsDesktopBackdrop.kt` | JNA 接口、共享纹理或 Skia Data 帧快照、新帧重绘通知、状态与异步释放 |
+| `platform/WindowsGpuTextureImport.kt` | 获取实际 Skiko Direct3D 上下文及绘制锁，将共享 D3D12 资源快照为 GPU Image |
+| `native/glass/DesktopCapture.cpp` / `tools/build-glass.ps1` | C++/WinRT 桌面采样及 MSVC 构建；MTA 线程负责捕获、裁切、窗口排除与恢复 |
+| `native/glass/DesktopReadback.h` | 三槽 GPU 裁切队列，fence 完成通知及 staging 读回兼容路径；仅发布最新已完成裁片 |
+| `native/glass/DesktopSharedTexture.h` | 匹配渲染适配器，创建只写一次的 D3D11/D3D12 共享裁片 |
+| `native/glass/DesktopViewport.h` | 屏幕坐标固定的裁片范围与换块滞回，拖动时复用既有像素 |
 | `platform/SkikoRuntime.kt` | 加载插件自己的 Skiko 原生库，供词岛与字体窗口共用 |
 | `IslandPlacement.kt` | 工作区计算、九宫格锚点、刘海顶部约束、拖动磁吸和稳定画布位置 |
 | `IslandGeometry.kt` | 静止胶囊/刘海轮廓、内容安全内缩、进度细线内缩和轮廓缓存 |
@@ -466,6 +478,16 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 悬停隐藏沿 `IslandHoverVisibility → IslandHoverMotion → IslandHoverGeometry → IslandSurface / IslandPanel` 传递。进入时锁定正常轮廓，动画和歌词尺寸变化不影响本次离开判定。刘海仅沿顶部拖动；隐藏时顶部粘连区和主体同时向左右拉伸、压低高度，恢复时越过正常尺寸后回到终点。胶囊先横向收圆，再等比缩小，恢复时先长成正常高度的圆，再向两侧拉长并回弹。两种轮廓都与内容绘制分开，内容层按设备像素密度绘制后统一淡出和裁切。低性能模式沿用 `PerformanceProfile.animateLayout`，直接切换到隐藏或显示终点。
 
 画布提前覆盖横向拉伸、回弹及完整控制区高度，并依据已预备的后续歌词高度扩容。GPU 路径直接调用 Skia Canvas；字体塑形和回退仍共用 `LyricTypography`，字形轮廓首次使用时转成缓存的原生路径。原生画笔复用，裁剪按内容区域设置，完整不透明时不创建额外透明图层，完全透明的控制区不录制指令。GPU 路径不生成逐帧整块 CPU 位图；封面仅在缓存未命中时转换。悬停隐藏仍更新歌词，只改变最终轮廓和透明度；控件持续挂载并负责输入。关闭“显示词岛”时释放原生层、输入窗口及绘制缓存，临时隐藏保留资源。Java2D 兼容路径继续复用按 64 像素对齐的缓冲，只清空当前与上一帧内容范围的并集。
+
+`background_style` 默认为 `classic`；Windows 的 `liquid_glass` 使用 WGC 实时桌面裁片。捕获线程保留最新帧，按当前轮廓加光学留边裁切；屏幕坐标缓存和换块滞回复用拖动中的裁片。三槽队列通过 GPU fence 发布最新已完成帧，通知线程合并 EDT 重绘请求，呈现由 Skiko/VSync 调度。
+
+背景优先使用同适配器的 D3D11/D3D12 共享纹理。裁片只写一次，复制完成后交给 Skia GPU Image；共享不可用时使用 staging 读回。`WindowsGpuTextureImport` 绑定 Skiko 0.150.1，通过反射访问实际 `DirectContext` 与 `drawLock`；上下文操作、录制和释放共用该锁。共享路径保留 GPU 裁切和快照复制，不回读像素；资源创建和 Present 等待仍有开销。
+
+材质顺序为 Backdrop Vibrancy → Blur → Lens → 半黑遮罩与进度 → 原内容 → 独立 Highlight。模糊 sigma 为 2 逻辑像素，折射集中在内侧 12 逻辑像素，最大位移 24；七采样色散的最大单向偏移为 0.2 逻辑像素。高光使用原 Path 内侧的模糊细边，独立 PLUS 合成；光源固定左上，背光侧强度为 15%。基准遮罩为 50% 黑色，由背景不透明度缩放。
+
+距离场和覆盖 mask 来自同一动态 Shape，法线由距离差分计算，最终轮廓使用原 Path 裁剪。Shader 复用；几何按轮廓与 DPI 缓存，背景滤镜按捕获版本缓存。歌词对比度在 GPU 上以 5×3 个位置采样最终材质，再归约到 1×1 纹理；低于 4.5:1 时整行使用经典黑色描边，字形动画共用判断结果。
+
+平台条件、录屏排除和回退行为见[兼容性与限制](compatibility.md#液态玻璃)。关于窗口中的背景更新率和原生处理耗时仅反映接收与发布阶段，不代表最终屏显帧率或端到端延迟。原生捕获构建需要 MSVC x64 C++ 工具、CRT/STL 和带 C++/WinRT 的 Windows SDK。
 
 Windows 的 DirectComposition 画面不进入 AWT 的逐像素输入映射，因此使用仅承担命中的独立输入窗口。它采用最低非零的整体透明度和正常轮廓，不获取键盘焦点；鼠标穿透、悬停隐藏及窗口临时隐藏时撤下该输入窗口。输入区域变化不影响可见动画的裁剪。
 

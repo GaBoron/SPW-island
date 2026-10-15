@@ -134,6 +134,21 @@
           "summary": "单项模式沿用左侧内容与右侧播放状态；封面来自本地音频内嵌图片或同目录 cover/folder 图片。"
         },
         {
+          "type": "list",
+          "key": "background_style",
+          "title": "背景样式",
+          "entries": [
+            "经典背景",
+            "液态玻璃（实验性）"
+          ],
+          "entry_values": [
+            "classic",
+            "liquid_glass"
+          ],
+          "default_value": "classic",
+          "summary": "液态玻璃使用实时桌面模糊、边缘折射、轻微色散与方向高光，需要 Windows 11 及 SDR 显示器。背景不取封面颜色；不透明度调节中性基底。启用时词岛从系统录屏中排除；低性能或捕获不可用时使用经典背景，原因见关于窗口。"
+        },
+        {
           "type": "seekbar",
           "key": "opacity",
           "title": "背景不透明度 %",

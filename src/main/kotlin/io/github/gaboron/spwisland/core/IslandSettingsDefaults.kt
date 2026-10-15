@@ -19,6 +19,7 @@ object IslandSettingsDefaults {
         "corner_roundness" to defaults.cornerRoundness,
         "lyric_cover_color" to defaults.lyricCoverColor,
         "background_cover_color" to defaults.backgroundCoverColor,
+        "background_style" to defaults.backgroundStyle.storageName,
         "background_progress" to "off",
         "spectrum_cover_color" to defaults.spectrumCoverColor,
         "fixed_width" to defaults.fixedWidth,

@@ -9,6 +9,15 @@ enum class SideContent(val showsSpectrum: Boolean, val showsSides: Boolean) {
 }
 enum class BackgroundProgressMode { OFF, FILL, TOP_LINE }
 
+enum class IslandBackgroundStyle(val storageName: String) {
+    CLASSIC("classic"), LIQUID_GLASS("liquid_glass");
+
+    companion object {
+        fun fromStorage(value: String): IslandBackgroundStyle =
+            entries.firstOrNull { it.storageName == value } ?: CLASSIC
+    }
+}
+
 data class IslandSettings(
     val enabled: Boolean = true,
     val translation: Boolean = true,
@@ -23,6 +32,7 @@ data class IslandSettings(
     val cornerRoundness: Int = 95,
     val lyricCoverColor: Boolean = false,
     val backgroundCoverColor: Boolean = false,
+    val backgroundStyle: IslandBackgroundStyle = IslandBackgroundStyle.CLASSIC,
     val backgroundProgress: BackgroundProgressMode = BackgroundProgressMode.OFF,
     val spectrumCoverColor: Boolean = false,
     val fixedWidth: Boolean = false,

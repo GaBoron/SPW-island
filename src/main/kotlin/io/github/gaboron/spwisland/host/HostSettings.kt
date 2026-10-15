@@ -53,6 +53,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         cornerRoundness = number("corner_roundness", 95, 0, 100),
         lyricCoverColor = config.get("lyric_cover_color", false),
         backgroundCoverColor = config.get("background_cover_color", false),
+        backgroundStyle = IslandBackgroundStyle.fromStorage(config.get("background_style", "classic")),
         backgroundProgress = backgroundProgressMode(),
         spectrumCoverColor = config.get("spectrum_cover_color", false),
         fixedWidth = config.get("fixed_width", false),

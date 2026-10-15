@@ -47,8 +47,10 @@ tasks.processResources {
     if (isWindows) {
         dependsOn("buildSpectrum")
         dependsOn("buildWindowsTray")
+        dependsOn("buildWindowsGlass")
         from(layout.buildDirectory.file("native/spw-spectrum.exe")) { into("native") }
         from(layout.buildDirectory.file("native/spw-island-tray.exe")) { into("native") }
+        from(layout.buildDirectory.file("native/spw-island-glass.dll")) { into("native") }
         from({ zipTree(configurations.runtimeClasspath.get().single {
             it.name.startsWith("skiko-awt-runtime-windows-x64-")
         }) }) {
@@ -85,6 +87,7 @@ tasks.register<Zip>("sourceArchive") {
         exclude("**/bin/**", "**/obj/**")
     }
     from("gradle") { into("gradle") }
+    from("tools/build-glass.ps1") { into("tools") }
     from("licenses") { into("licenses") }
     from("docs") { into("docs") }
     from("build.gradle.kts", "settings.gradle.kts", "gradle.properties", "gradlew", "gradlew.bat",
@@ -116,6 +119,20 @@ tasks.register<Exec>("buildWindowsTray") {
     args("/nologo", "/target:winexe", "/platform:x64", "/optimize+",
         "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",
         "/out:${output.get().asFile.absolutePath}", file("native/Tray.cs").absolutePath)
+}
+
+tasks.register<Exec>("buildWindowsGlass") {
+    val output = layout.buildDirectory.file("native/spw-island-glass.dll")
+    inputs.file("native/glass/DesktopCapture.cpp")
+    inputs.file("native/glass/DesktopReadback.h")
+    inputs.file("native/glass/DesktopViewport.h")
+    inputs.file("native/glass/DesktopSharedTexture.h")
+    inputs.file("tools/build-glass.ps1")
+    outputs.file(output)
+    onlyIf { isWindows }
+    executable = "powershell.exe"
+    args("-NoProfile", "-File", file("tools/build-glass.ps1").absolutePath,
+        "-Output", output.get().asFile.absolutePath)
 }
 
 fun registerPluginArchive(taskName: String, platform: String, enabled: Boolean) = tasks.register<Zip>(taskName) {

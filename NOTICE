@@ -51,6 +51,23 @@ the complete corresponding source accompany every plugin distribution.
 This does not change the original Lyricify CC BY-SA 4.0 attribution or license.
 No warranty is provided, to the extent permitted by applicable law.
 
+AndroidLiquidGlass / Backdrop
+Copyright 2025 Kyant
+https://github.com/Kyant0/AndroidLiquidGlass
+Source revision: 65ab177e90e5c1d8c62e70cf7755841982da65f6
+Original: backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/Shaders.kt
+Also adapted: effects/ColorFilter.kt, highlight/HighlightModifier.kt,
+highlight/HighlightStyle.kt and catalog/components/LiquidButton.kt.
+Licensed under the Apache License, Version 2.0 (licenses/Apache-2.0.txt).
+Modified 2026-10-15: ported the Lens, seven-sample chromatic dispersion and
+Default Highlight programs to ui/gpu/IslandGlassShaders.kt. Reproduced the
+Vibrancy -> Blur -> Lens order and separate clipped, blurred PLUS highlight
+in IslandGlassImage.kt and IslandGlassHighlight.kt. Real Windows desktop
+crops replace the Compose backdrop; segment distances and original Path
+coverage replace the rounded-rect SDF/normal. Dispersion is limited, lighting
+is upper-left with a weaker back-lit side, and tiny collapsing contours cap
+the lens dimensions. No Compose components are incorporated.
+
 Jaudiotagger 3.0.1, Copyright Paul Taylor and contributors.
 https://www.jthink.net/jaudiotagger/
 Unmodified library under LGPL-2.1-or-later (licenses/LGPL-2.1.txt).

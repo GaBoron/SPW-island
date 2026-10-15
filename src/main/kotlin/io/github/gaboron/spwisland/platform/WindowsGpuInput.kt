@@ -27,6 +27,7 @@ internal class WindowsGpuInput(private val owner: Window) : AutoCloseable {
         opacity = 1f / 255f
     }
     private var regionKey: Any? = null
+    internal val captureWindow: Window get() = window
     private val visibility = object : ComponentAdapter() {
         override fun componentHidden(event: ComponentEvent) {
             // A queued HIDDEN notification can arrive after the owner has already reopened.
