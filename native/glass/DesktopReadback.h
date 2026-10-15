@@ -28,6 +28,7 @@ class DesktopReadback {
     uint64_t armed = 0;
     uint64_t lastSignal = 0;
     winrt::com_ptr<ID3D12Device> consumer;
+    HRESULT fenceFailure = S_OK;
 public:
     struct Frame {
         std::vector<uint8_t> pixels;
@@ -37,13 +38,16 @@ public:
     };
     DesktopReadback(ID3D11Device* device, ID3D11DeviceContext* context) {
         winrt::com_ptr<ID3D11Device5> modern;
-        if (FAILED(device->QueryInterface(__uuidof(ID3D11Device5), modern.put_void())) ||
-            FAILED(context->QueryInterface(__uuidof(ID3D11DeviceContext4), fencedContext.put_void())) ||
-            FAILED(modern->CreateFence(0, D3D11_FENCE_FLAG_NONE, __uuidof(ID3D11Fence), fence.put_void()))) {
+        if (FAILED(fenceFailure = device->QueryInterface(__uuidof(ID3D11Device5), modern.put_void())) ||
+            FAILED(fenceFailure = context->QueryInterface(__uuidof(ID3D11DeviceContext4), fencedContext.put_void())) ||
+            FAILED(fenceFailure = modern->CreateFence(0, D3D11_FENCE_FLAG_NONE, __uuidof(ID3D11Fence), fence.put_void()))) {
             fencedContext = nullptr; fence = nullptr; return;
         }
         completedEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (!completedEvent) { fence = nullptr; fencedContext = nullptr; }
+        if (!completedEvent) {
+            fenceFailure = HRESULT_FROM_WIN32(GetLastError());
+            fence = nullptr; fencedContext = nullptr;
+        }
     }
     ~DesktopReadback() {
         // Destruction runs on the capture worker, never on the EDT. Keep a registered
@@ -62,6 +66,7 @@ public:
         consumer.copy_from(device); return true;
     }
     bool shared() const { return static_cast<bool>(consumer); }
+    HRESULT sharingFailure() const { return fenceFailure; }
     void useCpu() { reset(); consumer = nullptr; }
     bool pending() const {
         return std::any_of(slots.begin(), slots.end(), [](auto const& slot) { return slot.pending; });

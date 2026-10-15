@@ -481,7 +481,7 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 
 `background_style` 默认为 `classic`；Windows 的 `liquid_glass` 使用 WGC 实时桌面裁片。捕获线程保留最新帧，按当前轮廓加光学留边裁切；屏幕坐标缓存和换块滞回复用拖动中的裁片。三槽队列通过 GPU fence 发布最新已完成帧，通知线程合并 EDT 重绘请求，呈现由 Skiko/VSync 调度。
 
-背景优先使用同适配器的 D3D11/D3D12 共享纹理。裁片只写一次，复制完成后交给 Skia GPU Image；共享不可用时使用 staging 读回。`WindowsGpuTextureImport` 绑定 Skiko 0.150.1，通过反射访问实际 `DirectContext` 与 `drawLock`；上下文操作、录制和释放共用该锁。共享路径保留 GPU 裁切和快照复制，不回读像素；资源创建和 Present 等待仍有开销。
+背景优先使用同适配器的 D3D11/D3D12 共享纹理。适配器遵循 Skiko 的 GPU 优先级、DXGI 枚举顺序和 D3D12 支持条件，同名设备按这一顺序选择。裁片只写一次，复制完成后交给 Skia GPU Image；共享不可用时使用 staging 读回。`WindowsGpuTextureImport` 绑定 Skiko 0.150.1，通过反射访问实际 `DirectContext`、`drawLock` 与 GPU 优先级；上下文操作、录制和释放共用绘制锁。共享路径保留 GPU 裁切和快照复制，不回读像素；资源创建和 Present 等待仍有开销。
 
 材质顺序为 Backdrop Vibrancy → Blur → Lens → 半黑遮罩与进度 → 原内容 → 独立 Highlight。模糊 sigma 为 2 逻辑像素，折射集中在内侧 12 逻辑像素，最大位移 24；七采样色散的最大单向偏移为 0.2 逻辑像素。高光使用原 Path 内侧的模糊细边，独立 PLUS 合成；光源固定左上，背光侧强度为 15%。基准遮罩为 50% 黑色，由背景不透明度缩放。
 

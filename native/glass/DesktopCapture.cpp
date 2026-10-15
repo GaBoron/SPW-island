@@ -20,6 +20,7 @@
 #include <mutex>
 #include <memory>
 #include <thread>
+#include <cstdio>
 #include <vector>
 #include "DesktopReadback.h"
 #include "DesktopViewport.h"
@@ -114,13 +115,22 @@ class Capture {
     std::vector<uint8_t> published;
     std::shared_ptr<DesktopSharedTexture> publishedGpu;
     std::wstring adapterName;
+    int adapterPriority = 0;
     std::atomic<bool> forceCpu = false;
     RECT publishedRect{};
     uint64_t serial = 0;
     bool ready = false;
     int64_t transportUs = 0;
     std::string failure;
+    std::string gpuFailure;
     std::thread worker; // Start only after every shared state member has been constructed.
+
+    void gpuFallback(char const* stage, HRESULT code) {
+        char result[16]{};
+        std::snprintf(result, sizeof(result), "0x%08lX", static_cast<unsigned long>(code));
+        std::lock_guard lock(mutex);
+        gpuFailure = std::string(stage) + " (HRESULT " + result + ")";
+    }
 
     void run() noexcept {
         std::set<HWND> excluded;
@@ -146,8 +156,9 @@ class Capture {
             com_ptr<ID3D11DeviceContext> context;
             com_ptr<IDXGIAdapter1> adapter;
             if (!adapterName.empty()) {
-                try { adapter = DesktopSharedTexture::adapter(adapterName); } catch (...) {}
-            }
+                try { adapter = DesktopSharedTexture::adapter(adapterName, adapterPriority); }
+                catch (...) { gpuFallback("DXGI adapter matching", winrt::to_hresult()); }
+            } else gpuFallback("Skiko adapter was not supplied", E_NOINTERFACE);
             const auto createDevice = [&] {
                 return D3D11CreateDevice(adapter.get(), adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE, nullptr,
                     D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION,
@@ -155,6 +166,7 @@ class Capture {
             };
             auto creation = createDevice();
             if (FAILED(creation) && adapter) {
+                gpuFallback("Capture D3D11CreateDevice", creation);
                 adapter = nullptr; device = nullptr; context = nullptr;
                 creation = createDevice(); // Shared transport must not disable the existing CPU path.
             }
@@ -181,8 +193,11 @@ class Capture {
                     com_ptr<ID3D12Device> consumer;
                     check_hresult(D3D12CreateDevice(adapter.get(), D3D_FEATURE_LEVEL_11_0,
                         __uuidof(ID3D12Device), consumer.put_void()));
-                    readback.shareWith(consumer.get());
-                } catch (...) { readback.useCpu(); }
+                    if (!readback.shareWith(consumer.get()))
+                        gpuFallback("D3D11 fence initialization", readback.sharingFailure());
+                } catch (hresult_error const& error) {
+                    gpuFallback("D3D12CreateDevice for sharing", error.code()); readback.useCpu();
+                } catch (...) { gpuFallback("D3D12 sharing initialization", winrt::to_hresult()); readback.useCpu(); }
             }
             DesktopViewport viewport;
             DesktopReadback::Frame completed;
@@ -328,8 +343,14 @@ class Capture {
                             POINT{ monitorInfo.rcMonitor.left, monitorInfo.rcMonitor.top },
                             desktopVersion != submittedVersion ? desktopTime : clock100ns())) {
                             submittedVersion = desktopVersion; previousCrop = crop;
-                        } } catch (...) {
+                        } } catch (hresult_error const& error) {
                             if (!readback.shared()) throw;
+                            const auto operation = "Shared texture: " + to_string(error.message());
+                            gpuFallback(operation.c_str(), error.code());
+                            forceCpu.store(true); signal->notify();
+                        } catch (...) {
+                            if (!readback.shared()) throw;
+                            gpuFallback("Shared texture submission", winrt::to_hresult());
                             forceCpu.store(true); signal->notify();
                         }
                     }
@@ -349,7 +370,8 @@ class Capture {
         if (apartment) uninit_apartment();
     }
 public:
-    explicit Capture(std::wstring adapter = {}) : adapterName(std::move(adapter)), worker([this] { run(); }) {}
+    explicit Capture(std::wstring adapter = {}, int priority = 0)
+        : adapterName(std::move(adapter)), adapterPriority(priority), worker([this] { run(); }) {}
     ~Capture() { stop(); worker.join(); }
     void stop() {
         { std::lock_guard lock(mutex); stopping = true; }
@@ -403,6 +425,12 @@ public:
         const size_t count = std::min(failure.size(), static_cast<size_t>(capacity - 1));
         std::memcpy(buffer, failure.data(), count); buffer[count] = 0;
     }
+    void gpuError(char* buffer, int capacity) {
+        std::lock_guard lock(mutex);
+        if (capacity <= 0) return;
+        const size_t count = std::min(gpuFailure.size(), static_cast<size_t>(capacity - 1));
+        std::memcpy(buffer, gpuFailure.data(), count); buffer[count] = 0;
+    }
 };
 }
 
@@ -410,6 +438,9 @@ extern "C" {
 __declspec(dllexport) void* GlassCreate() noexcept { try { return new Capture(); } catch (...) { return nullptr; } }
 __declspec(dllexport) void* GlassCreateGpu(wchar_t const* adapter) noexcept {
     try { return new Capture(adapter ? adapter : L""); } catch (...) { return nullptr; }
+}
+__declspec(dllexport) void* GlassCreateGpuWithPreference(wchar_t const* adapter, int priority) noexcept {
+    try { return new Capture(adapter ? adapter : L"", priority); } catch (...) { return nullptr; }
 }
 __declspec(dllexport) void GlassUseCpu(void* capture) noexcept { static_cast<Capture*>(capture)->useCpu(); }
 __declspec(dllexport) void* GlassAcquireGpu(void* capture, int64_t* metadata) noexcept {
@@ -428,6 +459,7 @@ __declspec(dllexport) int GlassWait(void* capture, int timeout) noexcept {
     return static_cast<Capture*>(capture)->wait(static_cast<DWORD>(std::clamp(timeout, 0, 1000)));
 }
 __declspec(dllexport) void GlassError(void* capture, char* buffer, int capacity) noexcept { static_cast<Capture*>(capture)->error(buffer, capacity); }
+__declspec(dllexport) void GlassGpuError(void* capture, char* buffer, int capacity) noexcept { static_cast<Capture*>(capture)->gpuError(buffer, capacity); }
 __declspec(dllexport) void GlassStop(void* capture) noexcept { static_cast<Capture*>(capture)->stop(); }
 __declspec(dllexport) void GlassDestroy(void* capture) noexcept { delete static_cast<Capture*>(capture); }
 }

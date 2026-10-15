@@ -3,21 +3,28 @@ package io.github.gaboron.spwisland.platform
 
 import org.jetbrains.skia.*
 import org.jetbrains.skiko.SkiaLayer
+import org.jetbrains.skiko.SkiaLayerProperties
 import java.lang.reflect.Field
 
 /** Version-bound Skiko 0.150.1 access; no native object layouts or COM pointer offsets. */
 internal class WindowsGpuTextureImport(private val layer: SkiaLayer) {
+    data class Adapter(val name: String, val priority: Int)
     private data class Access(val redrawer: Any, val lock: Any, val handler: Any, val context: Field,
-                              val adapterName: String)
+                              val adapter: Adapter)
     private var access: Access? = null
     private var incompatible = false
+    var failure: String? = null
+        private set
 
     private fun find(): Access? {
         if (incompatible) return null
         return try {
             val redrawer = SkiaLayer::class.java.getMethod("getRedrawer\$skiko").invoke(layer) ?: return null
             access?.takeIf { it.redrawer === redrawer } ?: run {
-                if (redrawer.javaClass.name != "org.jetbrains.skiko.redrawer.Direct3DRedrawer") return null
+                if (redrawer.javaClass.name != "org.jetbrains.skiko.redrawer.Direct3DRedrawer") {
+                    failure = "当前绘制后端不是 Skiko Direct3D：${redrawer.javaClass.simpleName}"
+                    return null
+                }
                 fun field(type: Class<*>, name: String) = type.getDeclaredField(name).apply { isAccessible = true }
                 val type = redrawer.javaClass
                 val lock = field(type, "drawLock").get(redrawer)
@@ -25,12 +32,19 @@ internal class WindowsGpuTextureImport(private val layer: SkiaLayer) {
                 val context = field(Class.forName("org.jetbrains.skiko.context.ContextHandler", false,
                     type.classLoader), "context")
                 val name = type.getMethod("getAdapterName").invoke(redrawer) as String
-                Access(redrawer, lock, handler, context, name).also { access = it }
+                val properties = field(type, "properties").get(redrawer) as SkiaLayerProperties
+                Access(redrawer, lock, handler, context, Adapter(name, properties.adapterPriority.ordinal))
+                    .also { access = it; failure = null }
             }
-        } catch (_: Throwable) { incompatible = true; null }
+        } catch (error: Throwable) {
+            val cause = error.cause ?: error
+            failure = "Skiko 接口访问失败：${cause.javaClass.simpleName}: ${cause.message}"
+            incompatible = true
+            null
+        }
     }
 
-    val adapterName: String? get() = find()?.adapterName
+    val adapter: Adapter? get() = find()?.adapter
 
     /** Call only while holding this bridge's draw lock. */
     val context: DirectContext? get() = find()?.let { it.context.get(it.handler) as? DirectContext }

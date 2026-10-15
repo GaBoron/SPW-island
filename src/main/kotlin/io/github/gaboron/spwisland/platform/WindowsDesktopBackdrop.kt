@@ -23,7 +23,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
 
     private interface Api : Library {
         fun GlassCreate(): Pointer?
-        fun GlassCreateGpu(adapter: WString): Pointer?
+        fun GlassCreateGpuWithPreference(adapter: WString, priority: Int): Pointer?
         fun GlassUseCpu(capture: Pointer)
         fun GlassAcquireGpu(capture: Pointer, metadata: LongArray): Pointer?
         fun GlassReleaseGpu(lease: Pointer)
@@ -31,6 +31,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
         fun GlassRead(capture: Pointer, previous: Long, pixels: Pointer?, capacity: Int, metadata: LongArray): Int
         fun GlassWait(capture: Pointer, timeout: Int): Int
         fun GlassError(capture: Pointer, message: ByteArray, capacity: Int)
+        fun GlassGpuError(capture: Pointer, message: ByteArray, capacity: Int)
         fun GlassStop(capture: Pointer)
         fun GlassDestroy(capture: Pointer)
     }
@@ -46,6 +47,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
     private var updateRate = 0
     private var unavailable = false
     private var gpuFallback: String? = null
+    private var nativeGpuReasonRead = false
     var status = "液态玻璃：等待桌面图像。"
         private set
 
@@ -53,9 +55,17 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
         if (unavailable || !owner.isDisplayable || !owner.isVisible) return
         try {
             val native = api ?: load().also { api = it }
-            val current = capture ?: checkNotNull(gpu?.adapterName?.let { native.GlassCreateGpu(WString(it)) }
-                ?: native.GlassCreate()) { "无法启动桌面捕获线程" }.also {
-                capture = it; listen(native, it)
+            val current = capture ?: run {
+                val adapter = gpu?.adapter
+                if (gpu != null && adapter == null && gpu.failure == null) {
+                    status = "液态玻璃：等待 Skiko Direct3D 初始化。"
+                    return
+                }
+                gpuFallback = gpu?.failure
+                checkNotNull(adapter?.let { native.GlassCreateGpuWithPreference(WString(it.name), it.priority) }
+                    ?: native.GlassCreate()) {
+                    "无法启动桌面捕获线程"
+                }.also { capture = it; listen(native, it) }
             }
             native.GlassRequest(current, Native.getWindowPointer(owner),
                 input?.takeIf { it.isDisplayable }?.let(Native::getWindowPointer), x, y, width, height)
@@ -115,6 +125,14 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                 receivedFrames = 0; rateStarted = now
             }
             image?.let {
+                if (it.texture == null && !nativeGpuReasonRead) {
+                    val reason = ByteArray(1024)
+                    native.GlassGpuError(current, reason, reason.size)
+                    val message = reason.takeWhile { byte -> byte != 0.toByte() }.toByteArray().toString(Charsets.UTF_8)
+                    if (gpuFallback == null) gpuFallback = message.ifBlank { "未取得 GPU 共享通路，原生端未报告原因" }
+                    nativeGpuReasonRead = true
+                    System.err.println("[SPW Island] 液态玻璃 CPU 中转：$gpuFallback")
+                }
                 val transport = if (it.texture != null) "GPU 共享纹理" else "CPU 中转" +
                     (gpuFallback?.let { reason -> "（$reason）" } ?: "")
                 status = "液态玻璃：$transport，背景更新 ${updateRate}fps，原生处理 ${(metadata[7] + 500) / 1000}ms（不含界面等待和绘制）；词岛已从系统捕获中排除。"
@@ -158,6 +176,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
         val native = api
         val previousListener = listener
         capture = null; listener = null
+        nativeGpuReasonRead = false; gpuFallback = null
         dispose(image); image = null
         if (previous != null && native != null) {
             native.GlassStop(previous)
