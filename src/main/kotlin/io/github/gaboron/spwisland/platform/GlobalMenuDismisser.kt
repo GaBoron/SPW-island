@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.SwingUtilities
 
-/** Watches global presses only while a popup is visible and never consumes the original click. */
+/** Watches presses while a popup is preparing or visible, without consuming the original click. */
 internal class GlobalMenuDismisser(private val onOutsidePress: () -> Unit) : AutoCloseable {
     private class HookSession {
         lateinit var callback: LowLevelMouseProc
@@ -68,7 +68,7 @@ internal class GlobalMenuDismisser(private val onOutsidePress: () -> Unit) : Aut
         session.callback = object : LowLevelMouseProc {
             override fun callback(nCode: Int, wParam: WPARAM, info: MSLLHOOKSTRUCT): LRESULT {
                 if (nCode >= 0 && activeSession === session && wParam.toInt() in PRESS_MESSAGES &&
-                    (info.pt.x < rect.left || info.pt.x >= rect.right ||
+                    (!window.isVisible || info.pt.x < rect.left || info.pt.x >= rect.right ||
                         info.pt.y < rect.top || info.pt.y >= rect.bottom)
                 ) {
                     SwingUtilities.invokeLater {

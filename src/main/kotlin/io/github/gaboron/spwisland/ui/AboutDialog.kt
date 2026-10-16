@@ -2,6 +2,9 @@
 package io.github.gaboron.spwisland.ui
 
 import io.github.gaboron.spwisland.platform.SystemTheme
+import io.github.gaboron.spwisland.core.IslandBackgroundStyle
+import io.github.gaboron.spwisland.core.IslandSettings
+import com.sun.jna.Platform
 import java.awt.*
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -11,15 +14,11 @@ import java.awt.geom.RoundRectangle2D
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 import javax.swing.plaf.basic.BasicScrollBarUI
-import javax.swing.plaf.basic.BasicTextAreaUI
-import javax.swing.text.DefaultCaret
-import javax.swing.text.Position
-import javax.swing.text.View
-import kotlin.math.ceil
 
 /** A compact attribution card and live, structured diagnostics; all work stays on the EDT. */
 internal class AboutDialog(private val owner: Window, private val report: (Throwable) -> Unit,
-                           private val status: () -> List<IslandStatusEntry> = { emptyList() }) : AutoCloseable {
+                           private val status: () -> List<IslandStatusEntry>,
+                           private val settings: () -> IslandSettings) : AutoCloseable {
     companion object {
         private const val DIALOG_WIDTH = 560
         private const val ROW_WIDTH = DIALOG_WIDTH - 86
@@ -34,9 +33,9 @@ internal class AboutDialog(private val owner: Window, private val report: (Throw
                                val accent: Color, val hover: Color, val border: Color, val warning: Color)
     private var window: JDialog? = null
     private var dark: Boolean? = null
+    private var glass = false
     private var displayedStatus: List<IslandStatusEntry> = emptyList()
-    private var statusPanel: JPanel? = null
-    private var rows: List<StatusRow> = emptyList()
+    private var statusPanel: AboutStatusPanel? = null
     private var colors: Palette? = null
     private val refreshTimer = Timer(1000) { refreshStatus() }
     val isVisible: Boolean get() = window?.isVisible == true
@@ -44,31 +43,38 @@ internal class AboutDialog(private val owner: Window, private val report: (Throw
     fun show() {
         check(SwingUtilities.isEventDispatchThread())
         val useDark = !SystemTheme.isLight()
-        if (window == null || dark != useDark) {
+        val useGlass = usesGlass()
+        if (window == null || dark != useDark || glass != useGlass) {
             window?.dispose()
             dark = useDark
+            glass = useGlass
             displayedStatus = status()
-            colors = palette(useDark)
+            colors = palette(useDark, useGlass)
             window = createWindow(colors!!)
         } else refreshStatus()
         window?.let { dialog ->
             fitToWorkArea(dialog)
-            dialog.isVisible = true
-            dialog.toFront()
-            dialog.requestFocus()
-            refreshTimer.start()
+            (dialog.contentPane as LiquidGlassSurface).showWhenReady {
+                if (window === dialog) {
+                    dialog.isVisible = true
+                    dialog.toFront()
+                    dialog.requestFocus()
+                    refreshTimer.start()
+                }
+            }
         }
     }
 
     private fun refreshStatus() {
         if (window == null) return
+        if (dark != !SystemTheme.isLight() || glass != usesGlass()) { show(); return }
         val current = status()
         if (current == displayedStatus) return
         displayedStatus = current
-        if (rows.size == current.size) rows.zip(current).forEach { (row, value) -> row.update(value) }
-        else rebuildStatus(colors!!)
+        statusPanel?.update(current)
         statusPanel?.revalidate()
         statusPanel?.repaint()
+        SwingUtilities.invokeLater { (window?.contentPane as? LiquidGlassSurface)?.invalidateGpuContent() }
     }
 
     private fun createWindow(colors: Palette): JDialog = BufferedAboutWindow(owner.graphicsConfiguration).apply {
@@ -108,14 +114,12 @@ internal class AboutDialog(private val owner: Window, private val report: (Throw
                 add(label("运行状态", colors.text, 14f, true), BorderLayout.WEST)
                 add(label(IslandRuntimeStatus.environment, colors.muted, 11f), BorderLayout.EAST)
             })
-            add(Box.createVerticalStrut(16))
-            statusPanel = JPanel().apply {
-                isOpaque = false
-                layout = VerticalStack(ROW_WIDTH, 14)
+            add(Box.createVerticalStrut(20))
+            statusPanel = AboutStatusPanel(colors.text, colors.muted, colors.warning, ROW_WIDTH).apply {
                 alignmentX = Component.LEFT_ALIGNMENT
+                update(displayedStatus)
             }
             add(statusPanel)
-            rebuildStatus(colors)
         }
         val credits = AboutCard(colors).apply {
             layout = BorderLayout(0, 10)
@@ -135,7 +139,7 @@ internal class AboutDialog(private val owner: Window, private val report: (Throw
             add(runtime)
             add(credits)
         }
-        return AboutSurface(colors).apply {
+        return AboutSurface(colors, settings, report).apply {
             layout = BorderLayout()
             border = EmptyBorder(1, 1, 1, 1)
             val header = header(colors, dialog)
@@ -176,15 +180,6 @@ internal class AboutDialog(private val owner: Window, private val report: (Throw
             }, BorderLayout.CENTER)
             add(footer(colors, dialog), BorderLayout.SOUTH)
             installDrag(header, dialog)
-        }
-    }
-
-    private fun rebuildStatus(colors: Palette) {
-        statusPanel?.let { panel ->
-            panel.removeAll()
-            rows = displayedStatus.map { StatusRow(it, colors) }
-            rows.forEach(panel::add)
-            if (rows.isEmpty()) panel.add(label("尚未读取到运行状态", colors.muted, 12f))
         }
     }
 
@@ -248,7 +243,8 @@ internal class AboutDialog(private val owner: Window, private val report: (Throw
         val height = dialog.height.coerceAtMost((work.height - 32).coerceAtLeast(1))
         dialog.setSize(width, height)
         dialog.validate()
-        dialog.shape = RoundRectangle2D.Double(0.0, 0.0, width.toDouble(), height.toDouble(), 26.0, 26.0)
+        if (!Platform.isWindows())
+            dialog.shape = RoundRectangle2D.Double(0.0, 0.0, width.toDouble(), height.toDouble(), 26.0, 26.0)
         dialog.setLocation(work.x + (work.width - width) / 2, work.y + (work.height - height) / 2)
     }
 
@@ -272,91 +268,36 @@ internal class AboutDialog(private val owner: Window, private val report: (Throw
         attach(component)
     }
 
-    private fun palette(useDark: Boolean) = if (useDark) Palette(
-        Color(0x20, 0x20, 0x20), Color(0x2B, 0x2B, 0x2B), Color(0xF5, 0xF5, 0xF5), Color(0xAE, 0xAE, 0xAE),
-        Color(0x60, 0xCD, 0xFF), Color(0x40, 0x40, 0x40), Color(255, 255, 255, 32), Color(0xF2, 0xBE, 0x6A)
-    ) else Palette(
-        Color(0xF3, 0xF3, 0xF3), Color.WHITE, Color(0x1B, 0x1B, 0x1B), Color(0x60, 0x60, 0x60),
-        Color(0x00, 0x67, 0xC0), Color(0xE0, 0xE0, 0xE0), Color(0, 0, 0, 28), Color(0x91, 0x5A, 0x00)
-    )
+    private fun usesGlass(): Boolean = settings().let {
+        Platform.isWindows() && it.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS && !it.lowPerformance
+    }
+
+    private fun palette(useDark: Boolean, glass: Boolean): Palette {
+        val base = if (useDark) Palette(
+            Color(0x20, 0x20, 0x20), Color(0x2B, 0x2B, 0x2B), Color(0xF5, 0xF5, 0xF5), Color(0xAE, 0xAE, 0xAE),
+            Color(0x60, 0xCD, 0xFF), Color(0x40, 0x40, 0x40), Color(255, 255, 255, 32), Color(0xF2, 0xBE, 0x6A)
+        ) else Palette(
+            Color(0xF3, 0xF3, 0xF3), Color.WHITE, Color(0x1B, 0x1B, 0x1B), Color(0x60, 0x60, 0x60),
+            Color(0x00, 0x67, 0xC0), Color(0xE0, 0xE0, 0xE0), Color(0, 0, 0, 28), Color(0x91, 0x5A, 0x00)
+        )
+        return if (glass) base.copy(
+            card = if (useDark) Color(255, 255, 255, 14) else Color(255, 255, 255, 48),
+            muted = if (useDark) Color(0xC6, 0xC6, 0xC6) else Color(0x44, 0x44, 0x44),
+            warning = if (useDark) base.warning else Color(0x70, 0x41, 0x00))
+            else base
+    }
 
     override fun close() {
         refreshTimer.stop()
         window?.dispose()
         window = null
         statusPanel = null
-        rows = emptyList()
     }
 
-    private class StatusRow(value: IslandStatusEntry, private val colors: Palette) : JPanel(null), WidthAware {
-        private val title = JLabel().apply { font = SystemUiFont.derive(Font.PLAIN, 12f); foreground = colors.muted }
-        private val summary = JLabel().apply { font = SystemUiFont.derive(Font.BOLD, 13f) }
-        private val detail = WrappingText("", colors.muted, ROW_WIDTH - 88)
-        init {
-            isOpaque = false
-            alignmentX = Component.LEFT_ALIGNMENT
-            add(title); add(summary); add(detail)
-            update(value)
-        }
-        fun update(value: IslandStatusEntry) {
-            if (title.text == value.title && summary.text == value.summary && detail.text == value.detail &&
-                summary.foreground == if (value.warning) colors.warning else colors.text) return
-            title.text = value.title
-            summary.text = value.summary
-            summary.foreground = if (value.warning) colors.warning else colors.text
-            detail.text = value.detail
-        }
-        override fun heightFor(width: Int) = summary.preferredSize.height + 5 + detail.heightFor(width - 88)
-        override fun getPreferredSize() = Dimension(ROW_WIDTH, heightFor(width.takeIf { it > 0 } ?: ROW_WIDTH))
-        override fun getMaximumSize() = Dimension(Int.MAX_VALUE, preferredSize.height)
-        override fun getMinimumSize() = Dimension(0, preferredSize.height)
-        override fun doLayout() {
-            title.setBounds(0, 1, 76, title.preferredSize.height)
-            val available = (width - 88).coerceAtLeast(1)
-            val summaryHeight = summary.preferredSize.height
-            summary.setBounds(88, 0, available, summaryHeight)
-            detail.setBounds(88, summaryHeight + 5, available, detail.heightFor(available))
-        }
-    }
-
-    private class WrappingText(text: String, color: Color, private val naturalWidth: Int, size: Float = 12f) : JTextArea(text), WidthAware {
-        init {
-            setUI(BasicTextAreaUI())
-            isOpaque = false; isEditable = false
-            isFocusable = false
-            cursor = Cursor.getDefaultCursor()
-            caret = object : DefaultCaret() {
-                override fun setDot(dot: Int, bias: Position.Bias) = super.setDot(0, bias)
-                override fun moveDot(dot: Int, bias: Position.Bias) = super.setDot(0, bias)
-            }
-            highlighter = null
-            lineWrap = true; wrapStyleWord = true
-            foreground = color
-            font = SystemUiFont.derive(Font.PLAIN, size)
-            border = null
-            margin = Insets(0, 0, 0, 0)
-        }
-        override fun heightFor(width: Int): Int {
-            val view = (ui as javax.swing.plaf.TextUI).getRootView(this)
-            view.setSize(width.coerceAtLeast(1).toFloat(), Float.MAX_VALUE)
-            return ceil(view.getPreferredSpan(View.Y_AXIS).toDouble()).toInt()
-        }
-        override fun getPreferredSize() = Dimension(naturalWidth, heightFor(width.takeIf { it > 0 } ?: naturalWidth))
-    }
-
-    private class AboutSurface(private val colors: Palette) : JPanel() {
-        init { isOpaque = false }
+    private class AboutSurface(colors: Palette, settings: () -> IslandSettings, report: (Throwable) -> Unit) :
+        LiquidGlassSurface(settings, report, 26.0) {
+        init { background = colors.background; surfaceBorder = colors.border }
         override fun getPreferredSize() = Dimension(DIALOG_WIDTH, super.getPreferredSize().height)
-        override fun paintComponent(graphics: Graphics) {
-            val g = graphics.create() as Graphics2D
-            try {
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                val outline = RoundRectangle2D.Double(.5, .5, width - 1.0, height - 1.0, 26.0, 26.0)
-                g.color = colors.background; g.fill(outline)
-                g.color = colors.border; g.draw(outline)
-            } finally { g.dispose() }
-            super.paintComponent(graphics)
-        }
     }
     private class AboutCard(private val colors: Palette) : JPanel(), WidthAware {
         init { isOpaque = false }
@@ -384,8 +325,6 @@ internal class AboutDialog(private val owner: Window, private val report: (Throw
             super.paintComponent(graphics)
         }
     }
-    private interface WidthAware { fun heightFor(width: Int): Int }
-
     private class VerticalStack(private val naturalWidth: Int, private val gap: Int = 0) : LayoutManager {
         override fun addLayoutComponent(name: String?, component: Component) = Unit
         override fun removeLayoutComponent(component: Component) = Unit

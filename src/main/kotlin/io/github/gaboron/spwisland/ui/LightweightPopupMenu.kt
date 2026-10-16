@@ -6,6 +6,8 @@ import com.sun.jna.Platform
 import com.sun.jna.platform.win32.User32
 import com.sun.jna.platform.win32.WinDef.HWND
 import io.github.gaboron.spwisland.platform.GlobalMenuDismisser
+import io.github.gaboron.spwisland.core.IslandSettings
+import io.github.gaboron.spwisland.core.IslandBackgroundStyle
 import java.awt.*
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
@@ -14,19 +16,30 @@ import javax.swing.*
 import javax.swing.border.EmptyBorder
 
 /** Reusable in-process popup: no helper process, polling thread, or per-open window allocation. */
-internal class LightweightPopupMenu(private val owner: Window, private val report: (Throwable) -> Unit) : AutoCloseable {
+internal class LightweightPopupMenu(private val owner: Window, private val report: (Throwable) -> Unit,
+                                     private val settings: () -> IslandSettings) : AutoCloseable {
     private data class LayoutKey(val kind: PopupMenuKind, val id: Int, val label: String)
     private data class Palette(val background: Color, val text: Color, val muted: Color,
                                val accent: Color, val hover: Color, val border: Color)
 
     private val surface = MenuSurface()
-    private val window = JWindow(owner).apply {
+    private val alphaFrame = WindowAlphaFrame(32.0)
+    private val window = object : JWindow(owner) {
+        override fun update(graphics: Graphics) = paint(graphics)
+        override fun paint(graphics: Graphics) {
+            if (Platform.isWindows() && !surface.gpuDrawing)
+                alphaFrame.paint(graphics, width, height) { super.paint(it) }
+            else super.paint(graphics)
+        }
+    }.apply {
         // POPUP windows are not reliably focusable on Linux, preventing outside-click dismissal.
         type = if (Platform.isWindows()) Window.Type.POPUP else Window.Type.UTILITY
         background = if (Platform.isWindows()) Color(0, 0, 0, 0) else Color(0x20, 0x20, 0x20)
         isAlwaysOnTop = true
         focusableWindowState = true
         isAutoRequestFocus = true
+        rootPane.isOpaque = false
+        layeredPane.isOpaque = false
         contentPane = surface
         addWindowFocusListener(object : WindowAdapter() {
             override fun windowLostFocus(event: WindowEvent) = dismiss()
@@ -39,6 +52,7 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
     private val dismisser = GlobalMenuDismisser(::dismiss)
     private var layoutKey: List<LayoutKey> = emptyList()
     private var dark: Boolean? = null
+    private var glass: Boolean? = null
     private var command: ((Int) -> Unit)? = null
 
     fun prewarm(entries: List<PopupMenuEntry>, useDark: Boolean) {
@@ -56,20 +70,24 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
         val y = (if (below <= work.y + work.height) anchor.y else anchor.y - window.height)
             .coerceIn(work.y, (work.y + work.height - window.height).coerceAtLeast(work.y))
         window.setLocation(x, y)
-        window.isVisible = true
-        window.toFront()
-        if (Platform.isWindows()) runCatching {
-            User32.INSTANCE.SetForegroundWindow(HWND(Native.getWindowPointer(window)))
-        }.onFailure(report)
-        window.requestFocus()
-        EventQueue.invokeLater { if (window.isVisible) window.requestFocus() }
         if (!dismisser.arm(window)) report(IllegalStateException("无法监听菜单外部点击"))
+        surface.showWhenReady {
+            window.isVisible = true
+            window.toFront()
+            if (Platform.isWindows()) runCatching {
+                User32.INSTANCE.SetForegroundWindow(HWND(Native.getWindowPointer(window)))
+            }.onFailure(report)
+            window.requestFocus()
+            EventQueue.invokeLater { if (window.isVisible) window.requestFocus() }
+        }
     }
 
     private fun update(entries: List<PopupMenuEntry>, useDark: Boolean) {
         val nextKey = entries.map { LayoutKey(it.kind, it.id, it.label) }
-        if (dark != useDark || layoutKey != nextKey) {
+        val useGlass = usesGlass()
+        if (dark != useDark || glass != useGlass || layoutKey != nextKey) {
             dark = useDark
+            glass = useGlass
             layoutKey = nextKey
             rebuild(entries, palette(useDark))
             window.pack()
@@ -79,6 +97,7 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
                 toggleMarks[it.id]?.text = if (it.selected) "✓" else ""
             }
         }
+        surface.invalidateGpuContent()
     }
 
     private fun rebuild(entries: List<PopupMenuEntry>, colors: Palette) {
@@ -157,8 +176,9 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
 
     private fun dismiss() {
         dismisser.disarm()
-        if (!window.isVisible) return
+        surface.cancelShow()
         command = null
+        if (!window.isVisible) return
         window.isVisible = false
     }
 
@@ -174,11 +194,15 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
             bounds.width - insets.left - insets.right, bounds.height - insets.top - insets.bottom)
     }
 
+    private fun usesGlass() = settings().let {
+        Platform.isWindows() && it.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS && !it.lowPerformance
+    }
+
     private fun palette(useDark: Boolean) = if (useDark) Palette(
-        Color(0x20, 0x20, 0x20), Color(0xF5, 0xF5, 0xF5), Color(0x9D, 0x9D, 0x9D),
+        Color(0x20, 0x20, 0x20), Color(0xF5, 0xF5, 0xF5), if (usesGlass()) Color(0xC6, 0xC6, 0xC6) else Color(0x9D, 0x9D, 0x9D),
         Color(0x60, 0xCD, 0xFF), Color(0x4A, 0x4A, 0x4A, 150), Color(0xFF, 0xFF, 0xFF, 42)
     ) else Palette(
-        Color(0xF3, 0xF3, 0xF3), Color(0x1B, 0x1B, 0x1B), Color(0x5D, 0x5D, 0x5D),
+        Color(0xF3, 0xF3, 0xF3), Color(0x1B, 0x1B, 0x1B), if (usesGlass()) Color(0x44, 0x44, 0x44) else Color(0x5D, 0x5D, 0x5D),
         Color(0x00, 0x67, 0xC0), Color(0xE9, 0xE9, 0xE9, 138), Color(0x45, 0x45, 0x45, 28)
     )
 
@@ -193,29 +217,18 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
 
     override fun close() {
         dismisser.close()
+        surface.cancelShow()
         command = null
         window.dispose()
     }
 
-    private inner class MenuSurface : JPanel() {
+    private inner class MenuSurface : LiquidGlassSurface(settings, report, 32.0) {
         var colors = palette(false)
+            set(value) { field = value; background = value.background; surfaceBorder = value.border }
         init {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = EmptyBorder(6, 6, 6, 6)
-            isOpaque = false
-        }
-        override fun paintComponent(graphics: Graphics) {
-            val g = graphics.create() as Graphics2D
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
-            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
-            val outline = RoundRectangle2D.Double(0.5, 0.5, width - 1.0, height - 1.0, 32.0, 32.0)
-            g.color = colors.background
-            g.fill(outline)
-            g.color = colors.border
-            g.draw(outline)
-            g.dispose()
-            super.paintComponent(graphics)
+            background = colors.background; surfaceBorder = colors.border
         }
     }
 

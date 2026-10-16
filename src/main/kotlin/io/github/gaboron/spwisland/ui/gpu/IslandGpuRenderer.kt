@@ -7,6 +7,7 @@ import io.github.gaboron.spwisland.platform.WindowsGpuInput
 import io.github.gaboron.spwisland.platform.WindowsDesktopBackdrop
 import io.github.gaboron.spwisland.platform.WindowsGpuTextureImport
 import io.github.gaboron.spwisland.core.IslandBackgroundStyle
+import io.github.gaboron.spwisland.core.GlassStatus
 import io.github.gaboron.spwisland.ui.IslandSurface
 import io.github.gaboron.spwisland.ui.IslandHoverGeometry
 import org.jetbrains.skiko.*
@@ -30,9 +31,9 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
     val active get() = layer != null
     val fallbackRendering get() = failed
     val rendererInfo get() = layer?.renderInfo ?: "Java2D 兼容绘制"
-    val glassStatus get() = scene?.glassFailure?.let { "液态玻璃：使用经典背景，$it" } ?: when {
-        scene?.glassWaitingForCrop == true -> "液态玻璃：等待完整的单屏后景，暂用经典背景。"
-        else -> backdrop?.status.orEmpty()
+    val glassStatus get() = scene?.glassFailure?.let { GlassStatus("使用经典背景", it, warning = true) } ?: when {
+        scene?.glassWaitingForCrop == true -> GlassStatus("等待桌面图像", "等待完整的单屏后景，暂用经典背景。")
+        else -> backdrop?.status ?: GlassStatus("等待桌面捕获")
     }
     private val visibility = object : ComponentAdapter() {
         override fun componentHidden(event: ComponentEvent) {

@@ -4,8 +4,10 @@ package io.github.gaboron.spwisland.ui
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.core.*
 
+enum class IslandStatusGroup(val title: String) { PLAYBACK("播放与显示"), RENDERING("渲染与材质"), INTERACTION("音频与交互") }
+
 data class IslandStatusEntry(val title: String, val summary: String, val detail: String,
-                           val warning: Boolean = false)
+                           val warning: Boolean = false, val group: IslandStatusGroup = IslandStatusGroup.INTERACTION)
 
 /** Explain the actual display policy and data source, including disabled and waiting states. */
 internal object IslandRuntimeStatus {
@@ -25,30 +27,60 @@ internal object IslandRuntimeStatus {
                  hoverHidden: Boolean, fullscreen: Boolean, inputAvailable: Boolean,
                  pointerReady: Boolean, pointerStatus: String, fallback: Boolean,
                  spectrumStatus: String, gpuActive: Boolean = false,
-                 gpuFallback: Boolean = false, glassStatus: String = ""): List<IslandStatusEntry> = listOf(
-        display(settings, snapshot, visible, hoverHidden, fullscreen),
-        performance(settings, gpuActive, gpuFallback, glassStatus),
-        spectrum(settings, snapshot, fallback, spectrumStatus),
-        interaction(settings, visible, inputAvailable, pointerReady, pointerStatus)
-    )
+                 gpuFallback: Boolean = false, glassStatus: GlassStatus = GlassStatus("等待桌面捕获")): List<IslandStatusEntry> = buildList {
+        add(display(settings, snapshot, visible, hoverHidden, fullscreen))
+        add(lyrics(settings, snapshot))
+        add(IslandStatusEntry("性能模式", if (settings.lowPerformance) "低性能模式" else "标准模式",
+            if (settings.lowPerformance) "降低刷新率与动效，使用模拟频谱。" else "完整动效，支持实时频谱。",
+            group = IslandStatusGroup.RENDERING))
+        add(rendering(settings, gpuActive, gpuFallback))
+        addAll(material(settings, gpuFallback, glassStatus))
+        add(spectrum(settings, snapshot, fallback, spectrumStatus))
+        add(interaction(settings, visible, inputAvailable, pointerReady, pointerStatus))
+    }
 
-    private fun performance(settings: IslandSettings, gpuActive: Boolean, fallback: Boolean, glassStatus: String): IslandStatusEntry {
-        val mode = if (settings.lowPerformance) "低性能模式" else "标准模式"
-        val effects = if (settings.lowPerformance) "降低刷新率与动效，使用模拟频谱。"
-            else "完整高亮与动效，支持实时频谱。"
-        val rendering = when {
-            !settings.enabled -> "显示词岛时启用绘制。"
-            gpuActive -> "GPU 绘制已启用。"
-            fallback -> "GPU 不可用，已切换兼容绘制；重启插件后重试。"
-            else -> "等待窗口初始化。"
+    private fun lyrics(settings: IslandSettings, snapshot: PlaybackSnapshot): IslandStatusEntry {
+        val line = snapshot.line
+        val timing = LyricWordTiming.resolve(line, snapshot.usesWordTiming, settings.forceKaraoke)
+        val (summary, detail) = when {
+            !settings.karaoke -> "逐行显示" to "逐字高亮已关闭。"
+            line == null -> "等待歌词" to "读取歌词后更新显示方式。"
+            timing.estimated -> "强制逐字" to "按行时长估算进度，不应用长音发光。"
+            timing.words.isNotEmpty() -> "原生逐字" to "使用歌词自带的时间轴。"
+            else -> "逐行显示" to "当前歌词没有可用的逐字时间轴。"
         }
-        val material = if (settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS) when {
-            settings.lowPerformance -> "低性能模式使用经典背景。"
-            fallback -> "液态玻璃需要 GPU 绘制。"
-            else -> glassStatus.ifBlank { "液态玻璃等待桌面捕获。" }
-        } else ""
-        return IslandStatusEntry("性能模式", mode + if (fallback) " · 兼容绘制" else "",
-            "$effects$rendering$material", settings.enabled && (fallback || material.contains("使用经典背景")))
+        return IslandStatusEntry("歌词高亮", summary, detail, group = IslandStatusGroup.PLAYBACK)
+    }
+
+    private fun rendering(settings: IslandSettings, active: Boolean, fallback: Boolean): IslandStatusEntry {
+        val (summary, detail) = when {
+            !settings.enabled -> "待启用" to "显示词岛后启用绘制。"
+            fallback -> "兼容绘制" to "GPU 不可用，重启插件后重试。"
+            active -> "GPU 绘制" to ""
+            else -> "初始化中" to "等待窗口初始化。"
+        }
+        return IslandStatusEntry("词岛绘制", summary, detail, settings.enabled && fallback, IslandStatusGroup.RENDERING)
+    }
+
+    private fun material(settings: IslandSettings, fallback: Boolean, glass: GlassStatus): List<IslandStatusEntry> {
+        val (summary, detail) = when {
+            settings.backgroundStyle != IslandBackgroundStyle.LIQUID_GLASS -> "经典背景" to ""
+            !Platform.isWindows() -> "经典背景" to "当前平台不支持液态玻璃。"
+            settings.lowPerformance -> "经典背景" to "低性能模式停用液态玻璃。"
+            !settings.enabled -> "液态玻璃 · 待启用" to "显示词岛后开始桌面捕获。"
+            fallback -> "经典背景" to "词岛液态玻璃需要 GPU 绘制。"
+            else -> "液态玻璃 · ${glass.summary}" to glass.detail
+        }
+        val capturing = settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS && Platform.isWindows() &&
+            !settings.lowPerformance && settings.enabled && !fallback
+        return buildList {
+            add(IslandStatusEntry("背景材质", summary, detail,
+                capturing && glass.warning, IslandStatusGroup.RENDERING))
+            if (capturing && glass.framesPerSecond != null) add(IslandStatusEntry("桌面捕获",
+                "${glass.framesPerSecond} fps · 原生处理 ${glass.nativeTimeMs} ms",
+                "处理耗时不含界面等待与绘制。玻璃窗口从系统录屏中排除。",
+                group = IslandStatusGroup.RENDERING))
+        }
     }
 
     private fun display(s: IslandSettings, p: PlaybackSnapshot, visible: Boolean, hoverHidden: Boolean,
@@ -63,7 +95,7 @@ internal object IslandRuntimeStatus {
             else -> "显示中" to "${if (p.playing) "正在播放" else "已暂停"}：${p.track.title}" +
                 p.track.artist.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
         }
-        return IslandStatusEntry("词岛显示", summary, detail)
+        return IslandStatusEntry("词岛显示", summary, detail, group = IslandStatusGroup.PLAYBACK)
     }
 
     private fun spectrum(s: IslandSettings, p: PlaybackSnapshot, fallback: Boolean, source: String): IslandStatusEntry = when {

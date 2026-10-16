@@ -22,6 +22,7 @@ data class IslandSettings(
     val enabled: Boolean = true,
     val translation: Boolean = true,
     val karaoke: Boolean = true,
+    val forceKaraoke: Boolean = false,
     val experimentalMultiLine: Boolean = false,
     val hidePaused: Boolean = false,
     val hideFullscreen: Boolean = true,

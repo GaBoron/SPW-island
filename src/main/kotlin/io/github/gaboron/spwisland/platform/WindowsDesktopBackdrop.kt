@@ -5,6 +5,7 @@ import com.sun.jna.Library
 import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.WString
+import io.github.gaboron.spwisland.core.GlassStatus
 import org.jetbrains.skia.Data
 import org.jetbrains.skia.Image
 import java.awt.Window
@@ -16,6 +17,7 @@ import javax.swing.SwingUtilities
 /** Small SDR desktop crops only. WinRT, D3D11 and capture exclusion live on the DLL's worker. */
 internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                                       private val gpu: WindowsGpuTextureImport?,
+                                      private val dispatch: (() -> Unit) -> Unit = { SwingUtilities.invokeLater(it) },
                                       private val redraw: () -> Unit) : AutoCloseable {
     data class Pixels(val serial: Long, val data: Data?, val texture: Image?, val x: Int, val y: Int,
                       val width: Int, val height: Int)
@@ -48,17 +50,18 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
     private var unavailable = false
     private var gpuFallback: String? = null
     private var nativeGpuReasonRead = false
-    var status = "液态玻璃：等待桌面图像。"
+    var status = GlassStatus("等待桌面图像")
         private set
 
-    fun request(owner: Window, input: Window?, x: Int, y: Int, width: Int, height: Int) {
-        if (unavailable || !owner.isDisplayable || !owner.isVisible) return
+    fun request(owner: Window, input: Window?, x: Int, y: Int, width: Int, height: Int,
+                allowHidden: Boolean = false) {
+        if (unavailable || !owner.isDisplayable || !allowHidden && !owner.isVisible) return
         try {
             val native = api ?: load().also { api = it }
             val current = capture ?: run {
                 val adapter = gpu?.adapter
                 if (gpu != null && adapter == null && gpu.failure == null) {
-                    status = "液态玻璃：等待 Skiko Direct3D 初始化。"
+                    status = GlassStatus("等待绘制初始化", "正在连接 Skiko Direct3D。")
                     return
                 }
                 gpuFallback = gpu?.failure
@@ -125,7 +128,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                 receivedFrames = 0; rateStarted = now
             }
             image?.let {
-                if (it.texture == null && !nativeGpuReasonRead) {
+                if (gpu != null && it.texture == null && !nativeGpuReasonRead) {
                     val reason = ByteArray(1024)
                     native.GlassGpuError(current, reason, reason.size)
                     val message = reason.takeWhile { byte -> byte != 0.toByte() }.toByteArray().toString(Charsets.UTF_8)
@@ -133,9 +136,9 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                     nativeGpuReasonRead = true
                     System.err.println("[SPW Island] 液态玻璃 CPU 中转：$gpuFallback")
                 }
-                val transport = if (it.texture != null) "GPU 共享纹理" else "CPU 中转" +
-                    (gpuFallback?.let { reason -> "（$reason）" } ?: "")
-                status = "液态玻璃：$transport，背景更新 ${updateRate}fps，原生处理 ${(metadata[7] + 500) / 1000}ms（不含界面等待和绘制）；词岛已从系统捕获中排除。"
+                val transport = if (it.texture != null) "GPU 共享纹理" else "CPU 中转"
+                status = GlassStatus(transport, gpuFallback.orEmpty(), gpuFallback != null,
+                    updateRate, (metadata[7] + 500) / 1000)
                 Sample(it, metadata[5] + islandX * scaleX, metadata[6] + islandY * scaleY, scaleX, scaleY)
             }
         } catch (error: Throwable) { fail(error); null }
@@ -152,14 +155,14 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                 while (capture === current) {
                     val result = native.GlassWait(current, 250)
                     if (capture !== current) break
-                    if (result != 0 && redrawPending.compareAndSet(false, true)) SwingUtilities.invokeLater {
+                    if (result != 0 && redrawPending.compareAndSet(false, true)) dispatch {
                         redrawPending.set(false)
                         if (capture === current) redraw()
                     }
                     if (result < 0) break
                 }
             } catch (error: Throwable) {
-                SwingUtilities.invokeLater { if (capture === current) fail(error) }
+                dispatch { if (capture === current) { fail(error); redraw() } }
             }
         }, "SPW Island backdrop frames").apply { isDaemon = true; start() }
     }
@@ -167,8 +170,8 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
     private fun fail(error: Throwable) {
         unavailable = true
         close()
-        status = "液态玻璃：使用经典背景，${error.message}"
-        report(IllegalStateException(status, error))
+        status = GlassStatus("使用经典背景", error.message ?: error.javaClass.simpleName, warning = true)
+        report(IllegalStateException("液态玻璃：${status.summary}，${status.detail}", error))
     }
 
     override fun close() {

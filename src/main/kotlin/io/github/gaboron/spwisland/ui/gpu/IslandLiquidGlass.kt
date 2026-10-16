@@ -27,7 +27,7 @@ internal class IslandLiquidGlass : AutoCloseable {
 
     fun draw(canvas: Canvas, path: Path, shape: Shape, geometry: Any, nominalSize: Float,
              sample: WindowsDesktopBackdrop.Sample, opacity: Int, progress: Float,
-             progressOpacity: Float, width: Int): Boolean {
+             progressOpacity: Float, width: Int, surfaceColor: Int = 0xff000000.toInt()): Boolean {
         if (failure != null) return false
         val pixels = sample.pixels
         val bounds = path.bounds
@@ -51,10 +51,11 @@ internal class IslandLiquidGlass : AutoCloseable {
                 program.uniform("fieldScale", sample.scaleX, sample.scaleY)
                 program.uniform("fieldOrigin", contour.originX, contour.originY)
                 program.child("content", checkNotNull(background.shader))
+                program.child("edgeContent", checkNotNull(background.edgeShader))
                 program.uniform("center", (bounds.left + bounds.right) / 2f, (bounds.top + bounds.bottom) / 2f)
                 program.uniform("halfSize", (bounds.width / 2f).coerceAtLeast(.001f),
                     (bounds.height / 2f).coerceAtLeast(.001f))
-                // LiquidButton's 12/24 dp, capped only while the existing shape collapses.
+                // Shared optics scale down only while the existing shape collapses.
                 val collapseScale = (minOf(bounds.width, bounds.height) / nominalSize.coerceAtLeast(.001f))
                     .coerceIn(.0001f, 1f)
                 program.uniform("refractionHeight", IslandGlassShaders.LENS_HEIGHT * collapseScale)
@@ -67,14 +68,14 @@ internal class IslandLiquidGlass : AutoCloseable {
                 shader?.close(); shader = next; shaderKey = nextKey
             }
             deviceScale = sample.scaleY
-            target.shader = material(opacity, progress, progressOpacity, width)
+            target.shader = material(opacity, progress, progressOpacity, width, surfaceColor)
             canvas.drawPath(path, target)
             true
         } catch (error: Throwable) { disable(error); false }
     }
 
-    private fun material(opacity: Int, progress: Float, progressOpacity: Float, width: Int): Shader {
-        val nextKey = listOf(shaderKey, opacity, progress, progressOpacity, width)
+    private fun material(opacity: Int, progress: Float, progressOpacity: Float, width: Int, surfaceColor: Int): Shader {
+        val nextKey = listOf(shaderKey, opacity, progress, progressOpacity, width, surfaceColor)
         if (materialKey == nextKey) return checkNotNull(materialShader)
         val program = materialBuilder ?: run {
             val compiled = RuntimeEffect.makeForShader(IslandGlassShaders.MATERIAL)
@@ -83,6 +84,8 @@ internal class IslandLiquidGlass : AutoCloseable {
         }
         program.child("lens", checkNotNull(shader))
         program.uniform("surfaceAlpha", (.5f * opacity / 100f * 255f).roundToInt().coerceIn(0, 255) / 255f)
+        program.uniform("surfaceTint", (surfaceColor ushr 16 and 255) / 255f,
+            (surfaceColor ushr 8 and 255) / 255f, (surfaceColor and 255) / 255f)
         program.uniform("progressX", width * progress)
         program.uniform("progressShade", (25.5f * progressOpacity).roundToInt().coerceIn(0, 255) / 255f)
         val next = program.makeShader()

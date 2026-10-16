@@ -14,8 +14,8 @@ class IslandMenu(private val store: SettingsStore, private val report: (Throwabl
     private var windowsTray: WindowsTray? = null
     private var linuxTray: GtkTray? = null
     private val commands = IslandMenuCommands(store, ::about)
-    private val popup = if (Platform.isLinux()) null else LightweightPopupMenu(owner, report)
-    private val aboutDialog = AboutDialog(owner, report, status)
+    private val popup = if (Platform.isLinux()) null else LightweightPopupMenu(owner, report, store::read)
+    private val aboutDialog = AboutDialog(owner, report, status, store::read)
     val aboutVisible: Boolean get() = aboutDialog.isVisible
     private fun action(block: () -> Unit) { try { block() } catch (e: Exception) { report(e) } }
     fun popup(owner: Component, x: Int, y: Int) {

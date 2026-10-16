@@ -43,6 +43,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         // An incomplete settings write must not change an accepted visibility policy.
         enabled = config.get("enabled", accepted?.enabled ?: true), translation = config.get("translation", true),
         karaoke = config.get("karaoke", true),
+        forceKaraoke = config.get("force_karaoke", false),
         experimentalMultiLine = config.get("experimental_multi_line", false),
         hidePaused = config.get("hide_paused", accepted?.hidePaused ?: false),
         hideFullscreen = Platform.isWindows() && config.get("hide_fullscreen", accepted?.hideFullscreen ?: true),

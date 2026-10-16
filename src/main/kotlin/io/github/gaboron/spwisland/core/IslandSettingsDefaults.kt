@@ -9,6 +9,7 @@ object IslandSettingsDefaults {
         "enabled" to defaults.enabled,
         "translation" to defaults.translation,
         "karaoke" to defaults.karaoke,
+        "force_karaoke" to defaults.forceKaraoke,
         "experimental_multi_line" to defaults.experimentalMultiLine,
         "hide_paused" to defaults.hidePaused,
         "hide_fullscreen" to true,

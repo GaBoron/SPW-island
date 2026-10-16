@@ -346,7 +346,9 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | `ActiveLyrics.kt` | 根据当前播放快照选择实际显示的歌词；负责普通单行、实验性多行、重叠歌词和间奏保留 |
 | `IslandAnchor.kt` | 九宫格窗口锚点模型，以及锚点的持久化名称转换 |
 | `IslandSettings.kt` | 稳定的设置快照、两侧内容模式、背景进度模式，以及通用 `SettingsStore` 接口 |
+| `GlassStatus.kt` | 桌面捕获状态、回退原因、更新率和原生处理耗时 |
 | `LyricFontWeight.kt` | 歌词字重的稳定存储值与解析 |
+| `LyricWordTiming.kt` | 优先使用原生逐字时间轴；按行时长估算普通 LRC 的字素进度并标记估算来源 |
 | `Lyrics.kt` | `Track`、`Word`、`LyricLine`、`PlaybackSnapshot`、`TrackMetadata`、封面数据等核心模型 |
 | `LyricsDocument.kt` | 缓存歌词行索引、合并结果和整曲逐字类型；内容未变时复用文档 |
 | `PerformanceProfile.kt` | 标准模式和低性能模式的统一性能预算 |
@@ -443,9 +445,13 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | `gpu/IslandGpuBackground.kt` | 原生背景、注水和边缘进度 |
 | `gpu/IslandLiquidGlass.kt` | Windows 实验性玻璃光学：真实后景的边缘折射、轻微色散与方向高光 |
 | `gpu/IslandGlassContour.kt` | 从原始 Shape 展平线段生成最短距离场，另保留原 Path 的覆盖 mask，按几何和 DPI 缓存 |
-| `gpu/IslandGlassImage.kt` | GPU 裁片或兼容像素帧的 Backdrop Vibrancy → Blur 缓存，仅在背景帧或 DPI 改变时更新 |
+| `gpu/IslandGlassImage.kt` | GPU 裁片或兼容像素帧的 Vibrancy 与中心/边缘模糊缓存，仅在背景帧或 DPI 改变时更新 |
 | `gpu/IslandGlassShaders.kt` | 移植的 Lens、七采样色散与 Default Highlight Shader，以及轮廓距离适配程序 |
 | `gpu/IslandGlassHighlight.kt` | 原轮廓内侧的模糊细边，在内容之后独立使用 PLUS 合成 |
+| `gpu/SwingGlassMaterial.kt` | 菜单与关于页的 Direct3D 图层、桌面裁片、显示时钟、首帧准备和资源释放 |
+| `gpu/SwingGlassOptics.kt` | 辅助窗口圆角矩形的解析距离场、共享折射与高光，以及深浅主题基底 |
+| `gpu/SwingGlassContent.kt` | 仅在控件内容变化时更新 Swing 内容图像，与桌面背景刷新分开 |
+| `gpu/SwingGlassInput.kt` | 将原生输入窗口的鼠标事件转给原有按钮、拖动与滚动逻辑，观察键盘和焦点变化 |
 | `gpu/IslandGpuSides.kt` | 原生封面、频谱和播放状态 |
 | `gpu/IslandGpuControls.kt` | 原生控制图标、歌曲信息和可拖动进度的呈现 |
 | `gpu/IslandGpuResources.kt` | 有界原生路径与封面缓存、复用画笔和透明图层资源 |
@@ -483,9 +489,11 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 
 背景优先使用同适配器的 D3D11/D3D12 共享纹理。适配器遵循 Skiko 的 GPU 优先级、DXGI 枚举顺序和 D3D12 支持条件，同名设备按这一顺序选择。裁片只写一次，复制完成后交给 Skia GPU Image；共享不可用时使用 staging 读回。`WindowsGpuTextureImport` 绑定 Skiko 0.150.1，通过反射访问实际 `DirectContext`、`drawLock` 与 GPU 优先级；上下文操作、录制和释放共用绘制锁。共享路径保留 GPU 裁切和快照复制，不回读像素；资源创建和 Present 等待仍有开销。
 
-材质顺序为 Backdrop Vibrancy → Blur → Lens → 半黑遮罩与进度 → 原内容 → 独立 Highlight。模糊 sigma 为 2 逻辑像素，折射集中在内侧 12 逻辑像素，最大位移 24；七采样色散的最大单向偏移为 0.2 逻辑像素。高光使用原 Path 内侧的模糊细边，独立 PLUS 合成；光源固定左上，背光侧强度为 15%。基准遮罩为 50% 黑色，由背景不透明度缩放。
+材质顺序为 Backdrop Vibrancy → Blur → Lens → 中性基底与进度 → 原内容 → 独立 Highlight。中心模糊 sigma 为 6 逻辑像素，折射边缘使用 sigma 2 的较清晰采样，两者平滑混合；折射集中在内侧 14 逻辑像素，最大位移 36。七采样色散的最大单向偏移为 0.2 逻辑像素。词岛、菜单和关于页共用这些光学参数。高光使用轮廓内侧的模糊细边，独立 PLUS 合成；光源固定左上，背光侧强度为 15%。词岛基准遮罩为 50% 黑色，由背景不透明度缩放；辅助窗口使用随主题变化的 82% 中性基底保证小字对比度。
 
 距离场和覆盖 mask 来自同一动态 Shape，法线由距离差分计算，最终轮廓使用原 Path 裁剪。Shader 复用；几何按轮廓与 DPI 缓存，背景滤镜按捕获版本缓存。歌词对比度在 GPU 上以 5×3 个位置采样最终材质，再归约到 1×1 纹理；低于 4.5:1 时整行使用经典黑色描边，字形动画共用判断结果。
+
+辅助窗口的固定圆角矩形使用解析距离场，词岛保留原动态 Shape。`SwingGlassMaterial` 与词岛共用 Direct3D、桌面共享纹理和显示时钟；背景直接由 GPU 合成，不逐帧回读成 Swing 位图。控件内容单独缓存，只有文字、焦点或交互状态变化时更新。
 
 平台条件、录屏排除和回退行为见[兼容性与限制](compatibility.md#液态玻璃)。关于窗口中的背景更新率和原生处理耗时仅反映接收与发布阶段，不代表最终屏显帧率或端到端延迟。原生捕获构建需要 MSVC x64 C++ 工具、CRT/STL 和带 C++/WinRT 的 Windows SDK。
 
@@ -550,6 +558,8 @@ LyricPainter
 
 完整逐字歌词到达后，预备线程分析整首歌词的长音标记；字形与轮廓仍只预备当前及随后几行。绘制复用长音结果、同一词的渐变和本帧逐字几何查询。切歌清空长音分析缓存，字体变化只影响字形准备；低性能模式跳过长音预分析。
 
+`force_karaoke` 默认为 `false`。`LyricWordTiming` 在没有可用原生逐字时间轴时，按非空白字素均分行时长，空白单元不占时长。估算只用于呈现；`IslandTextBlock` 将来源标记传给 GPU 与 Java2D 绘制路径，两条路径均禁止估算歌词触发长音效果。
+
 ### 4.7 `ui/`：侧边内容、颜色与播放控制
 
 | 文件 | 职责 |
@@ -586,9 +596,13 @@ PopupMenuEntry
 | `LightweightPopupMenu.kt` | 非 Linux 平台使用的进程内自绘弹出菜单 |
 | `WindowsTray.kt` / `native/Tray.cs` | Windows 独立托盘程序的生命周期与图标事件转发；菜单仍在插件进程内 |
 | `GtkTray.kt` | Linux 原生 GTK 托盘及其菜单同步 |
-| `AboutDialog.kt` | 四项实时状态和简短版权卡片；按文本实际宽度计算高度，窄屏或长说明可滚动 |
-| `BufferedAboutWindow.kt` | 独立关于窗口；Linux 子控件重绘先完成整帧透明缓冲，再一次提交 |
-| `IslandRuntimeStatus.kt` | 将设置、播放、频谱和指针状态转换为可读说明及异常处理提示 |
+| `AboutDialog.kt` | 组合分组状态与版权卡片；按文本实际宽度计算高度，窄屏或长说明可滚动 |
+| `AboutStatusPanel.kt` | 分组排版、主状态层级、自动换行与异常原因展示 |
+| `AboutText.kt` | 关于页共用的宽度测量接口和不可编辑换行文本 |
+| `BufferedAboutWindow.kt` | 独立关于窗口；兼容绘制使用整帧透明缓冲，GPU 材质直接呈现 |
+| `LiquidGlassSurface.kt` | 菜单与关于页共用的背景选择、首次显示准备和可见性生命周期 |
+| `WindowAlphaFrame.kt` | 按设备像素密度替换完整透明帧，用抗锯齿蒙版保留圆角 |
+| `IslandRuntimeStatus.kt` | 按播放、渲染与交互组织状态，分离摘要、诊断与捕获指标 |
 | `DialogButton.kt` | 关于窗口统一按钮；绘制与命中使用同一圆角区域，关闭图标始终居中 |
 | `ApplicationIdentity.kt` | 窗口/托盘共享的应用名称和图标，以及 Linux 托盘临时图标导出 |
 | `ProjectLinks.kt` | 从构建资源读取项目地址并调用系统浏览器打开 |
@@ -599,7 +613,9 @@ PopupMenuEntry
 
 关于窗口独立于词岛窗口。显示期间抑制歌词控件展开，打开、关闭时清空悬停记录；其他窗口收到鼠标进入或移动事件时也清除旧记录。关闭关于窗口后，新的词岛鼠标事件可触发展开。
 
-状态由 `IslandRuntimeStatus` 提供，窗口显示期间每秒更新，关闭后停止定时器。词岛显示、性能模式、音频频谱和鼠标交互分别列出当前状态与说明；GNOME 指针扩展未连接时提供安装与重新登录提示。
+状态由 `IslandRuntimeStatus` 提供，窗口显示期间每秒更新，关闭后停止定时器。`AboutStatusPanel` 按“播放与显示”“渲染与材质”“音频与交互”排版，捕获指标与回退原因分开呈现；GNOME 指针扩展未连接时提供安装与重新登录提示。
+
+`LiquidGlassSurface` 在玻璃首帧准备完成后显示窗口，初始化超时或失败时使用经典背景。隐藏事件分发结束后才释放 GPU 图层，避免 Skiko 的后续回调访问已脱离窗口的组件；窗口已重新打开或仍在准备显示时跳过旧隐藏事件的释放。
 
 ### 4.9 Windows 原生频谱 helper
 

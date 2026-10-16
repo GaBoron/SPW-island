@@ -24,6 +24,13 @@
         },
         {
           "type": "switch",
+          "key": "force_karaoke",
+          "title": "强制逐字显示",
+          "default_value": false,
+          "summary": "开启逐字高亮后，为普通 LRC 按行时长估算逐字进度；估算歌词不应用长音发光。原生逐字时间轴优先。"
+        },
+        {
+          "type": "switch",
           "key": "experimental_multi_line",
           "title": "实验性多行歌词",
           "default_value": false,

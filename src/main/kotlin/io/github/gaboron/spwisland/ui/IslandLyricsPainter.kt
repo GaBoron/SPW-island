@@ -36,7 +36,8 @@ object IslandLyricsPainter {
                 color = palette.lyric,
                 detailedKaraoke = settings.performance.detailedKaraoke,
                 fallbackFont = block.mainFallbackFont,
-                contrastOutline = palette.lyricOutline, shapedText = block.shapedMain, longToneAnalysis = longTones)
+                contrastOutline = palette.lyricOutline, shapedText = block.shapedMain, longToneAnalysis = longTones,
+                allowLongTone = block.allowLongTone)
             block.sub?.let { LyricPainter.draw(copy, it, emptyList(), (time - (line?.startMs ?: 0)).coerceAtLeast(0),
                 inset, row.subBaseline, available, block.subFont, false, Color(177, 182, 195),
                 fallbackFont = block.subFallbackFont,

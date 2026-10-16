@@ -15,15 +15,18 @@
  *
  * Modified 2026-10-15 for SPW Island. Source: Kyant0/AndroidLiquidGlass,
  * 65ab177e90e5c1d8c62e70cf7755841982da65f6, internal/Shaders.kt.
- * Only the shape SDF/normal adapter, numeric guards and back-light attenuation
- * differ from the upstream Lens/dispersion/DefaultHighlight algorithms.
+ * Local changes include shape SDF/normal adapters, numeric guards and back-light
+ * attenuation of the upstream Lens/dispersion/DefaultHighlight algorithms.
+ * 2026-10-16: added auxiliary surface tint and center/edge blur blending.
  */
 package io.github.gaboron.spwisland.ui.gpu
 
 /** Backdrop's optical programs; coordinates and fixed material values are logical pixels. */
 internal object IslandGlassShaders {
-    const val LENS_HEIGHT = 12f
-    const val LENS_AMOUNT = 24f
+    const val CENTER_BLUR_SIGMA = 6f
+    const val EDGE_BLUR_SIGMA = 2f
+    const val LENS_HEIGHT = 14f
+    const val LENS_AMOUNT = 36f
     const val DISTANCE_RANGE = 16f
     const val CAPTURE_PADDING = 32
 
@@ -49,9 +52,10 @@ internal object IslandGlassShaders {
         }
     """
 
-    // RoundedRectRefractionWithDispersionShaderString, with only SHAPE substituted.
+    // Upstream refraction/dispersion with local geometry and center/edge blur blending.
     const val LENS = """
         uniform shader content;
+        uniform shader edgeContent;
         uniform float refractionHeight;
         uniform float refractionAmount;
         uniform float depthEffect;
@@ -81,32 +85,33 @@ internal object IslandGlassShaders {
             float2 dispersedCoord = d * grad * dispersionIntensity;
 
             half4 color = half4(0.0);
-            half4 red = content.eval(refractedCoord + dispersedCoord);
+            half4 red = edgeContent.eval(refractedCoord + dispersedCoord);
             color.r += red.r / 3.5;
             color.a += red.a / 7.0;
-            half4 orange = content.eval(refractedCoord + dispersedCoord * (2.0 / 3.0));
+            half4 orange = edgeContent.eval(refractedCoord + dispersedCoord * (2.0 / 3.0));
             color.r += orange.r / 3.5;
             color.g += orange.g / 7.0;
             color.a += orange.a / 7.0;
-            half4 yellow = content.eval(refractedCoord + dispersedCoord * (1.0 / 3.0));
+            half4 yellow = edgeContent.eval(refractedCoord + dispersedCoord * (1.0 / 3.0));
             color.r += yellow.r / 3.5;
             color.g += yellow.g / 3.5;
             color.a += yellow.a / 7.0;
-            half4 green = content.eval(refractedCoord);
+            half4 green = edgeContent.eval(refractedCoord);
             color.g += green.g / 3.5;
             color.a += green.a / 7.0;
-            half4 cyan = content.eval(refractedCoord - dispersedCoord * (1.0 / 3.0));
+            half4 cyan = edgeContent.eval(refractedCoord - dispersedCoord * (1.0 / 3.0));
             color.g += cyan.g / 3.5;
             color.b += cyan.b / 3.0;
             color.a += cyan.a / 7.0;
-            half4 blue = content.eval(refractedCoord - dispersedCoord * (2.0 / 3.0));
+            half4 blue = edgeContent.eval(refractedCoord - dispersedCoord * (2.0 / 3.0));
             color.b += blue.b / 3.0;
             color.a += blue.a / 7.0;
-            half4 purple = content.eval(refractedCoord - dispersedCoord);
+            half4 purple = edgeContent.eval(refractedCoord - dispersedCoord);
             color.r += purple.r / 7.0;
             color.b += purple.b / 3.0;
             color.a += purple.a / 7.0;
-            return color;
+            half centerBlend = half(smoothstep(0.0, refractionHeight, -sd));
+            return mix(color, content.eval(coord), centerBlend);
         }
     """
 
@@ -154,13 +159,35 @@ internal object IslandGlassShaders {
     const val MATERIAL = """
         uniform shader lens;
         uniform float surfaceAlpha;
+        uniform float3 surfaceTint;
         uniform float progressX;
         uniform float progressShade;
         half4 main(float2 coord) {
             half4 base = lens.eval(coord);
             half gray = coord.x < progressX ? half(progressShade) : half(0.0);
             half alpha = half(surfaceAlpha);
-            return half4(half3(gray * alpha), alpha) + base * (1.0 - alpha);
+            return half4((half3(surfaceTint) + half3(gray)) * alpha, alpha) + base * (1.0 - alpha);
         }
     """
+
+    // Auxiliary windows have a fixed circular-corner rectangle, so no sampled contour is needed.
+    // The animated island keeps its original path-based distance field.
+    private const val ROUND_RECT_SHAPE = """
+        uniform float cornerRadius;
+        float sdIsland(float2 coord) {
+            float2 q = abs(coord - center) - halfSize + cornerRadius;
+            return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - cornerRadius;
+        }
+        float2 gradSdIsland(float2 coord) {
+            float2 q = abs(coord - center) - halfSize + cornerRadius;
+            float2 outer = max(q, 0.0);
+            float magnitude = length(outer);
+            float2 normal = magnitude > 0.0001 ? outer / magnitude :
+                (q.x > q.y ? float2(1.0, 0.0) : float2(0.0, 1.0));
+            return normal * sign(coord - center);
+        }
+    """
+    val ROUND_RECT_LENS = LENS.replace(SHAPE, ROUND_RECT_SHAPE)
+    val ROUND_RECT_HIGHLIGHT = "uniform float2 center; uniform float2 halfSize;\n" +
+        HIGHLIGHT.replace(SHAPE, ROUND_RECT_SHAPE)
 }

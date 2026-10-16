@@ -38,6 +38,7 @@ private fun IslandSettings.withSetting(key: String, value: Any): IslandSettings 
     "enabled" -> copy(enabled = value as Boolean)
     "translation" -> copy(translation = value as Boolean)
     "karaoke" -> copy(karaoke = value as Boolean)
+    "force_karaoke" -> copy(forceKaraoke = value as Boolean)
     "experimental_multi_line" -> copy(experimentalMultiLine = value as Boolean)
     "hide_paused" -> copy(hidePaused = value as Boolean)
     "hide_fullscreen" -> copy(hideFullscreen = value as Boolean)

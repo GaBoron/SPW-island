@@ -26,7 +26,8 @@ internal class IslandGpuLyrics(private val resources: IslandGpuResources) {
                     if (block.timedWords.isNotEmpty()) time else (time - (block.line?.startMs ?: 0)).coerceAtLeast(0),
                     inset, pose.layout.mainBaseline, width - inset * 2, block.mainFont.size2D,
                     frame.settings.karaoke, frame.settings.performance.detailedKaraoke, palette.lyric.rgb,
-                    palette.lyricOutline, pose.opacity, frame.longTones, adaptive = true)
+                    palette.lyricOutline, pose.opacity, frame.longTones, adaptive = true,
+                    allowLongTone = block.allowLongTone)
                 block.shapedSub?.let { shaped -> line(canvas, shaped, block.sub.orEmpty(), emptyList(),
                     (time - (block.line?.startMs ?: 0)).coerceAtLeast(0), inset, pose.layout.subBaseline,
                     width - inset * 2, block.subFont.size2D, false, false, 0xffb1b6c3.toInt(),
@@ -38,7 +39,7 @@ internal class IslandGpuLyrics(private val resources: IslandGpuResources) {
     fun line(canvas: Canvas, shaped: ShapedText, text: String, words: List<Word>, time: Long,
              x: Float, baseline: Float, available: Float, size: Float, karaoke: Boolean, detailed: Boolean,
              color: Int, contrast: Boolean, alpha: Float, longTones: LongToneAnalysis? = null,
-             adaptive: Boolean = false) {
+             adaptive: Boolean = false, allowLongTone: Boolean = true) {
         if (text.isEmpty() || available <= 0) return
         val adaptiveLine = adaptive && adaptiveContrast.active
         val placement = LyricTextPlacement.calculate(shaped, text, words, time, x, available, karaoke, detailed)
@@ -68,7 +69,8 @@ internal class IslandGpuLyrics(private val resources: IslandGpuResources) {
                     }
                 }
                 placement.geometry == null -> timed(canvas, shaped, words, time, size, color, contrast, alpha, adaptiveLine)
-                else -> words(canvas, shaped, words, placement.geometry, time, size, color, contrast, alpha, longTones, adaptiveLine)
+                else -> words(canvas, shaped, words, placement.geometry, time, size, color, contrast, alpha,
+                    longTones.takeIf { allowLongTone }, adaptiveLine)
             }
         }
     }

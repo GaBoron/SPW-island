@@ -18,7 +18,9 @@ class IslandTextBlock(snapshot: PlaybackSnapshot, private val settings: IslandSe
     val mainLineHeight = mainFont.getLineMetrics("Ag", LyricTypography.context).height
     val shapedMain = LyricTypography.shape(main, mainFont, mainFallbackFont)
     val shapedSub = sub?.let { LyricTypography.shape(it, subFont, subFallbackFont) }
-    val timedWords = line?.timedWords.takeIf { snapshot.usesWordTiming }.orEmpty()
+    private val wordTiming = LyricWordTiming.resolve(line, snapshot.usesWordTiming, settings.forceKaraoke)
+    val timedWords = wordTiming.words
+    val allowLongTone = !wordTiming.estimated
     val gap = if (sub == null) 0f else 8f
     val height = shapedMain.height + gap + (shapedSub?.height ?: 0f)
     val preferredHeight = maxOf(settings.fontSize + 28, ceil(height + 28).toInt(),

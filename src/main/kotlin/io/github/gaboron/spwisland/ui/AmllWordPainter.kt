@@ -14,13 +14,13 @@ object AmllWordPainter {
              origin: Float, baseline: Float, fontSize: Float, motion: Boolean, color: Color = Color.WHITE,
              contrastOutline: Boolean = false,
              geometry: List<WordGeometry.Cell>? = WordGeometry.ready(shaped, text, words),
-             longTones: BooleanArray? = null) {
+             longTones: BooleanArray? = null, allowLongTone: Boolean = true) {
         if (geometry == null) {
             drawTimed(g, shaped, words, time, origin, baseline, fontSize, color, contrastOutline)
             return
         }
         for ((wordIndex, word) in words.withIndex()) {
-            val longTone = motion && (longTones?.get(wordIndex) ?: longToneRules.isLongTone(word))
+            val longTone = allowLongTone && motion && (longTones?.get(wordIndex) ?: longToneRules.isLongTone(word))
             val cell = geometry[wordIndex]
             val wordBounds = cell.bounds
             val clusters = cell.clusters

@@ -13,7 +13,7 @@ object LyricPainter {
              detailedKaraoke: Boolean = true,
              fallbackFont: Font = SystemUiFont.derive(font.style, font.size2D),
              contrastOutline: Boolean = false, shapedText: ShapedText? = null,
-             longToneAnalysis: LongToneAnalysis? = null) {
+             longToneAnalysis: LongToneAnalysis? = null, allowLongTone: Boolean = true) {
         if (text.isEmpty() || available <= 0) return
         val shaped = shapedText ?: LyricTypography.shape(text, font, fallbackFont)
         val layout = shaped.layout
@@ -30,7 +30,8 @@ object LyricPainter {
                     font.size2D, color, contrastOutline)
                 else AmllWordPainter.draw(copy, shaped, text, words, position, origin, baseline,
                     font.size2D, true, color, contrastOutline, geometry,
-                    if (geometry != null) longToneAnalysis?.forWords(words) else null)
+                    if (allowLongTone && geometry != null) longToneAnalysis?.forWords(words) else null,
+                    allowLongTone)
                 return
             }
             copy.color = color
