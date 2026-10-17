@@ -32,6 +32,8 @@ QQ 交流群：`1054809039`
 
 需要支持 Workshop API dev23 的 SPW 1.19.0 或更高版本，宿主运行环境为 Java 25 或更高版本。
 
+可前往 [Steam 创意工坊](https://steamcommunity.com/sharedfiles/filedetails/?id=3821553308) 订阅“灵动词岛 for SPW”。手动安装步骤如下：
+
 1. 前往 [Releases](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest) 下载 `spw-island-<版本>.spmod`；
 2. 在 SPW 的创意工坊 / 插件管理中导入；
 3. 启用插件并播放一首已经有歌词的歌曲。
