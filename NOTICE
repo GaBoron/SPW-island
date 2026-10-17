@@ -1,4 +1,4 @@
-Dynamic Lyrics Island for SPW
+灵动词岛 for SPW
 Copyright (C) 2026 GaBoron
 
 Dynamic Lyrics Island / 灵动词岛 was created by Lyricify, WXRIW (XY Wang).
@@ -24,12 +24,12 @@ SPW Workshop API and example build layout
 Copyright (C) 2025 Moriafly
 https://github.com/Moriafly/spw-workshop-api
 Licensed under the Apache License, Version 2.0.
-API dependency: 0.1.0-dev20, provided by the host, not bundled.
+API dependency: 0.1.0-dev23, provided by the host, not bundled.
 Build layout adapted for this plugin; no API implementation is vendored.
 
 The Gradle wrapper is from the SPW Workshop API repository (tag 0.1.0-dev20),
 copyright its respective Gradle contributors, Apache-2.0.
-Wrapper configuration changed to Gradle 9.2.1 with distribution SHA-256 checking.
+Wrapper configuration changed to Gradle 9.8.0 with distribution SHA-256 checking.
 
 See THIRD_PARTY_NOTICES.md and licenses/ for dependency licenses.
 Keep this attribution and all applicable license notices when redistributing.

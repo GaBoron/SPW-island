@@ -333,7 +333,7 @@ island.json
 
 `IslandConfigWatch` 监听配置文件创建、修改与替换，宿主通知也通过同一后台队列合并。读取不完整时在 2 秒窗口内每 250 ms 重试；正常静置时每 5 秒兜底检查，并重新注册失效的目录监听。
 
-Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应平台没有可靠实现的设置。
+Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称中标明；对应运行组件按实际操作系统选择。
 
 ---
 
@@ -703,8 +703,8 @@ GNOME Wayland 使用 `SPW Island Pointer` 扩展，支持 GNOME 45–50。扩展
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/main/resources/preference_config.json` | Windows/SPW 插件配置页声明 |
-| `src/linux/resources/preference_config.json` | Linux 配置页声明，移除平台未支持项目 |
+| `src/main/resources/preference_config.json` | 两平台共用的插件配置页声明，标明平台专属设置 |
+| `src/linux/resources/native/` | Linux 独立界面、托盘、指针及频谱 helper 和 GNOME 扩展源码 |
 | `src/main/resources/META-INF/extensions.idx` | 显式注册 `IslandPlaybackExtension` |
 | `src/main/resources/project.properties` | 构建时写入项目源代码地址 |
 | `native/shared-fonts/MiSansVF.ttf` | 两平台共用的 MiSans，可在构建时加入歌词、菜单和字体窗口资源 |
@@ -974,10 +974,9 @@ IslandConfigFile
 IslandMenuCommands
 ```
 
-Linux 平台还要确认：
+Linux 设置同步还要确认：
 
 ```text
-src/linux/resources/preference_config.json
 RemoteSettingsStore
 ```
 
@@ -1268,9 +1267,7 @@ preference_config.json
 实际消费者
 ```
 
-如果 Windows 和 Linux 都支持，还要同步两套 `preference_config.json`。
-
-如果某个平台不能可靠提供对应功能，就不要为了界面一致而暴露一个实际无效的开关。
+两平台共用同一份 `preference_config.json`。平台专属项标明适用系统，运行时仍通过平台能力约束处理，保持已有 `island.json` 键名和默认值兼容。
 
 ### 配置兼容
 
@@ -1402,40 +1399,18 @@ Linux 交互应分别检查 X11、GNOME Wayland 和 KDE Wayland，重点包括�
 
 具体 Kotlin、Gradle 和依赖版本以当前构建文件为准。
 
-### Windows x64
+在 Windows x64 上构建统一插件包：
 
 ```powershell
-.\gradlew.bat pluginWindows --no-daemon
+.\gradlew.bat plugin --no-daemon
 ```
 
-Windows 构建还需要系统 .NET Framework 4.x 自带的 C# 编译器，用于从：
-
-```text
-native/*.cs
-```
-
-构建实时频谱 helper。
-
-### Linux x64
-
-```bash
-./gradlew pluginLinux --no-daemon
-```
-
-### 当前平台
-
-也可以使用：
-
-```text
-gradlew plugin
-```
-
-由构建脚本选择当前平台资源。在 Windows 生成 Linux 包时使用 `-PtargetPlatform=linux pluginLinux`；Linux 的桌面运行行为仍需在 Linux 宿主验证。
+原生组件需要系统 .NET Framework 4.x 的 C# 编译器、MSVC x64 C++ 工具、CRT/STL，以及带 C++/WinRT 的 Windows SDK。`plugin` 同时打包 Windows helper、Linux helper、GNOME 扩展和两平台 Skiko 原生库；运行时按实际系统加载，Linux 的桌面行为仍需在 Linux 宿主验证。
 
 输出位于：
 
 ```text
-build/libs/spw-island-<版本>-<平台>-x64.spmod
+build/libs/spw-island-<版本>.spmod
 ```
 
 ### 依赖边界
@@ -1453,7 +1428,7 @@ SPW 提供：
 - Jaudiotagger；
 - Gson（配置快照解析）；
 - Windows 字体窗口使用的 Compose 运行库；
-- 两平台词岛使用的 Skiko 及对应平台原生库；
+- 两平台词岛使用的 Skiko，以及 Windows x64 和 Linux x64 原生库；
 - Kotlin 标准库与协程运行库（Linux 子 JVM 优先使用插件自带版本）；
 - 插件资源；
 - 平台需要的 native/helper 文件。

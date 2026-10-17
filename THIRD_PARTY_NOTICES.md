@@ -23,21 +23,21 @@
 
 | 项目 | 使用范围 | 许可与保留材料 |
 | --- | --- | --- |
-| [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api)，Moriafly | 编译使用 0.1.0-dev20；由 SPW 提供，不装入插件 | Apache-2.0；[完整文本](licenses/Apache-2.0.txt)，署名见 [NOTICE](NOTICE) |
+| [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api)，Moriafly | 编译使用 0.1.0-dev23；由 SPW 提供，不装入插件 | Apache-2.0；[完整文本](licenses/Apache-2.0.txt)，署名见 [NOTICE](NOTICE) |
 | [SPW API example](https://github.com/Moriafly/spw-workshop-api/tree/0.1.0-dev20/example) | 改编 Gradle 插件 ZIP 布局与清单配置 | Apache-2.0；改动见 NOTICE |
 | [JNA / JNA Platform](https://github.com/java-native-access/jna/tree/5.17.0)，JNA contributors | 随包提供 5.17.0；Windows 鼠标穿透与全屏判断、Linux X11 输入区域 | JNA 双许可中选择 Apache-2.0；保留 [JNA LICENSE](licenses/JNA-LICENSE.txt)、[第三方声明](licenses/JNA-THIRD-PARTY.txt)、[libffi 许可](licenses/JNA-libffi-LICENSE.txt) 与 JAR 内原始许可 |
 | [Gson](https://github.com/google/gson/tree/gson-parent-2.11.0)，Google | 随包提供 2.11.0；配置 JSON 的读取与序列化 | Apache-2.0；保留 JAR 内声明及 [完整文本](licenses/Apache-2.0.txt) |
 | [Jaudiotagger](https://www.jthink.net/jaudiotagger/)，Paul Taylor 与 contributors | 随包提供未修改的 3.0.1，仅读取本地音频时长与内嵌封面；独立 JAR 可替换 | LGPL-2.1-or-later；附带 [许可全文](licenses/LGPL-2.1.txt) 与 `source/jaudiotagger-3.0.1-sources.jar` |
 | [MiSans](https://hyperos.mi.com/font)，Xiaomi | Windows/Linux 默认歌词、插件界面、Windows 右键菜单与字体窗口预览使用内置 MiSans VF | MiSans 字体许可；附带 [许可文件](licenses/MiSans-License.pdf) |
-| [Compose Multiplatform](https://github.com/JetBrains/compose-multiplatform)，JetBrains / Android Open Source Project | Windows 字体窗口使用 Compose Desktop 1.12.0；随 Windows 包提供运行库 | Apache-2.0；保留 JAR 内声明与 [完整文本](licenses/Apache-2.0.txt) |
-| [Skiko](https://github.com/JetBrains/skiko/tree/v0.150.1)，JetBrains | 两平台词岛使用 0.150.1，Windows 字体窗口共用；随包提供对应平台原生库 | Apache-2.0；[完整文本](licenses/Apache-2.0.txt) 与 [Skiko NOTICE](licenses/Skiko-NOTICE.txt) |
+| [Compose Multiplatform](https://github.com/JetBrains/compose-multiplatform)，JetBrains / Android Open Source Project | Windows 字体窗口使用 Compose Desktop 1.12.1；随统一包提供运行库 | Apache-2.0；保留 JAR 内声明与 [完整文本](licenses/Apache-2.0.txt) |
+| [Skiko](https://github.com/JetBrains/skiko/tree/v0.150.1)，JetBrains | 两平台词岛使用 0.150.1，Windows 字体窗口共用；随包提供 Windows x64 与 Linux x64 原生库 | Apache-2.0；[完整文本](licenses/Apache-2.0.txt) 与 [Skiko NOTICE](licenses/Skiko-NOTICE.txt) |
 | [Skia](https://skia.org/)，Google 与 contributors | Skiko 原生库中的绘制引擎 | BSD-3-Clause；附带 [许可全文](licenses/Skia-LICENSE.txt) |
 | [Kotlin / kotlinx.coroutines](https://github.com/JetBrains/kotlin)，JetBrains | 编译工具、标准库与绘制调度运行库；随包提供，Linux 独立 JVM 使用插件自带版本 | Apache-2.0；[完整文本](licenses/Apache-2.0.txt) |
 | [PF4J](https://github.com/pf4j/pf4j)，Decebal Suiu | 编译使用 3.12.0，由宿主提供 | Apache-2.0 |
-| [Gradle](https://github.com/gradle/gradle)，Gradle contributors | Wrapper 来自 SPW API 0.1.0-dev20，构建使用 9.2.1 | Apache-2.0；Wrapper 自带声明保留，发行包不内嵌 Gradle 发行版 |
+| [Gradle](https://github.com/gradle/gradle)，Gradle contributors | Wrapper 来自 SPW API 0.1.0-dev20，构建使用 9.8.0 | Apache-2.0；Wrapper 自带声明保留，发行包不内嵌 Gradle 发行版 |
 
 运行时所用 Windows 和 Java 由其原供应方提供，遵循各自条款。插件不附带音乐、封面或歌词内容，也不改变这些内容的权利归属。
 
 ## 分发
 
-插件 ZIP 内含 LICENSE、NOTICE、本文件、licenses 目录及 source 目录中的对应完整源码压缩包（含构建脚本与 Wrapper）。转发二进制时保留这些材料；修改后重新构建也应提供对应源码，保留署名并说明改动。不得对 CC BY-SA 内容追加限制该许可权利的条款或技术措施。
+插件 `.spmod` 内含 LICENSE、NOTICE、本文件、licenses 目录及 source 目录中的对应完整源码压缩包（含构建脚本与 Wrapper）。转发二进制时保留这些材料；修改后重新构建也应提供对应源码，保留署名并说明改动。不得对 CC BY-SA 内容追加限制该许可权利的条款或技术措施。

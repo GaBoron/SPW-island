@@ -32,11 +32,11 @@ QQ 交流群：`1054809039`
 
 需要支持 Workshop API dev23 的 SPW 1.19.0 或更高版本，宿主运行环境为 Java 25 或更高版本。
 
-1. 前往 [Releases](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest) 下载与你的平台对应的 `.spmod` 插件包；
+1. 前往 [Releases](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest) 下载 `spw-island-<版本>.spmod`；
 2. 在 SPW 的创意工坊 / 插件管理中导入；
 3. 启用插件并播放一首已经有歌词的歌曲。
 
-Windows 使用 `windows-x64` 包；Linux 使用 `linux-x64` 包。不要导入带 `-source` 后缀的源码包。
+Windows x64 和 Linux x64 使用同一个插件包，启用后自动选择对应平台组件。不要导入带 `-source` 后缀的源码包。
 
 权限说明和 Linux 运行环境见 [安装与更新](docs/installation.md)。
 
@@ -49,6 +49,8 @@ Windows 使用 `windows-x64` 包；Linux 使用 `linux-x64` 包。不要导入�
 | Windows 10 / 11 x64 | 主要支持平台 |
 | Linux x64 | 实验性支持 |
 | macOS | 暂无计划 |
+
+Windows 是主要开发环境，提供完整功能；Linux 保留实验性支持，平台差异见兼容性说明。
 
 Linux 实时频谱需要 PipeWire 与 `pw-record` / `pw-dump`；悬停隐藏支持 X11、KDE Wayland 与安装配套扩展的 GNOME Wayland，前台全屏检测仍仅支持 Windows。具体差异见 [兼容性与限制](docs/compatibility.md)。
 

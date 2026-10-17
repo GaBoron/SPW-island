@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.ui
 
-import com.sun.jna.Platform
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.nio.file.Files
@@ -10,7 +9,7 @@ import javax.imageio.ImageIO
 
 /** Shared identity for the window and native tray; retain the existing artwork until replaced. */
 internal object ApplicationIdentity {
-    val NAME = if (Platform.isLinux()) "灵动词岛 for SPL" else "灵动词岛 for SPW"
+    const val NAME = "灵动词岛 for SPW"
     val icon: BufferedImage by lazy {
         ApplicationIdentity::class.java.getResourceAsStream("/icons/application.png")?.use(ImageIO::read)
             ?: BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB).apply {

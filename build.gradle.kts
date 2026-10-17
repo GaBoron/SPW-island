@@ -19,16 +19,7 @@ kotlin { compilerOptions {
 val workshop = "com.github.Moriafly.spw-workshop-api:spw-workshop-api:0.1.0-dev23"
 val projectUrl = providers.gradleProperty("projectUrl")
 val currentOs = OperatingSystem.current()
-val targetPlatform = providers.gradleProperty("targetPlatform").orNull
-require(targetPlatform == null || targetPlatform == "windows" || targetPlatform == "linux") {
-    "targetPlatform must be windows or linux"
-}
-val isWindows = targetPlatform?.let { it == "windows" } ?: currentOs.isWindows
-val isLinux = targetPlatform?.let { it == "linux" } ?: currentOs.isLinux
-val platformResources = layout.buildDirectory.dir("resources/${if (isWindows) "windows" else "linux"}")
-sourceSets.main { output.setResourcesDir(platformResources) }
 val metadataSources = configurations.create("metadataSources") { isTransitive = false }
-val linuxSkikoRuntime = configurations.create("linuxSkikoRuntime") { isTransitive = false }
 val skikoVersion = "0.150.1"
 dependencies {
     compileOnly(kotlin("stdlib"))
@@ -38,9 +29,10 @@ dependencies {
     implementation("net.java.dev.jna:jna-platform:5.17.0")
     implementation("net.jthink:jaudiotagger:3.0.1")
     implementation("com.google.code.gson:gson:2.11.0")
-    implementation(compose.desktop.currentOs)
+    implementation("org.jetbrains.compose.desktop:desktop-jvm:1.12.1")
     implementation("org.jetbrains.skiko:skiko-awt:$skikoVersion")
-    linuxSkikoRuntime("org.jetbrains.skiko:skiko-awt-runtime-linux-x64:$skikoVersion")
+    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-x64:$skikoVersion")
+    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-x64:$skikoVersion")
     metadataSources("net.jthink:jaudiotagger:3.0.1:sources")
 }
 val gnomePointer = tasks.register<Zip>("gnomePointer") {
@@ -50,34 +42,29 @@ val gnomePointer = tasks.register<Zip>("gnomePointer") {
     from("LICENSE")
 }
 tasks.processResources {
-    destinationDir = platformResources.get().asFile
-    from("native/shared-fonts/MiSansVF.ttf") { into("fonts") }
-    if (isWindows) {
-        dependsOn("buildSpectrum")
-        dependsOn("buildWindowsTray")
-        dependsOn("buildWindowsGlass")
-        from(layout.buildDirectory.file("native/spw-spectrum.exe")) { into("native") }
-        from(layout.buildDirectory.file("native/spw-island-tray.exe")) { into("native") }
-        from(layout.buildDirectory.file("native/spw-island-glass.dll")) { into("native") }
-        from({ zipTree(configurations.runtimeClasspath.get().single {
-            it.name.startsWith("skiko-awt-runtime-windows-x64-")
-        }) }) {
-            into("native/compose")
-            include("skiko-windows-x64.dll", "icudtl.dat")
-        }
-    } else if (isLinux) {
-        dependsOn(gnomePointer)
-        exclude { it.file == file("src/main/resources/preference_config.json") }
-        from("src/linux/resources") { exclude("**/__pycache__/**", "**/*.pyc", "native/gnome-pointer/**") }
-        from(gnomePointer) { into("native") }
+    doFirst {
+        check(currentOs.isWindows) { "Build the universal plugin on Windows with the native toolchains installed" }
     }
+    from("native/shared-fonts/MiSansVF.ttf") { into("fonts") }
+    dependsOn("buildSpectrum", "buildWindowsTray", "buildWindowsGlass", gnomePointer)
+    from(layout.buildDirectory.file("native/spw-spectrum.exe")) { into("native") }
+    from(layout.buildDirectory.file("native/spw-island-tray.exe")) { into("native") }
+    from(layout.buildDirectory.file("native/spw-island-glass.dll")) { into("native") }
+    from({ zipTree(configurations.runtimeClasspath.get().single {
+        it.name.startsWith("skiko-awt-runtime-windows-x64-")
+    }) }) {
+        into("native/compose")
+        include("skiko-windows-x64.dll", "icudtl.dat")
+    }
+    from("src/linux/resources") { exclude("**/__pycache__/**", "**/*.pyc", "native/gnome-pointer/**") }
+    from(gnomePointer) { into("native") }
     inputs.property("projectUrl", projectUrl)
     filesMatching("project.properties") { expand("projectUrl" to projectUrl.get()) }
 }
 spmod {
     PluginClass = "io.github.gaboron.spwisland.host.IslandPlugin"
     PluginId = "io.github.gaboron.spwisland"
-    PluginName = if (isLinux) "灵动词岛 for SPL" else "灵动词岛 for SPW"
+    PluginName = "灵动词岛 for SPW"
     PluginVersion = project.version.toString()
     PluginProvider = "GaBoron"
     PluginDescription = "SPW 灵动词岛插件：逐字歌词、桌面悬浮与播放控制"
@@ -106,8 +93,7 @@ tasks.register<Exec>("buildSpectrum") {
     inputs.files(fileTree("native") { include("*.cs") })
     outputs.file(output)
     onlyIf {
-        if (!isWindows) logger.lifecycle("Skipping the Windows spectrum helper on ${currentOs.name}")
-        isWindows
+        currentOs.isWindows
     }
     doFirst { output.get().asFile.parentFile.mkdirs() }
     executable = "${System.getenv("WINDIR") ?: "C:/Windows"}/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
@@ -120,7 +106,7 @@ tasks.register<Exec>("buildWindowsTray") {
     val output = layout.buildDirectory.file("native/spw-island-tray.exe")
     inputs.file("native/Tray.cs")
     outputs.file(output)
-    onlyIf { isWindows }
+    onlyIf { currentOs.isWindows }
     doFirst { output.get().asFile.parentFile.mkdirs() }
     executable = "${System.getenv("WINDIR") ?: "C:/Windows"}/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
     args("/nologo", "/target:winexe", "/platform:x64", "/optimize+",
@@ -136,14 +122,13 @@ tasks.register<Exec>("buildWindowsGlass") {
     inputs.file("native/glass/DesktopSharedTexture.h")
     inputs.file("tools/build-glass.ps1")
     outputs.file(output)
-    onlyIf { isWindows }
+    onlyIf { currentOs.isWindows }
     executable = "powershell.exe"
     args("-NoProfile", "-File", file("tools/build-glass.ps1").absolutePath,
         "-Output", output.get().asFile.absolutePath)
 }
 
 tasks.named<Zip>("plugin") {
-    val platform = if (isWindows) "windows" else "linux"
     val libraryNames by lazy {
         val artifacts = configurations.runtimeClasspath.get().resolvedConfiguration.resolvedArtifacts
         val duplicates = artifacts.groupBy { it.file.name }.filterValues { it.size > 1 }.keys
@@ -154,38 +139,13 @@ tasks.named<Zip>("plugin") {
         }
     }
     dependsOn(tasks.jar, "sourceArchive")
-    doFirst { check(isWindows || isLinux) { "Only Windows and Linux plugin archives are supported" } }
-    archiveFileName.set("spw-island-${project.version}-$platform-x64.spmod")
+    archiveFileName.set("spw-island-${project.version}.spmod")
     eachFile {
         if (path.startsWith("lib/")) {
-            if (platform == "linux" &&
-                !file.name.startsWith("jna-") &&
-                !file.name.startsWith("jna-platform-") &&
-                !file.name.startsWith("jaudiotagger-") &&
-                !file.name.startsWith("gson-") &&
-                !file.name.startsWith("kotlin-stdlib-") &&
-                !file.name.startsWith("kotlinx-coroutines-core-jvm-") &&
-                !file.name.startsWith("skiko-awt-runtime-linux-x64-") &&
-                !(file.name.startsWith("skiko-awt-") && !file.name.startsWith("skiko-awt-runtime-"))) {
-                exclude()
-            } else {
-                name = libraryNames[file.canonicalPath] ?: name
-            }
+            name = libraryNames[file.canonicalPath] ?: name
         }
     }
-    if (isLinux) into("lib") { from(linuxSkikoRuntime) }
     into("licenses") { from("licenses") }
     into("source") { from(tasks.named("sourceArchive")); from(metadataSources) }
     from("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "README.md")
-}
-
-tasks.register("pluginWindows") {
-    group = "build"
-    dependsOn("plugin")
-    doFirst { check(isWindows) { "Use -PtargetPlatform=windows" } }
-}
-tasks.register("pluginLinux") {
-    group = "build"
-    dependsOn("plugin")
-    doFirst { check(isLinux) { "Use -PtargetPlatform=linux" } }
 }

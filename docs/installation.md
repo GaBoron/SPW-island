@@ -4,14 +4,9 @@
 
 ## 下载
 
-从 [Releases](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest) 下载与你的平台对应的插件包：
+从 [Releases](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest) 下载 `spw-island-<版本>.spmod`。Windows x64 和 Linux x64 使用同一个插件包，名称统一为“灵动词岛 for SPW”。Windows 为主要支持平台，Linux 为实验性支持。
 
-| 平台 | 文件名 | 状态 |
-| --- | --- | --- |
-| Windows x64 | `spw-island-*-windows-x64.spmod` | 主要支持平台 |
-| Linux x64 | `spw-island-*-linux-x64.spmod` | 实验性支持 |
-
-不要导入带 `-source` 后缀的源码包，也不要混用 Windows / Linux 包。
+不要导入带 `-source` 后缀的源码包。
 
 ## Windows
 
@@ -20,7 +15,7 @@
 正常安装：
 
 1. 在 SPW 中打开创意工坊 / 插件管理；
-2. 导入下载好的 `windows-x64.spmod`；
+2. 导入下载好的 `.spmod`；
 3. 启用“灵动词岛 for SPW”；
 4. 播放一首已经有歌词的歌曲。
 
@@ -41,11 +36,11 @@ Linux x64 目前仍是实验性支持，需要：
 
 可选的实时频谱还需要 PipeWire，以及 `pw-record` / `pw-dump`（发行版通常放在 `pipewire-bin` 或 `pipewire` 包中）。悬停隐藏支持 X11 与 KDE Wayland。GNOME Wayland 45–50 需点击插件配置的“安装 GNOME 悬停隐藏支持”，首次安装或更新后保存工作并重新登录。
 
-安装方式与 Windows 类似：导入 `linux-x64.spmod` 并启用“灵动词岛 for SPL”即可。Linux 的快捷设置入口在系统托盘，部分 Windows 专属功能不会出现，具体见 [兼容性与限制](compatibility.md#linux-实验性支持)。
+安装方式与 Windows 相同：导入 `.spmod` 并启用“灵动词岛 for SPW”。Linux 的快捷设置入口在系统托盘；设置页中标为 Windows 的功能仅在 Windows 生效，Linux 字体与 GNOME 支持使用对应的 Linux 设置项。具体差异见 [兼容性与限制](compatibility.md#linux-实验性支持)。
 
 ## 更新
 
-通过 SPW 安装的用户，下载新版对应平台 `.spmod` 后重新导入即可，原有设置通常不需要清空。
+通过 SPW 安装的用户，下载新版 `.spmod` 后重新导入即可，原有设置通常不需要清空。
 
 Windows 更新后请重启 SPW，以加载插件内的原生库。
 

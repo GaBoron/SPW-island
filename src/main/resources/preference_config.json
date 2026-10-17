@@ -34,7 +34,7 @@
           "key": "experimental_multi_line",
           "title": "实验性多行歌词",
           "default_value": false,
-          "summary": "保留尚未结束的已播歌词，并尝试读取 SPW 内部完整歌词轴；发生重叠时自动展开显示。"
+          "summary": "使用 SPW 提供的完整歌词时间轴，保留尚未结束的已播歌词；发生重叠时自动展开显示。"
         },
         {
           "type": "switch",
@@ -47,12 +47,12 @@
           "key": "auto_hide_on_hover",
           "title": "鼠标经过时自动隐藏",
           "default_value": false,
-          "summary": "开启后同时穿透鼠标，经过词岛时隐藏，移开后恢复。"
+          "summary": "开启后同时穿透鼠标，经过词岛时隐藏，移开后恢复。Linux 支持 X11、KDE Wayland；GNOME Wayland 需安装配套扩展。"
         },
         {
           "type": "switch",
           "key": "hide_fullscreen",
-          "title": "全屏时隐藏",
+          "title": "全屏时隐藏（Windows）",
           "default_value": true
         },
         {
@@ -66,7 +66,7 @@
           "key": "reduced_motion",
           "title": "低性能模式",
           "default_value": false,
-          "summary": "降低刷新率，使用按单字时间推进的简化高亮和轻量模拟频谱，并关闭复杂动效与可选歌词探测。"
+          "summary": "降低刷新率，使用简化高亮和模拟频谱，停用实时音频捕获、液态玻璃与复杂动效。"
         },
         {
           "type": "list",
@@ -93,10 +93,49 @@
         },
         {
           "type": "button",
-          "title": "歌词字体",
+          "title": "歌词字体（Windows）",
           "summary": "打开字体窗口，选择字体提供的字形样式，并预览词岛效果。",
           "arrow_type": "arrow",
           "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.chooseFont"
+        },
+        {
+          "type": "edittext",
+          "key": "font_family",
+          "title": "歌词字体（Linux）",
+          "default_value": "",
+          "summary": "Linux 使用此项设置字体；留空使用内置 MiSans。Windows 请使用上方字体窗口。"
+        },
+        {
+          "type": "list",
+          "key": "font_weight",
+          "title": "歌词字重（Linux）",
+          "entries": [
+            "极细 100",
+            "细体 300",
+            "次细 350",
+            "常规 400",
+            "中等 500",
+            "粗体 700",
+            "极粗 900"
+          ],
+          "entry_values": [
+            "100",
+            "300",
+            "350",
+            "400",
+            "500",
+            "700",
+            "900"
+          ],
+          "default_value": "400",
+          "summary": "Linux 使用此项选择字重。自选字体缺少对应字重时使用最接近的已有字重。"
+        },
+        {
+          "type": "button",
+          "title": "安装 GNOME 悬停隐藏支持（Linux）",
+          "summary": "适用于 GNOME Wayland 45–50；首次安装或更新配套指针扩展后需重新登录。",
+          "arrow_type": "none",
+          "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.installGnomePointer"
         },
         {
           "type": "seekbar",
@@ -143,7 +182,7 @@
         {
           "type": "list",
           "key": "background_style",
-          "title": "背景样式",
+          "title": "背景样式（Windows）",
           "entries": [
             "经典背景",
             "液态玻璃（实验性）"
