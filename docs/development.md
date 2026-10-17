@@ -40,12 +40,14 @@ ui/
   布局、歌词绘制、窗口与交互
 ```
 
-本地歌曲的时长、封面与封面颜色通过另一条只读链路补充：
+歌曲时长、封面与封面颜色通过另一条只读链路补充，优先查询宿主公开 API：
 
 ```text
 Track
  ↓
 TrackMetadataLoader
+ ↓
+WorkshopTrackMetadata
  ↓
 LocalTrackMetadata
  ↓
@@ -204,15 +206,13 @@ PlaybackTimeline
 
 实验性多行模式可以在完整歌词轴可用时保留仍未结束的重叠歌词，并在无歌词间奏期间保留上一条有效歌词。
 
-宿主公开 API 无法提供的完整歌词信息目前被隔离在 `HostPlaybackProbe` 中。它属于兼容层，不应成为其他模块的通用数据源。
-
-`HostLyricsRecovery` 将完整歌词探测放在单个有界后台线程，宿主歌词回调只提交请求。已读取的歌词行通过索引复用整首歌词轴；探测期间的新请求合并为最新一行，失败后至少间隔 2 秒再由后续回调重试。异步结果由 `PlaybackTimeline` 按歌词代次验收：切歌以及 Idle / Ended 清空歌词时推进代次，避免切歌、A → B → A 或同曲重播后复用旧结果；歌词规范化在时间轴同步区外完成。低性能模式禁用私有歌词探测，插件关闭时终止该工作线程。
+`IslandPlaybackExtension.onLyricsLinesUpdated` 接收 SPW 的完整歌词快照。插件启用后由宿主异步重放；换曲和歌词重载的空列表会清除文档、已累积的单行和暂停画面中的旧歌词。相同内容的重复通知不会重复累积歌词，低性能模式同样接收完整时间轴。
 
 `LyricsDocument` 缓存合并后的歌词轴和整曲逐字类型；相同歌词回调复用已有文档，帧快照不再扫描整首歌词。歌词内容更新时重新合并，暂停时保留当时的文档与分类。
 
 ### 3.4 本地歌曲元数据
 
-SPW 的播放回调主要提供播放所需的曲目信息。
+SPW 的歌词加载回调提供基本曲目信息，新增字段的默认值不能作为完整曲库元数据使用。
 
 词岛额外需要：
 
@@ -220,13 +220,17 @@ SPW 的播放回调主要提供播放所需的曲目信息。
 - 专辑封面；
 - 封面主色。
 
-这部分不依赖 SPW 私有数据库。
+`WorkshopTrackMetadata` 在后台查询 `getCurrentMediaItem()`，仅在路径、标题和艺术家匹配当前曲目时采用其时长与歌曲 ID。ID 仅用于本次 `getCoverById()` 查询，不持久化。权限未授权或查询失败时继续使用本地文件补充。
 
 ```text
 trackChanged
  ↓
 TrackMetadataLoader
  ↓ 后台
+WorkshopTrackMetadata
+ ├─ getCurrentMediaItem：曲目 / 时长
+ └─ getCoverById：内嵌封面
+ ↓ 缺失时补充
 LocalTrackMetadata
  ├─ Jaudiotagger：时长 / 内嵌封面
  └─ cover.* / folder.*：同目录封面
@@ -236,7 +240,7 @@ CoverColorExtractor
 TrackMetadata
 ```
 
-读取过程只读本地文件，不联网、不修改标签，也不解码完整音频。
+读取过程不联网、不修改标签，也不解码完整音频。启动恢复保留已经到达的播放位置和歌词；查询期间切歌或进入 Idle / Ended 后，旧代次结果不会恢复旧曲目。
 
 晚到的旧曲目元数据不会覆盖当前曲目。
 
@@ -350,7 +354,7 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | `LyricFontWeight.kt` | 歌词字重的稳定存储值与解析 |
 | `LyricWordTiming.kt` | 优先使用原生逐字时间轴；按行时长估算普通 LRC 的字素进度并标记估算来源 |
 | `Lyrics.kt` | `Track`、`Word`、`LyricLine`、`PlaybackSnapshot`、`TrackMetadata`、封面数据等核心模型 |
-| `LyricsDocument.kt` | 缓存歌词行索引、合并结果和整曲逐字类型；内容未变时复用文档 |
+| `LyricsDocument.kt` | 缓存歌词行索引、合并结果和整曲逐字类型；二分查找当前行，内容未变时复用文档 |
 | `PerformanceProfile.kt` | 标准模式和低性能模式的统一性能预算 |
 | `PlaybackHeartbeatRecovery.kt` | 在启动时缺失播放状态回调的情况下，根据连续播放位置心跳恢复状态 |
 | `PlaybackTimeline.kt` | 汇总宿主回调、补间播放位置、处理 seek；歌词源变化时合并歌词轴，帧快照复用合并结果 |
@@ -361,9 +365,8 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 
 | 文件 | 职责 |
 | --- | --- |
-| `CurrentTrackRecovery.kt` | 插件启动错过曲目回调时进行短时当前曲目恢复 |
-| `HostPlaybackProbe.kt` | 只读探测当前 SPW 内部播放对象和完整歌词轴；属于隔离的兼容代码 |
-| `HostLyricsRecovery.kt` | 有界后台完整歌词探测、行索引复用和请求合并；按歌词代次发布，失败请求延后重试 |
+| `WorkshopTrackMetadata.kt` | 封装公开的当前曲目、时长、内嵌封面和读取权限查询，转换为核心模型 |
+| `IslandShortcut.kt` | 在插件 start 线程注册 SPW 管理的显示快捷键，管理权限与注销句柄 |
 | `HostSettings.kt` | 适配 `SettingsStore`，负责配置同步、合并、保存重试和旧配置迁移 |
 | `IslandConfigFile.kt` | 解析同一次读取的完整 JSON 快照，拒绝空/部分内容，检查新编辑并原子保存 |
 | `IslandConfigWatch.kt` | 文件事件与宿主通知合并、短时读取重试和低频兜底检查 |
@@ -371,7 +374,7 @@ Windows 和 Linux 使用不同的 `preference_config.json`，用于隐藏对应�
 | `IslandPlugin.kt` | PF4J 插件生命周期；创建和释放唯一的 `IslandRuntime`，并提供配置页按钮入口 |
 | `IslandRuntime.kt` | 宿主侧组合根；组装时间轴、设置、元数据、频谱、窗口、平台远程 UI 和播放操作 |
 | `PlaybackCallbackBridge.kt` | 暂存运行实例建立之前到达的播放回调，并在 runtime 就绪后转交 |
-| `TrackMetadataLoader.kt` | 单后台工作线程读取当前曲目的本地元数据；新曲目请求优先，旧结果通过代次检查丢弃 |
+| `TrackMetadataLoader.kt` | 单个有界后台线程恢复当前曲目、查询宿主元数据并补充本地信息；旧结果通过代次检查丢弃 |
 
 正常业务逻辑不应绕过这些边界直接访问 SPW 内部对象。
 
@@ -729,15 +732,15 @@ IslandRuntime
 PlaybackTimeline
 ```
 
-如果涉及当前公开 API 无法提供的内容，再查看：
+当前曲目和快捷键接入：
 
 ```text
-HostPlaybackProbe
-HostLyricsRecovery
-CurrentTrackRecovery
+WorkshopTrackMetadata
+TrackMetadataLoader
+IslandShortcut
 ```
 
-新版公开 API 能够替代某项反射探测时，优先删除或缩小兼容代码，而不是继续叠加新探测。
+宿主数据通过公开 API 进入 `host/`，再转换为核心模型。
 
 ### 修改切歌、播放、暂停、seek 或播放位置
 
@@ -770,8 +773,8 @@ IslandLyricsPainter
 完整歌词轴来源相关问题：
 
 ```text
-HostPlaybackProbe
-HostLyricsRecovery
+IslandPlaybackExtension
+PlaybackCallbackBridge
 IslandRuntime
 ```
 
@@ -1163,43 +1166,17 @@ IslandRuntime
 
 ---
 
-## 7. 宿主 API 与兼容代码
+## 7. 宿主 API 与权限
 
 优先使用 SPW Workshop API 的公开接口。
 
-只有公开 API 无法完成已经需要的功能时，才考虑宿主内部兼容。
+`spmod.PluginPermissions` 声明 `LIBRARY_READ` 和 `KEY_BINDINGS`，实际授权由 SPW 管理。查询前使用 `isPermissionGranted()` 检查，并处理检查后撤销权限造成的拒绝。
 
-目前 `HostPlaybackProbe` 就是这类边界。
+曲库读取未授权时，启动查询不恢复当前歌曲，后续曲目与歌词回调仍可工作；本地文件读取继续补充封面和时长。快捷键未授权时跳过注册，托盘和插件设置不受影响。权限变更后可停用并重新启用插件。
 
-它的目标不是建立另一套 SPW API，而是：
+快捷键必须在插件 `start()` 的调用线程注册，默认 `Ctrl+Shift+D`，允许用户在 SPW 中配置全局绑定。停用时关闭注册句柄，保留宿主管理的用户键位。
 
-```text
-缺少公开能力
- ↓
-最小范围只读探测
- ↓
-转换成项目自己的 Track / LyricLine
- ↓
-兼容层结束
-```
-
-其他代码不应了解：
-
-- SPW 内部类名；
-- 私有字段；
-- 私有 service；
-- 内部歌词 document；
-- 反射搜索路径。
-
-如果将来的公开 API 已经覆盖对应能力，应优先迁移公开 API，并删除不再需要的探测。
-
-兼容代码还应满足：
-
-- 不修改宿主持有的对象；
-- 不在 Swing 绘制循环执行复杂反射；
-- 失败后不阻断基本歌词显示；
-- 不把内部类型传播到 `core/`；
-- 不把一次版本兼容 hack 扩散成整个项目依赖。
+宿主对象仅在 `host/` 内使用，不传播到 `core/`。
 
 ---
 
@@ -1213,7 +1190,7 @@ IslandRuntime
 
 回调路径应尽量快速，只转换数据并更新内部状态，不在这里进行文件读取或复杂 UI 操作。
 
-私有完整歌词探测由 `HostLyricsRecovery` 的后台线程执行，不持有 `PlaybackCallbackBridge` 的回调锁扫描宿主文档。Windows 词岛与 SPW 共用 JVM；排查两边同时卡顿时，应采集复现阶段的线程栈或性能采样，区分宿主回调、EDT 绘制和 JVM 停顿。
+当前曲目和封面查询由 `TrackMetadataLoader` 的后台线程执行。Windows 词岛与 SPW 共用 JVM；排查两边同时卡顿时，应采集复现阶段的线程栈或性能采样，区分宿主回调、EDT 绘制和 JVM 停顿。
 
 ### `PlaybackTimeline`
 
@@ -1242,7 +1219,7 @@ Windows 的：
 
 ### 曲目元数据
 
-`TrackMetadataLoader` 在单独后台线程读取本地文件。
+`TrackMetadataLoader` 在单独的有界后台线程查询宿主并读取本地文件。关闭后不再发布结果；切歌通过代次检查拒绝旧结果。
 
 不要把 Jaudiotagger 或图片解码移回 EDT。
 
@@ -1343,7 +1320,6 @@ preference_config.json
 - 使用简化逐字边界；
 - 关闭复杂布局动画；
 - 使用模拟频谱；
-- 关闭非必要宿主探测；
 - 降低平台状态检查频率。
 
 不要在不同组件里各自重新判断一套“低性能模式是什么意思”。
@@ -1422,7 +1398,7 @@ Linux 交互应分别检查 X11、GNOME Wayland 和 KDE Wayland，重点包括�
 
 ## 12. 构建
 
-需要 JDK 21 和网络连接。
+需要 JDK 25 和网络连接。Workshop API 与打包插件使用 dev23，Kotlin / Compose compiler 使用 2.4.20，Compose Multiplatform 使用 1.12.1，Gradle Wrapper 使用 9.8.0。
 
 具体 Kotlin、Gradle 和依赖版本以当前构建文件为准。
 
@@ -1454,12 +1430,12 @@ native/*.cs
 gradlew plugin
 ```
 
-由构建脚本选择当前平台对应的插件任务。
+由构建脚本选择当前平台资源。在 Windows 生成 Linux 包时使用 `-PtargetPlatform=linux pluginLinux`；Linux 的桌面运行行为仍需在 Linux 宿主验证。
 
 输出位于：
 
 ```text
-build/distributions/
+build/libs/spw-island-<版本>-<平台>-x64.spmod
 ```
 
 ### 依赖边界
@@ -1482,7 +1458,7 @@ SPW 提供：
 - 插件资源；
 - 平台需要的 native/helper 文件。
 
-不要重复打包由宿主提供的依赖。
+Workshop Gradle 插件统一生成 Manifest、权限声明和 `.spmod`。运行包不包含 Workshop API 或 PF4J；Linux 子 JVM 使用的 Kotlin 和协程运行库随插件分发。
 
 ### 源码分发
 

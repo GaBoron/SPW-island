@@ -14,18 +14,19 @@ import kotlin.math.roundToLong
 
 /** Read-only local tags. No audio decoding, writes, remote artwork, or host-private APIs. */
 object LocalTrackMetadata {
-    fun read(path: String): TrackMetadata {
+    fun read(path: String, durationMs: Long = 0, artwork: ByteArray? = null): TrackMetadata {
         val file = File(path)
-        if (!file.isFile) return TrackMetadata()
-        val opus = if (file.extension.equals("opus", ignoreCase = true))
+        val needsTags = file.isFile && (durationMs <= 0 || artwork == null)
+        val opus = if (needsTags && file.extension.equals("opus", ignoreCase = true))
             runCatching { OpusFileMetadata.read(file) }.getOrNull() else null
-        val audio = if (opus == null) runCatching { AudioFileIO.read(file) }.getOrNull() else null
-        val duration = opus?.durationMs ?: audio?.audioHeader?.preciseTrackLength
+        val audio = if (needsTags && opus == null) runCatching { AudioFileIO.read(file) }.getOrNull() else null
+        val duration = durationMs.takeIf { it > 0 } ?: opus?.durationMs ?: audio?.audioHeader?.preciseTrackLength
             ?.takeIf { it.isFinite() && it > 0 }?.let { (it * 1000).roundToLong() } ?: 0
-        val embedded = opus?.artwork ?: runCatching { audio?.tag?.firstArtwork?.binaryData }.getOrNull()
+        val embedded = artwork ?: opus?.artwork ?: runCatching { audio?.tag?.firstArtwork?.binaryData }.getOrNull()
         val cover = embedded?.takeIf { it.size <= 16 * 1024 * 1024 }?.let { bytes ->
             runCatching { ByteArrayInputStream(bytes).use { decode(it) } }.getOrNull()
         } ?: sequenceOf("cover.jpg", "cover.png", "folder.jpg", "folder.png").mapNotNull { name ->
+            if (!file.isFile) return@mapNotNull null
             val image = File(file.parentFile, name)
             if (!image.isFile || image.length() > 16 * 1024 * 1024) null
             else runCatching { image.inputStream().use { decode(it) } }.getOrNull()
