@@ -193,7 +193,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
 
     private fun load(): Api {
         val resource = checkNotNull(javaClass.getResource("/native/spw-island-glass.dll")) { "缺少 Windows 桌面捕获资源" }
-        check(resource.protocol == "file") { "请使用插件 ZIP 安装桌面捕获资源" }
+        check(resource.protocol == "file") { "请使用插件 .spmod 安装桌面捕获资源" }
         return Native.load(Path.of(resource.toURI()).toString(), Api::class.java)
     }
 }

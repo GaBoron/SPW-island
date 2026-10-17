@@ -10,12 +10,11 @@ enum class PerformanceProfile(
     val detailedKaraoke: Boolean,
     val renderBackgroundProgress: Boolean,
     val spectrumMode: SpectrumMode,
-    val probeHostLyrics: Boolean,
     val screenCheckIntervalNs: Long,
     val topmostCheckIntervalNs: Long
 ) {
-    STANDARD(120, true, true, true, SpectrumMode.LIVE, true, 400_000_000L, 100_000_000L),
-    LOW(15, false, false, false, SpectrumMode.SYNTHETIC, false, 1_500_000_000L, 500_000_000L)
+    STANDARD(120, true, true, true, SpectrumMode.LIVE, 400_000_000L, 100_000_000L),
+    LOW(15, false, false, false, SpectrumMode.SYNTHETIC, 1_500_000_000L, 500_000_000L)
 }
 
 val IslandSettings.performance: PerformanceProfile

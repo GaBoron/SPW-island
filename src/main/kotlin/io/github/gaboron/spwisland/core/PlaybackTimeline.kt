@@ -20,7 +20,6 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
     private var status = PlaybackStatus.IDLE
     private var metadata = TrackMetadata()
     private var generation = 0L
-    private var lyricsEpoch = 0L
     private var pendingSeek: Long? = null
     private var pendingSeekDeadline = 0L
     // Host position and lyric callbacks can still arrive after pause; keep the displayed frame stable.
@@ -33,7 +32,6 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
         if (track != value) {
             track = value
             generation++
-            lyricsEpoch++
             metadata = TrackMetadata()
             line = null
             callbackLyrics = LyricsDocument.EMPTY
@@ -52,12 +50,20 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
     @Synchronized fun metadataLoaded(token: Long, value: TrackMetadata) {
         if (generation == token && track != null) metadata = value
     }
+    @Synchronized fun trackGeneration(): Long = generation
+
+    /** Startup recovery preserves any position, state and lyrics already replayed by the host. */
+    @Synchronized fun recoverTrack(token: Long, value: Track): Long? {
+        if (generation != token || track != null || status == PlaybackStatus.ENDED) return null
+        track = value
+        return ++generation
+    }
     @Synchronized fun lineChanged(value: LyricLine?) {
         // Null/blank callbacks mark instrumental gaps, not a request to erase the last lyric.
         if (value != null && value.text.isNotBlank()) {
             line = value
             // Public callbacks already carry start/end time. Retaining emitted lines is enough to
-            // reconstruct every overlap even when the experimental host-document probe is unavailable.
+            // reconstruct overlaps while the host's full snapshot is loading.
             val updated = callbackLyrics.withUpdates(listOf(value))
             if (updated !== callbackLyrics) {
                 callbackLyrics = updated
@@ -71,18 +77,21 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
             }
         }
     }
-    @Synchronized fun lyricsGeneration(): Long = lyricsEpoch
-
-    fun lyricsLoaded(token: Long, value: List<LyricLine>): Boolean {
+    fun lyricsChanged(value: List<LyricLine>) {
         val document = LyricsDocument.EMPTY.withUpdates(value.filter {
             it.text.isNotBlank() && it.startMs >= 0 && it.endMs >= it.startMs
         })
-        return synchronized(this) {
-            if (lyricsEpoch != token || track == null || status == PlaybackStatus.ENDED) return false
-            if (document.lines == documentLyrics.lines) return true
+        synchronized(this) {
+            if (status == PlaybackStatus.ENDED) return
+            // Every full snapshot is authoritative, including empty reload/clear notifications.
+            callbackLyrics = LyricsDocument.EMPTY
             documentLyrics = document
-            mergedLyrics = documentLyrics.withUpdates(callbackLyrics.lines)
-            true
+            mergedLyrics = document
+            val paused = pausedPresentation
+            val retained = if (paused != null) paused.line else line
+            line = retained?.takeIf { it in document.lines }
+                ?: document.lastStarted(paused?.positionMs ?: currentPosition())
+            pausedPresentation = paused?.copy(line = line, lyrics = document)
         }
     }
     @Synchronized fun positionChanged(value: Long) {
@@ -129,7 +138,7 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
             pausedPresentation = null
             awaitingPausedSeekLine = false
         } else if (wasPlaying) {
-            pausedPresentation = PausedPresentation(track, line, position,
+            pausedPresentation = PausedPresentation(track, line ?: mergedLyrics.lastStarted(position), position,
                 mergedLyrics)
             awaitingPausedSeekLine = false
         }
@@ -142,7 +151,6 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
         heartbeatRecovery.stateChanged(value)
         if (value != PlaybackStatus.READY) rateTracker.discontinuity()
         if (value == PlaybackStatus.IDLE || value == PlaybackStatus.ENDED) {
-            lyricsEpoch++
             playing = false
             line = null
             callbackLyrics = LyricsDocument.EMPTY
@@ -156,7 +164,8 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
     }
     @Synchronized override fun snapshot(): PlaybackSnapshot {
         val now = currentPosition()
-        val current = PlaybackSnapshot(track, line, now, playing && status == PlaybackStatus.READY, status, metadata,
+        val currentLine = line ?: mergedLyrics.lastStarted(now)
+        val current = PlaybackSnapshot(track, currentLine, now, playing && status == PlaybackStatus.READY, status, metadata,
             mergedLyrics.lines, rateTracker.rate, mergedLyrics.usesWordTiming)
         val paused = pausedPresentation
         return if (!current.playing && paused != null && paused.track == track) current.copy(

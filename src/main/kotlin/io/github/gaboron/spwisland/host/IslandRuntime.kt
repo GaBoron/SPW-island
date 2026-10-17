@@ -13,24 +13,14 @@ import io.github.gaboron.spwisland.platform.SpectrumSource
 import io.github.gaboron.spwisland.ui.ComposeFontPickerWindow
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.remote.LinuxIslandProcess
-import java.awt.KeyEventDispatcher
-import java.awt.KeyboardFocusManager
-import java.awt.event.KeyEvent
 import javax.swing.SwingUtilities
 
 class IslandRuntime : AutoCloseable {
     val timeline = PlaybackTimeline()
     private val metadata = TrackMetadataLoader(timeline)
-    private val playbackProbe = HostPlaybackProbe()
-    private val currentTrackRecovery = CurrentTrackRecovery(timeline, playbackProbe::readTrack, metadata::load)
-    private val lyricsRecovery = HostLyricsRecovery(timeline, playbackProbe::readLyrics) {
-        !closed && settings.read().performance.probeHostLyrics
-    }
     fun trackChanged(track: io.github.gaboron.spwisland.core.Track) = metadata.load(track)
-    fun lineChanged(line: io.github.gaboron.spwisland.core.LyricLine?) {
-        timeline.lineChanged(line)
-        if (line != null) lyricsRecovery.request(line)
-    }
+    fun lineChanged(line: io.github.gaboron.spwisland.core.LyricLine?) = timeline.lineChanged(line)
+    fun lyricsChanged(lines: List<io.github.gaboron.spwisland.core.LyricLine>) = timeline.lyricsChanged(lines)
     private var window: IslandWindow? = null
     private var linuxWindow: LinuxIslandProcess? = null
     private val spectrum: SpectrumSource = if (Platform.isLinux()) LinuxProcessSpectrum()
@@ -45,15 +35,11 @@ class IslandRuntime : AutoCloseable {
             settings.setFont(selection.family, selection.weight)
         }
     }, ::report) else null
-    private val keyboard = KeyEventDispatcher { e ->
-        if (!closed && e.id == KeyEvent.KEY_RELEASED && e.keyCode == KeyEvent.VK_D &&
-            e.isControlDown && e.isShiftDown && !e.isAltDown && !e.isMetaDown) {
-            safely { settings.set("enabled", !settings.read().enabled) }; true
-        } else false
-    }
+    private val shortcut = IslandShortcut { safely { settings.set("enabled", !settings.read().enabled) } }
     fun start() {
         updateSpectrumMode()
-        currentTrackRecovery.start()
+        shortcut.start()
+        metadata.start()
         val actions = object : PlaybackActions {
                 override fun previous() = safely { WorkshopApi.playback.previous() }
                 override fun toggle() = safely {
@@ -71,7 +57,6 @@ class IslandRuntime : AutoCloseable {
             window = IslandWindow(timeline, settings, actions, ::report,
                 spectrum::levels, spectrum::usesSyntheticFallback, { spectrum.status })
         }
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(keyboard)
     }
     private fun updateSpectrumMode() {
         val current = settings.read()
@@ -110,10 +95,10 @@ class IslandRuntime : AutoCloseable {
     override fun close() {
         if (closed) return
         closed = true
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(keyboard)
+        shortcut.close()
         linuxWindow?.close(); linuxWindow = null
         try {
-            fontPicker?.close(); currentTrackRecovery.close(); lyricsRecovery.close()
+            fontPicker?.close()
             metadata.close(); settings.close(); spectrum.close()
         } finally { if (window != null) onEdt { window?.close(); window = null } }
     }

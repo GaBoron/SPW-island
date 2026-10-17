@@ -30,13 +30,15 @@ QQ 交流群：`1054809039`
 
 ## 安装
 
-1. 前往 [Releases](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest) 下载与你的平台对应的插件 ZIP；
+需要支持 Workshop API dev23 的 SPW 1.19.0 或更高版本，宿主运行环境为 Java 25 或更高版本。
+
+1. 前往 [Releases](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest) 下载与你的平台对应的 `.spmod` 插件包；
 2. 在 SPW 的创意工坊 / 插件管理中导入；
 3. 启用插件并播放一首已经有歌词的歌曲。
 
 Windows 使用 `windows-x64` 包；Linux 使用 `linux-x64` 包。不要导入带 `-source` 后缀的源码包。
 
-如果当前 SPW 没有导入入口，或者想了解 Linux 运行环境，请看 [安装与更新](docs/installation.md)。
+权限说明和 Linux 运行环境见 [安装与更新](docs/installation.md)。
 
 本插件只显示 SPW 已经加载的歌词，不负责联网搜索。需要自动获取逐字歌词时，可以搭配 [SPW-Lyrics](https://github.com/GaBoron/SPW-Lyrics)。
 

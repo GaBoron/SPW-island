@@ -20,7 +20,7 @@ internal class WindowsTray(private val toggle: () -> Unit, private val menu: (Po
         val executable = WindowsTray::class.java.getResource("/native/spw-island-tray.exe")
             ?: error("插件中缺少 native/spw-island-tray.exe")
         check(executable.protocol == "file") {
-            "请使用 SPW 插件 ZIP 安装托盘程序"
+            "请使用 SPW 插件 .spmod 安装托盘程序"
         }
         val icon = ByteArrayOutputStream().use { bytes ->
             check(ImageIO.write(ApplicationIdentity.icon, "png", bytes)) { "托盘图标编码失败" }

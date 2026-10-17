@@ -40,7 +40,7 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
             if (!enabled || closed) return
             val resource = ProcessSpectrum::class.java.getResource("/native/spw-spectrum.exe")
                 ?: error("插件中缺少 native/spw-spectrum.exe")
-            check(resource.protocol == "file") { "请使用 SPW 插件 ZIP 安装频谱程序" }
+            check(resource.protocol == "file") { "请使用 SPW 插件 .spmod 安装频谱程序" }
             val executable = Path.of(resource.toURI())
             if (!DotNetFrameworkRuntime.canRun(executable)) {
                 fallback(

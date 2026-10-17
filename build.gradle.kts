@@ -1,17 +1,22 @@
 // Build layout adapted from Moriafly/spw-workshop-api (Apache-2.0).
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.gradle.internal.os.OperatingSystem
+import com.xuncorp.spw.workshop.gradle.PluginPermission
 
 plugins {
-    kotlin("jvm") version "2.3.0"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.3.0"
-    id("org.jetbrains.compose") version "1.12.0"
+    kotlin("jvm") version "2.4.20"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.4.20"
+    id("org.jetbrains.compose") version "1.12.1"
+    id("com.xuncorp.spw.workshop") version "0.1.0-dev23"
     `java-library`
 }
 group = "io.github.gaboron"
-java { toolchain { languageVersion.set(JavaLanguageVersion.of(21)) } }
-kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_21) } }
-val workshop = "com.github.Moriafly:spw-workshop-api:0.1.0-dev20"
+java { toolchain { languageVersion.set(JavaLanguageVersion.of(25)) } }
+kotlin { compilerOptions {
+    jvmTarget.set(JvmTarget.JVM_25)
+    freeCompilerArgs.add("-jvm-default=no-compatibility")
+} }
+val workshop = "com.github.Moriafly.spw-workshop-api:spw-workshop-api:0.1.0-dev23"
 val projectUrl = providers.gradleProperty("projectUrl")
 val currentOs = OperatingSystem.current()
 val targetPlatform = providers.gradleProperty("targetPlatform").orNull
@@ -20,8 +25,10 @@ require(targetPlatform == null || targetPlatform == "windows" || targetPlatform 
 }
 val isWindows = targetPlatform?.let { it == "windows" } ?: currentOs.isWindows
 val isLinux = targetPlatform?.let { it == "linux" } ?: currentOs.isLinux
-val metadataSources by configurations.creating { isTransitive = false }
-val linuxSkikoRuntime by configurations.creating { isTransitive = false }
+val platformResources = layout.buildDirectory.dir("resources/${if (isWindows) "windows" else "linux"}")
+sourceSets.main { output.setResourcesDir(platformResources) }
+val metadataSources = configurations.create("metadataSources") { isTransitive = false }
+val linuxSkikoRuntime = configurations.create("linuxSkikoRuntime") { isTransitive = false }
 val skikoVersion = "0.150.1"
 dependencies {
     compileOnly(kotlin("stdlib"))
@@ -43,6 +50,7 @@ val gnomePointer = tasks.register<Zip>("gnomePointer") {
     from("LICENSE")
 }
 tasks.processResources {
+    destinationDir = platformResources.get().asFile
     from("native/shared-fonts/MiSansVF.ttf") { into("fonts") }
     if (isWindows) {
         dependsOn("buildSpectrum")
@@ -66,17 +74,16 @@ tasks.processResources {
     inputs.property("projectUrl", projectUrl)
     filesMatching("project.properties") { expand("projectUrl" to projectUrl.get()) }
 }
-tasks.jar {
-    manifest.attributes(
-        "Plugin-Class" to "io.github.gaboron.spwisland.host.IslandPlugin",
-        "Plugin-Id" to "io.github.gaboron.spwisland",
-        "Plugin-Name" to "Dynamic Lyrics Island for SPW",
-        "Plugin-Version" to project.version.toString(),
-        "Plugin-Provider" to "GaBoron",
-        "Plugin-Description" to "SPW lyrics island; concept by Lyricify / WXRIW (CC BY-SA 4.0)",
-        "Plugin-Has-Config" to "true",
-        "Plugin-Open-Source-Url" to projectUrl.get()
-    )
+spmod {
+    PluginClass = "io.github.gaboron.spwisland.host.IslandPlugin"
+    PluginId = "io.github.gaboron.spwisland"
+    PluginName = "Dynamic Lyrics Island for SPW"
+    PluginVersion = project.version.toString()
+    PluginProvider = "GaBoron"
+    PluginDescription = "SPW lyrics island; concept by Lyricify / WXRIW (CC BY-SA 4.0)"
+    PluginHasConfig = true
+    PluginOpenSourceUrl = projectUrl.get()
+    PluginPermissions = listOf(PluginPermission.LIBRARY_READ, PluginPermission.KEY_BINDINGS)
 }
 tasks.register<Zip>("sourceArchive") {
     archiveFileName.set("spw-island-${project.version}-source.zip")
@@ -135,7 +142,8 @@ tasks.register<Exec>("buildWindowsGlass") {
         "-Output", output.get().asFile.absolutePath)
 }
 
-fun registerPluginArchive(taskName: String, platform: String, enabled: Boolean) = tasks.register<Zip>(taskName) {
+tasks.named<Zip>("plugin") {
+    val platform = if (isWindows) "windows" else "linux"
     val libraryNames by lazy {
         val artifacts = configurations.runtimeClasspath.get().resolvedConfiguration.resolvedArtifacts
         val duplicates = artifacts.groupBy { it.file.name }.filterValues { it.size > 1 }.keys
@@ -146,45 +154,38 @@ fun registerPluginArchive(taskName: String, platform: String, enabled: Boolean) 
         }
     }
     dependsOn(tasks.jar, "sourceArchive")
-    onlyIf {
-        if (!enabled) logger.lifecycle("$taskName must run on a $platform host")
-        enabled
-    }
-    archiveFileName.set("spw-island-${project.version}-$platform-x64.zip")
-    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
-    into("classes") { from(tasks.jar.map { zipTree(it.archiveFile) }) }
-    into("lib") {
-        from(configurations.runtimeClasspath) {
-            eachFile {
-                if (platform == "linux" &&
-                    !file.name.startsWith("jna-") &&
-                    !file.name.startsWith("jna-platform-") &&
-                    !file.name.startsWith("jaudiotagger-") &&
-                    !file.name.startsWith("gson-") &&
-                    !file.name.startsWith("kotlin-stdlib-") &&
-                    !file.name.startsWith("kotlinx-coroutines-core-jvm-") &&
-                    !(file.name.startsWith("skiko-awt-") && !file.name.startsWith("skiko-awt-runtime-"))) {
-                    exclude()
-                } else {
-                    name = libraryNames[file.canonicalPath] ?: name
-                }
+    doFirst { check(isWindows || isLinux) { "Only Windows and Linux plugin archives are supported" } }
+    archiveFileName.set("spw-island-${project.version}-$platform-x64.spmod")
+    eachFile {
+        if (path.startsWith("lib/")) {
+            if (platform == "linux" &&
+                !file.name.startsWith("jna-") &&
+                !file.name.startsWith("jna-platform-") &&
+                !file.name.startsWith("jaudiotagger-") &&
+                !file.name.startsWith("gson-") &&
+                !file.name.startsWith("kotlin-stdlib-") &&
+                !file.name.startsWith("kotlinx-coroutines-core-jvm-") &&
+                !file.name.startsWith("skiko-awt-runtime-linux-x64-") &&
+                !(file.name.startsWith("skiko-awt-") && !file.name.startsWith("skiko-awt-runtime-"))) {
+                exclude()
+            } else {
+                name = libraryNames[file.canonicalPath] ?: name
             }
         }
-        if (platform == "linux") from(linuxSkikoRuntime)
     }
+    if (isLinux) into("lib") { from(linuxSkikoRuntime) }
     into("licenses") { from("licenses") }
     into("source") { from(tasks.named("sourceArchive")); from(metadataSources) }
     from("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "README.md")
 }
 
-val pluginWindows = registerPluginArchive("pluginWindows", "windows", isWindows)
-val pluginLinux = registerPluginArchive("pluginLinux", "linux", isLinux)
-
-tasks.register("plugin") {
+tasks.register("pluginWindows") {
     group = "build"
-    description = "Builds the plugin archive for the current host platform."
-    dependsOn(if (isWindows) pluginWindows else pluginLinux)
-    doFirst {
-        check(isWindows || isLinux) { "Only Windows and Linux plugin archives are supported" }
-    }
+    dependsOn("plugin")
+    doFirst { check(isWindows) { "Use -PtargetPlatform=windows" } }
+}
+tasks.register("pluginLinux") {
+    group = "build"
+    dependsOn("plugin")
+    doFirst { check(isLinux) { "Use -PtargetPlatform=linux" } }
 }
