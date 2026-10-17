@@ -17,7 +17,7 @@ def bind(lib, name, result, *args):
     return fn
 
 
-def launch_jvm(home, classpath, main_class, application_name="Dynamic Lyrics Island for SPW"):
+def launch_jvm(home, classpath, main_class, application_name="灵动词岛 for SPL"):
     # Standard JNI Invocation API, with a fresh OS thread and its own JVM/EDT/Java2D queue.
     class Option(C.Structure):
         _fields_ = [("text", S), ("extra", P)]

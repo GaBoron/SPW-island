@@ -21,7 +21,7 @@
 
 1. 在 SPW 中打开创意工坊 / 插件管理；
 2. 导入下载好的 `windows-x64.spmod`；
-3. 启用 Dynamic Lyrics Island for SPW；
+3. 启用“灵动词岛 for SPW”；
 4. 播放一首已经有歌词的歌曲。
 
 安装时可授予“曲库读取”和“快捷键”权限。曲库读取用于恢复当前歌曲、查询时长和内嵌封面；快捷键用于注册显示 / 隐藏词岛动作。未授权时，歌词和播放控制仍可使用，曲目信息会在后续切歌回调到达后显示，封面与时长尝试从本地文件读取。更改权限后可停用并重新启用插件。
@@ -41,7 +41,7 @@ Linux x64 目前仍是实验性支持，需要：
 
 可选的实时频谱还需要 PipeWire，以及 `pw-record` / `pw-dump`（发行版通常放在 `pipewire-bin` 或 `pipewire` 包中）。悬停隐藏支持 X11 与 KDE Wayland。GNOME Wayland 45–50 需点击插件配置的“安装 GNOME 悬停隐藏支持”，首次安装或更新后保存工作并重新登录。
 
-安装方式与 Windows 类似：导入 `linux-x64.spmod` 并启用插件即可。Linux 的快捷设置入口在系统托盘，部分 Windows 专属功能不会出现，具体见 [兼容性与限制](compatibility.md#linux-实验性支持)。
+安装方式与 Windows 类似：导入 `linux-x64.spmod` 并启用“灵动词岛 for SPL”即可。Linux 的快捷设置入口在系统托盘，部分 Windows 专属功能不会出现，具体见 [兼容性与限制](compatibility.md#linux-实验性支持)。
 
 ## 更新
 

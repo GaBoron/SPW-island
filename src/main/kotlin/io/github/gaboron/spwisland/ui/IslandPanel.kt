@@ -68,7 +68,7 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
     private val play = control("播放或暂停", PlaybackIcon.PLAY) { actions.toggle() }
     private val next = control("下一首", PlaybackIcon.NEXT) { actions.next() }
 
-    init { isOpaque = false; getAccessibleContext().accessibleName = "SPW 灵动词岛" }
+    init { isOpaque = false; getAccessibleContext().accessibleName = ApplicationIdentity.NAME }
     private fun control(label: String, glyph: Icon, clicked: () -> Unit) = JButton(glyph).apply {
         toolTipText = label; accessibleContext.accessibleName = label
         isFocusable = false; isContentAreaFilled = false; isBorderPainted = false

@@ -77,10 +77,10 @@ tasks.processResources {
 spmod {
     PluginClass = "io.github.gaboron.spwisland.host.IslandPlugin"
     PluginId = "io.github.gaboron.spwisland"
-    PluginName = "Dynamic Lyrics Island for SPW"
+    PluginName = if (isLinux) "灵动词岛 for SPL" else "灵动词岛 for SPW"
     PluginVersion = project.version.toString()
     PluginProvider = "GaBoron"
-    PluginDescription = "SPW lyrics island; concept by Lyricify / WXRIW (CC BY-SA 4.0)"
+    PluginDescription = "SPW 灵动词岛插件：逐字歌词、桌面悬浮与播放控制"
     PluginHasConfig = true
     PluginOpenSourceUrl = projectUrl.get()
     PluginPermissions = listOf(PluginPermission.LIBRARY_READ, PluginPermission.KEY_BINDINGS)
