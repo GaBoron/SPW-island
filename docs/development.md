@@ -675,7 +675,7 @@ IslandLeadingContent / IslandTrailingContent
 
 #### `tray`
 
-加载 GTK 3，并优先使用 AppIndicator 创建持久托盘；不可用时回退到 GTK StatusIcon。
+优先加载 GTK 3；库名查找失败时尝试常见 Linux x64 系统库目录，GTK 3 不可加载时尝试 GTK 2。优先使用匹配 GTK 版本的 AppIndicator 创建持久托盘，不可用时回退到 GTK StatusIcon。查找限于进程可见的文件系统，不从 `/run/host` 混入其他运行环境的库。
 
 菜单数据来自 `GtkTray`。
 

@@ -213,6 +213,8 @@ Linux 目前仍是实验性支持，完整差异见 [兼容性与限制](compati
 
 插件优先使用 AppIndicator / Ayatana AppIndicator，不可用时再尝试 GTK StatusIcon。部分桌面环境默认没有可见托盘区域，或者需要额外启用 AppIndicator 支持。
 
+如果日志提示无法加载 `libgtk-3.so.0`，插件会尝试系统库路径和 GTK 2。两者均失败时，日志会保留具体的共享库加载错误；请检查 SPW 所在运行环境中的 GTK，而不只是终端里主系统的安装情况。若通过 Steam Linux Runtime 或其他隔离环境启动，反馈时请注明启动方式。
+
 托盘不可用时，词岛本身仍可能正常工作，设置可以继续从 SPW 里改。
 
 ### 拖动松手后短暂闪回原位置

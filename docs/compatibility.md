@@ -11,7 +11,7 @@ Windows x64 和 Linux x64 共用一个 `.spmod`，运行时自动选择平台组
 | 平台 | 状态 | 说明 |
 | --- | --- | --- |
 | Windows 10 / 11 x64 | 主要支持平台 | 原生窗口功能较完整；音频环境要求见下文 |
-| Linux x64 | 实验性支持 | 需要 GTK 3、`/usr/bin/python3` 和 X11 / XWayland |
+| Linux x64 | 实验性支持 | 需要 `/usr/bin/python3` 和 X11 / XWayland；托盘使用 GTK 3 或 GTK 2 |
 | macOS | 暂无计划 | 当前没有构建和平台适配 |
 | Android / iOS / HarmonyOS | 不支持 | Salt Player 当前没有对应插件运行环境 |
 
@@ -113,14 +113,13 @@ Linux 版本复用大部分歌词和 Swing UI，但词岛窗口运行在独立�
 - Linux x64；
 - 支持 Java / Swing 插件的 SPW Linux 宿主；
 - `/usr/bin/python3`；
-- GTK 3；
 - X11 或 XWayland。
 
 界面直接使用 SPW 自带 JVM，不需要另外装 Java；Python helper 只用标准库。
 
 词岛使用 GPU 绘制，Windows 使用 Direct3D，Linux 需要可用的 OpenGL 驱动及 `libGL`、`libX11`、`fontconfig`。无法初始化 GPU 时自动使用兼容绘制，可在“关于与状态”的“词岛绘制”中确认。
 
-快捷设置通过 GTK 托盘提供，优先使用 AppIndicator / Ayatana AppIndicator，不可用时尝试 GTK StatusIcon。不同桌面环境的托盘支持差异很大；如果看不到托盘，仍然可以从 SPW 原生插件设置页管理词岛。
+快捷设置通过 GTK 托盘提供，优先加载 GTK 3，不可加载时尝试 GTK 2；AppIndicator / Ayatana AppIndicator 使用匹配的 GTK 版本，不可用时尝试 GTK StatusIcon。GTK 库需在 SPW 的运行环境内可用，主系统中安装了 GTK 不一定代表隔离的运行环境也能加载。不同桌面环境的托盘支持差异很大；如果看不到托盘，仍然可以从 SPW 原生插件设置页管理词岛。
 
 Linux 窗口仍使用 X11 / XWayland。普通悬停展开通过窗口进入/离开事件判断，不依赖跨原生 Wayland 窗口可能失效的全局坐标。鼠标穿透通过空输入区域实现，托盘和插件设置中的“找回词岛”可解除。
 

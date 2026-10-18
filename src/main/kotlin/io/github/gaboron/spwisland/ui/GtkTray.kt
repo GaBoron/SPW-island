@@ -36,10 +36,10 @@ internal class GtkTray(private val entries: () -> List<PopupMenuEntry>,
                 }
                 val exit = process.waitFor()
                 SwingUtilities.invokeLater {
-                    if (!closed) { close(); report(IllegalStateException("Linux 托盘已退出（$exit）")) }
+                    unavailable(IllegalStateException("Linux 托盘已退出（$exit）"))
                 }
             } catch (error: Exception) {
-                SwingUtilities.invokeLater { if (!closed) { close(); report(error) } }
+                SwingUtilities.invokeLater { unavailable(error) }
             }
         }, "SPW tray commands").apply { isDaemon = true }.start()
     }
@@ -57,9 +57,16 @@ internal class GtkTray(private val entries: () -> List<PopupMenuEntry>,
                 }
                 writer.write("END\n"); writer.flush()
             } catch (error: Exception) {
-                SwingUtilities.invokeLater { if (!closed) { close(); report(error) } }
+                SwingUtilities.invokeLater { unavailable(error) }
             }
         }
+    }
+
+    private fun unavailable(error: Exception) {
+        if (closed) return
+        close()
+        report(IllegalStateException(
+            "Linux 托盘不可用，可继续从 SPW 插件设置页管理词岛；具体原因见日志", error))
     }
 
     override fun close() {

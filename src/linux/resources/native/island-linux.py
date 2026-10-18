@@ -17,6 +17,43 @@ def bind(lib, name, result, *args):
     return fn
 
 
+def load_library(soname):
+    """Keep the runtime's lookup first, then try the usual Linux x64 library locations."""
+    try:
+        return C.CDLL(soname)
+    except OSError as error:
+        failures = [str(error)]
+    # An installed library may be absent from the loader cache visible to SPW.
+    # Stay inside this process's filesystem; do not mix in /run/host libraries.
+    for directory in ("/usr/lib", "/usr/lib64", "/usr/lib/x86_64-linux-gnu",
+                      "/lib", "/lib64", "/lib/x86_64-linux-gnu"):
+        path = os.path.join(directory, soname)
+        if os.path.isfile(path):
+            try:
+                return C.CDLL(path)
+            except OSError as error:
+                failures.append(str(error))
+    raise OSError("; ".join(failures))
+
+
+def tray_libraries():
+    glib = load_library("libglib-2.0.so.0")
+    obj = load_library("libgobject-2.0.so.0")
+    failures = []
+    # Both GTK versions expose the menu/StatusIcon API used below. Keep working
+    # when this process can see GTK 2 but not the system's GTK 3 installation.
+    for soname, indicators in (
+        ("libgtk-3.so.0", ("libayatana-appindicator3.so.1", "libappindicator3.so.1")),
+        ("libgtk-x11-2.0.so.0", ("libayatana-appindicator.so.1", "libappindicator.so.1")),
+    ):
+        try:
+            return load_library(soname), obj, glib, indicators
+        except OSError as error:
+            failures.append(str(error))
+    raise RuntimeError("当前 SPW 运行环境无法加载 GTK 3 或 GTK 2；请检查该运行环境中的 GTK 库。" +
+                       "\n" + "\n".join(failures))
+
+
 def launch_jvm(home, classpath, main_class, application_name="灵动词岛 for SPW"):
     # Standard JNI Invocation API, with a fresh OS thread and its own JVM/EDT/Java2D queue.
     class Option(C.Structure):
@@ -72,9 +109,7 @@ def launch_jvm(home, classpath, main_class, application_name="灵动词岛 for S
 def native_tray(name, icon_path):
     """Persistent system tray; the GTK main loop alone owns widgets and native callbacks."""
     import queue
-    gtk = C.CDLL("libgtk-3.so.0")
-    obj = C.CDLL("libgobject-2.0.so.0")
-    glib = C.CDLL("libglib-2.0.so.0")
+    gtk, obj, glib, indicator_libraries = tray_libraries()
     bind(glib, "g_set_prgname", None, S)(b"spw-lyrics-island")
     bind(glib, "g_set_application_name", None, S)(name.encode("utf-8"))
     if not bind(gtk, "gtk_init_check", I, P, P)(None, None):
@@ -138,9 +173,9 @@ def native_tray(name, icon_path):
         return result, callbacks
 
     menu, item_callbacks = create_menu(first)
-    for library in ("libayatana-appindicator3.so.1", "libappindicator3.so.1"):
+    for library in indicator_libraries:
         try:
-            candidate = C.CDLL(library)
+            candidate = load_library(library)
             indicator = bind(candidate, "app_indicator_new", P, S, S, I)(
                 b"spw-lyrics-island", icon_path.encode("utf-8"), 0)
             if indicator:
@@ -230,6 +265,11 @@ if __name__ == "__main__":
         thread.join()
         sys.exit(1 if failures else 0)
     elif sys.argv[1] == "tray":
-        native_tray(sys.argv[2], sys.argv[3])
+        try:
+            native_tray(sys.argv[2], sys.argv[3])
+        except (OSError, RuntimeError) as error:
+            print("[SPW Island] Linux 托盘不可用；词岛仍可运行，设置可从 SPW 插件设置页修改。\n" +
+                  str(error), file=sys.stderr, flush=True)
+            sys.exit(1)
     else:
         raise SystemExit("Unknown helper mode")
