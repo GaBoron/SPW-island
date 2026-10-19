@@ -3,7 +3,7 @@ package io.github.gaboron.spwisland.ui
 
 import java.awt.Point
 import java.io.ByteArrayOutputStream
-import java.nio.file.Path
+import io.github.gaboron.spwisland.platform.WindowsNativeResources
 import java.util.Base64
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -17,16 +17,12 @@ internal class WindowsTray(private val toggle: () -> Unit, private val menu: (Po
     @Volatile private var closed = false
 
     init {
-        val executable = WindowsTray::class.java.getResource("/native/spw-island-tray.exe")
-            ?: error("插件中缺少 native/spw-island-tray.exe")
-        check(executable.protocol == "file") {
-            "请使用 SPW 插件 .spmod 安装托盘程序"
-        }
+        val executable = WindowsNativeResources.extract("/native/spw-island-tray.exe")
         val icon = ByteArrayOutputStream().use { bytes ->
             check(ImageIO.write(ApplicationIdentity.icon, "png", bytes)) { "托盘图标编码失败" }
             Base64.getEncoder().encodeToString(bytes.toByteArray())
         }
-        process = ProcessBuilder(Path.of(executable.toURI()).toString(), icon,
+        process = ProcessBuilder(executable.toString(), icon,
             ProcessHandle.current().pid().toString())
             .redirectErrorStream(true).start()
         val ready = CountDownLatch(1)

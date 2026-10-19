@@ -10,7 +10,7 @@ import org.jetbrains.skiko.SkiaLayer
 import kotlinx.coroutines.Job
 import java.net.JarURLConnection
 
-/** Only Python's standard library is required; GTK is loaded directly for native menus. */
+/** Python desktop bridges use system libraries directly, without extra Python packages. */
 internal object LinuxHelper {
     private val scripts = mutableMapOf<String, Path>()
     @Synchronized private fun extract(name: String): Path = scripts.getOrPut(name) {
@@ -24,6 +24,10 @@ internal object LinuxHelper {
     }
 
     fun start(vararg arguments: String): Process = startScript("island-linux.py", *arguments)
+
+    fun startTray(name: String, icon: Path, width: Int, height: Int, pixels: String): Process =
+        start("tray", name, icon.toString(), extract("island-dbus-tray.py").toString(),
+            width.toString(), height.toString(), pixels)
 
     fun installGnomePointer(): String {
         val archive = extract("spw-island-pointer@gaboron.github.io.shell-extension.zip")
@@ -54,6 +58,7 @@ internal object LinuxHelper {
         if (Files.isDirectory(libraries)) Files.list(libraries).use { jars ->
             jars.filter { it.fileName.toString().endsWith(".jar") }.sorted().forEach { paths += it.toString() }
         }
+        // JNA / JNA Platform come from SPW, including in this independent UI JVM.
         paths += classes.map { Path.of(it.protectionDomain.codeSource.location.toURI()).toString() }
         // Gradle keeps classes/resources separate; an installed plugin contains both in classes/.
         LinuxHelper::class.java.getResource("/native/island-linux.py")?.takeIf { it.protocol == "file" }?.let {

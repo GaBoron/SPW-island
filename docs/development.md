@@ -374,6 +374,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `IslandPlaybackExtension.kt` | 接收 SPW `PlaybackExtensionPoint` 回调并转换为项目自己的模型 |
 | `IslandPlugin.kt` | PF4J 插件生命周期；创建和释放唯一的 `IslandRuntime`，并提供配置页按钮入口 |
 | `IslandRuntime.kt` | 宿主侧组合根；组装时间轴、设置、元数据、频谱、窗口、平台远程 UI 和播放操作 |
+| `IslandUiLifecycle.kt` | 异步投递窗口创建、操作和销毁；取消停用后的待执行启动，避免持有宿主插件管理锁时等待 EDT |
 | `PlaybackCallbackBridge.kt` | 暂存运行实例建立之前到达的播放回调，并在 runtime 就绪后转交 |
 | `TrackMetadataLoader.kt` | 单个有界后台线程恢复当前曲目、查询宿主元数据并补充本地信息；旧结果通过代次检查丢弃 |
 
@@ -393,6 +394,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | 文件 | 职责 |
 | --- | --- |
 | `WindowsOverlay.kt` | Windows 覆盖窗口能力：鼠标穿透、置顶强化和前台全屏判断 |
+| `WindowsNativeResources.kt` | 按插件类加载器提取并复用原生 DLL、辅助程序和配套数据的临时副本，避免占用插件安装目录 |
 | `SystemTheme.kt` | 读取 Windows 应用深浅色主题 |
 | `DotNetFrameworkRuntime.kt` | 在启动实时频谱 helper 前静默检查所需 .NET Framework CLR |
 
@@ -417,6 +419,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | 文件 | 职责 |
 | --- | --- |
 | `LinuxHelper.kt` | 提取并启动 Linux Python helper，并为独立界面 JVM 构造 classpath |
+| `src/linux/resources/native/island-dbus-tray.py` | GTK 缺失时通过 GIO 提供 StatusNotifierItem / DBusMenu；按管道和总线事件更新，图标以 ARGB 像素传输 |
 | `LinuxGlobalPointer.kt` | 提供 X11 指针查询，管理 KWin / GNOME 指针桥接及样本有效期 |
 
 平台功能不要直接加入 `core/`。
@@ -601,7 +604,7 @@ PopupMenuEntry
 | `PopupMenuEntry.kt` | 菜单标题、说明、分隔线、开关和操作项的通用数据模型 |
 | `LightweightPopupMenu.kt` | 非 Linux 平台使用的进程内自绘弹出菜单 |
 | `WindowsTray.kt` / `native/Tray.cs` | Windows 独立托盘程序的生命周期与图标事件转发；菜单仍在插件进程内 |
-| `GtkTray.kt` | Linux 原生 GTK 托盘及其菜单同步 |
+| `GtkTray.kt` | Linux 托盘进程及菜单同步；GTK 缺失时使用 GIO / D-Bus，托盘失败不阻断词岛 |
 | `AboutDialog.kt` | 组合分组状态与版权卡片；按文本实际宽度计算高度，窄屏或长说明可滚动 |
 | `AboutStatusPanel.kt` | 分组排版、主状态层级、自动换行与异常原因展示 |
 | `AboutText.kt` | 关于页共用的宽度测量接口和不可编辑换行文本 |
@@ -680,7 +683,9 @@ IslandLeadingContent / IslandTrailingContent
 
 优先加载 GTK 3；库名查找失败时尝试常见 Linux x64 系统库目录，GTK 3 不可加载时尝试 GTK 2。优先使用匹配 GTK 版本的 AppIndicator 创建持久托盘，不可用时回退到 GTK StatusIcon。查找限于进程可见的文件系统，不从 `/run/host` 混入其他运行环境的库。
 
-菜单数据来自 `GtkTray`。
+两版 GTK 均不可加载时，交给 `island-dbus-tray.py`，通过 `libgio-2.0.so.0` 注册 `org.kde.StatusNotifierItem` 与 `com.canonical.dbusmenu`。桌面负责绘制菜单；图标使用网络字节序的 ARGB 像素，避免依赖桌面能否读取容器中的临时路径。桌面托盘服务重启后重新注册，管道关闭后退出；GTK 与 D-Bus 均失败时保留两边的错误。
+
+菜单数据来自 `GtkTray`。D-Bus 路径按管道和总线事件更新，不新增轮询；标准和低性能模式共用此路径并保留菜单操作。
 
 GTK 与 Swing/AWT 不在同一个 JVM 中初始化，以减少线程和桌面工具包冲突。
 
@@ -1018,6 +1023,7 @@ Linux：
 GtkTray
 LinuxHelper
 island-linux.py
+island-dbus-tray.py（GTK 缺失时）
 ```
 
 ### 修改 Linux 独立界面进程
@@ -1217,6 +1223,10 @@ Windows 的：
 
 都应在 EDT 上操作。
 
+宿主调用插件生命周期方法时可能持有插件管理锁。`IslandUiLifecycle` 将 Windows 窗口创建和销毁异步投递到 EDT，生命周期线程不使用 `invokeAndWait`；停用先取消待执行的启动，已开始创建的窗口完成后立即释放。字体窗口也拒绝停用后的待执行打开操作。后台资源逐项关闭，一项失败仍继续释放其余资源。
+
+Windows 原生 DLL、托盘程序、音频辅助程序和 ICU 数据由 `WindowsNativeResources` 按需复制到临时运行目录；同一插件类加载器复用副本，新类加载器使用独立目录。已加载的 DLL 可以存活到 JVM 退出，因此不直接从可替换的插件安装目录加载。两种性能模式共用该按需提取路径，不增加轮询或持续后台任务。
+
 不要在绘制函数中执行：
 
 - 文件读取；
@@ -1254,7 +1264,7 @@ SPW JVM
 Linux IPC 后台线程
 独立界面 JVM
 独立界面 Swing EDT
-GTK helper 进程
+托盘 helper 进程（GTK 或 GIO / D-Bus）
 PipeWire 频谱 helper 进程（捕获启用时）
 KWin / GNOME 指针 helper 进程（Wayland 悬停隐藏启用时）
 ```
@@ -1430,10 +1440,10 @@ SPW 提供：
 - Kotlin 标准库；
 - PF4J。
 
+JNA 与 JNA Platform 也复用 SPW 自带版本，不重复装入插件的 `lib/`。Linux 独立界面的 classpath 会加入 `Native` 和 `X11` 所在的宿主归档；当前 SPW 1.19 提供的 JNA 5.19.1 可运行插件使用的 5.17.0 API。
+
 插件自身分发：
 
-- JNA；
-- JNA Platform；
 - Jaudiotagger；
 - Gson（配置快照解析）；
 - Windows 字体窗口使用的 Compose 运行库；

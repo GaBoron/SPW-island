@@ -21,14 +21,14 @@ class IslandRuntime : AutoCloseable {
     fun trackChanged(track: io.github.gaboron.spwisland.core.Track) = metadata.load(track)
     fun lineChanged(line: io.github.gaboron.spwisland.core.LyricLine?) = timeline.lineChanged(line)
     fun lyricsChanged(lines: List<io.github.gaboron.spwisland.core.LyricLine>) = timeline.lyricsChanged(lines)
-    private var window: IslandWindow? = null
+    private val ui: IslandUiLifecycle? = if (Platform.isLinux()) null else IslandUiLifecycle(::createWindow, ::report)
     private var linuxWindow: LinuxIslandProcess? = null
     private val spectrum: SpectrumSource = if (Platform.isLinux()) LinuxProcessSpectrum()
         else ProcessSpectrum(::notifySpectrumFallback)
     @Volatile private var closed = false
     private val settings = HostSettings(WorkshopApi.manager.createConfigManager()) {
         updateSpectrumMode()
-        if (!Platform.isLinux()) SwingUtilities.invokeLater { if (!closed) window?.reload() }
+        if (!closed) ui?.reload()
     }
     private val fontPicker = if (Platform.isWindows()) ComposeFontPickerWindow({ selection ->
         safely {
@@ -41,25 +41,25 @@ class IslandRuntime : AutoCloseable {
         updateSpectrumMode()
         shortcut.start()
         metadata.start()
-        val actions = object : PlaybackActions {
-                override fun previous() = safely { WorkshopApi.playback.previous() }
-                override fun toggle() = safely {
-                    if (timeline.snapshot().playing) WorkshopApi.playback.pause() else WorkshopApi.playback.play()
-                }
-                override fun next() = safely { WorkshopApi.playback.next() }
-                override fun seek(positionMs: Long) = safely {
-                    WorkshopApi.playback.seekTo(positionMs)
-                    timeline.seek(positionMs)
-                }
-                override fun adjustVolume(delta: Double, completed: (Double?) -> Unit) = volume.adjust(delta, completed)
-                override fun setVolume(value: Double, completed: (Double?) -> Unit) = volume.set(value, completed)
-        }
         if (Platform.isLinux()) {
-            linuxWindow = LinuxIslandProcess(timeline, settings, actions, ::report, spectrum)
-        } else onEdt {
-            window = IslandWindow(timeline, settings, actions, ::report,
-                spectrum::levels, spectrum::usesSyntheticFallback, { spectrum.status })
+            linuxWindow = LinuxIslandProcess(timeline, settings, playbackActions(), ::report, spectrum)
+        } else ui?.start()
+    }
+    private fun createWindow(): IslandWindow = IslandWindow(timeline, settings, playbackActions(), ::report,
+        spectrum::levels, spectrum::usesSyntheticFallback, { spectrum.status })
+
+    private fun playbackActions(): PlaybackActions = object : PlaybackActions {
+        override fun previous() = safely { WorkshopApi.playback.previous() }
+        override fun toggle() = safely {
+            if (timeline.snapshot().playing) WorkshopApi.playback.pause() else WorkshopApi.playback.play()
         }
+        override fun next() = safely { WorkshopApi.playback.next() }
+        override fun seek(positionMs: Long) = safely {
+            WorkshopApi.playback.seekTo(positionMs)
+            timeline.seek(positionMs)
+        }
+        override fun adjustVolume(delta: Double, completed: (Double?) -> Unit) = volume.adjust(delta, completed)
+        override fun setVolume(value: Double, completed: (Double?) -> Unit) = volume.set(value, completed)
     }
     private fun updateSpectrumMode() {
         val current = settings.read()
@@ -80,7 +80,7 @@ class IslandRuntime : AutoCloseable {
     fun resetSettings() = safely { settings.resetAll() }
     fun about() {
         if (closed) return
-        linuxWindow?.about() ?: SwingUtilities.invokeLater { if (!closed) window?.about() }
+        linuxWindow?.about() ?: ui?.about()
     }
     fun chooseFont() {
         if (!closed) fontPicker?.show(settings.read())
@@ -98,15 +98,11 @@ class IslandRuntime : AutoCloseable {
     override fun close() {
         if (closed) return
         closed = true
-        shortcut.close()
-        volume.close()
-        linuxWindow?.close(); linuxWindow = null
-        try {
-            fontPicker?.close()
-            metadata.close(); settings.close(); spectrum.close()
-        } finally { if (window != null) onEdt { window?.close(); window = null } }
-    }
-    private fun onEdt(block: () -> Unit) {
-        if (SwingUtilities.isEventDispatchThread()) block() else SwingUtilities.invokeAndWait(block)
+        ui?.close()
+        val remote = linuxWindow
+        linuxWindow = null
+        listOfNotNull(shortcut, volume, remote, fontPicker, metadata, settings, spectrum).forEach { resource ->
+            try { resource.close() } catch (error: Throwable) { report(error) }
+        }
     }
 }

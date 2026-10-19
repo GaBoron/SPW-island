@@ -2,17 +2,25 @@
 package io.github.gaboron.spwisland.ui
 
 import io.github.gaboron.spwisland.platform.LinuxHelper
+import java.nio.ByteBuffer
 import java.nio.file.Files
+import java.util.Base64
 import java.util.concurrent.Executors
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 
-/** Native Linux tray with an attached GTK menu; no AWT popup-trigger dependency. */
+/** Native Linux tray using GTK or a desktop-rendered D-Bus menu. */
 internal class GtkTray(private val entries: () -> List<PopupMenuEntry>,
                        private val selected: (Int) -> Unit,
                        private val report: (Throwable) -> Unit) : AutoCloseable {
     private val icon = ApplicationIdentity.exportIcon()
-    private val process = try { LinuxHelper.start("tray", ApplicationIdentity.NAME, icon.toString()) }
+    private val process = try {
+        val image = ApplicationIdentity.icon
+        val pixels = ByteBuffer.allocate(image.width * image.height * 4)
+        for (y in 0 until image.height) for (x in 0 until image.width) pixels.putInt(image.getRGB(x, y))
+        LinuxHelper.startTray(ApplicationIdentity.NAME, icon, image.width, image.height,
+            Base64.getEncoder().encodeToString(pixels.array()))
+    }
         catch (error: Exception) { Files.deleteIfExists(icon); throw error }
     private val writer = process.outputStream.bufferedWriter(Charsets.UTF_8)
     private val sender = Executors.newSingleThreadExecutor { Thread(it, "SPW tray updates").apply { isDaemon = true } }

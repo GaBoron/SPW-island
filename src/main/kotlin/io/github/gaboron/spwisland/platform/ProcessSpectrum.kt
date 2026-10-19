@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.platform
 
-import java.nio.file.Path
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -38,10 +37,7 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
         var launched: Process? = null
         try {
             if (!enabled || closed) return
-            val resource = ProcessSpectrum::class.java.getResource("/native/spw-spectrum.exe")
-                ?: error("插件中缺少 native/spw-spectrum.exe")
-            check(resource.protocol == "file") { "请使用 SPW 插件 .spmod 安装频谱程序" }
-            val executable = Path.of(resource.toURI())
+            val executable = WindowsNativeResources.extract("/native/spw-spectrum.exe")
             if (!DotNetFrameworkRuntime.canRun(executable)) {
                 fallback(
                     "实时频谱不可用：.NET Framework 4 无法启动，已改用模拟频谱",

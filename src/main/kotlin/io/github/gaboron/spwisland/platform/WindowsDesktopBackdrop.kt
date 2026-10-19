@@ -9,7 +9,6 @@ import io.github.gaboron.spwisland.core.GlassStatus
 import org.jetbrains.skia.Data
 import org.jetbrains.skia.Image
 import java.awt.Window
-import java.nio.file.Path
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
@@ -192,8 +191,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
     }
 
     private fun load(): Api {
-        val resource = checkNotNull(javaClass.getResource("/native/spw-island-glass.dll")) { "缺少 Windows 桌面捕获资源" }
-        check(resource.protocol == "file") { "请使用插件 .spmod 安装桌面捕获资源" }
-        return Native.load(Path.of(resource.toURI()).toString(), Api::class.java)
+        val library = WindowsNativeResources.extract("/native/spw-island-glass.dll")
+        return Native.load(library.toString(), Api::class.java)
     }
 }

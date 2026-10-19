@@ -106,10 +106,10 @@ def launch_jvm(home, classpath, main_class, application_name="灵动词岛 for S
         raise RuntimeError("UI main failed")
 
 
-def native_tray(name, icon_path):
+def native_tray(name, icon_path, libraries):
     """Persistent system tray; the GTK main loop alone owns widgets and native callbacks."""
     import queue
-    gtk, obj, glib, indicator_libraries = tray_libraries()
+    gtk, obj, glib, indicator_libraries = libraries
     bind(glib, "g_set_prgname", None, S)(b"spw-lyrics-island")
     bind(glib, "g_set_application_name", None, S)(name.encode("utf-8"))
     if not bind(gtk, "gtk_init_check", I, P, P)(None, None):
@@ -248,6 +248,22 @@ def native_tray(name, icon_path):
         bind(obj, "g_object_unref", None, P)(menu)
 
 
+def run_tray(name, icon_path, dbus_path, width, height, pixels):
+    try:
+        libraries = tray_libraries()
+    except (OSError, RuntimeError) as gtk_error:
+        # Steam Runtime can omit both GTK versions. Use the desktop's tray over
+        # its session bus, without importing host libraries into the container.
+        print("[SPW Island] GTK 不可用，尝试 D-Bus 托盘。", file=sys.stderr, flush=True)
+        import runpy
+        try:
+            runpy.run_path(dbus_path)["native_tray"](name, width, height, pixels, load_library)
+        except (OSError, RuntimeError) as dbus_error:
+            raise RuntimeError(str(gtk_error) + "\nD-Bus 托盘：" + str(dbus_error)) from dbus_error
+    else:
+        native_tray(name, icon_path, libraries)
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "jvm":
         failures = []
@@ -266,7 +282,7 @@ if __name__ == "__main__":
         sys.exit(1 if failures else 0)
     elif sys.argv[1] == "tray":
         try:
-            native_tray(sys.argv[2], sys.argv[3])
+            run_tray(*sys.argv[2:8])
         except (OSError, RuntimeError) as error:
             print("[SPW Island] Linux 托盘不可用；词岛仍可运行，设置可从 SPW 插件设置页修改。\n" +
                   str(error), file=sys.stderr, flush=True)

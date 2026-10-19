@@ -6,6 +6,7 @@ import io.github.gaboron.spwisland.core.IslandSettings
 import java.awt.Dimension
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
+import java.util.concurrent.atomic.AtomicBoolean
 import io.github.gaboron.spwisland.platform.SkikoRuntime
 import javax.swing.JFrame
 import javax.swing.SwingUtilities
@@ -16,9 +17,12 @@ internal class ComposeFontPickerWindow(
     private val report: (Throwable) -> Unit
 ) : AutoCloseable {
     private var window: ComposeWindow? = null
+    private val closed = AtomicBoolean()
 
     fun show(current: IslandSettings) {
+        if (closed.get()) return
         SwingUtilities.invokeLater {
+            if (closed.get()) return@invokeLater
             window?.let { it.isVisible = true; it.toFront(); return@invokeLater }
             try {
                 SkikoRuntime.load()
@@ -50,5 +54,7 @@ internal class ComposeFontPickerWindow(
         }
     }
 
-    override fun close() { SwingUtilities.invokeLater { window?.dispose(); window = null } }
+    override fun close() {
+        if (closed.compareAndSet(false, true)) SwingUtilities.invokeLater { window?.dispose(); window = null }
+    }
 }

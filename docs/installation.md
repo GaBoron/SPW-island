@@ -33,7 +33,7 @@ Linux x64 目前仍是实验性支持，需要：
 
 界面使用 SPW 自带的 JVM，不需要单独安装 Java；Python helper 只使用标准库，不需要 PyGObject。
 
-系统托盘优先使用 GTK 3，不可加载时尝试 GTK 2。GTK 必须在 SPW 的运行环境中可用；托盘不可用时仍可从 SPW 插件设置页管理词岛。
+系统托盘优先使用 GTK 3，不可加载时尝试 GTK 2；均不可用时，通过 GIO 和桌面 D-Bus 会话提供托盘菜单。桌面需支持 StatusNotifierItem / AppIndicator；托盘不可用时仍可从 SPW 插件设置页管理词岛。
 
 可选的实时频谱还需要 PipeWire，以及 `pw-record` / `pw-dump`（发行版通常放在 `pipewire-bin` 或 `pipewire` 包中）。悬停隐藏支持 X11 与 KDE Wayland。GNOME Wayland 45–50 需点击插件配置的“安装 GNOME 悬停隐藏支持”，首次安装或更新后保存工作并重新登录。
 
@@ -43,7 +43,7 @@ Linux x64 目前仍是实验性支持，需要：
 
 通过 SPW 安装的用户，下载新版 `.spmod` 后重新导入即可，原有设置通常不需要清空。
 
-Windows 更新后请重启 SPW，以加载插件内的原生库。
+Windows 如提示插件文件被占用，请完全退出 SPW 后再重新导入。
 
 如果 Windows 一直使用手动安装目录，更新前先退出 SPW，再用新版插件包替换旧版本。
 
