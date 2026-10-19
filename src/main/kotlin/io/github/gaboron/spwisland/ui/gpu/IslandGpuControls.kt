@@ -53,19 +53,32 @@ internal class IslandGpuControls(private val resources: IslandGpuResources, priv
             if (progress != null && bounds != null) canvas.scoped {
                 canvas.translate(bounds.x.toFloat(), bounds.y.toFloat())
                 val span = (bounds.width - 96).coerceAtLeast(1)
-                val filled = if (progress.duration > 0) (span * progress.position.toDouble() / progress.duration).toInt() else 0
+                val filled = (span * progress.fraction).toFloat()
                 canvas.drawRRect(RRect.makeXYWH(48f, 12f, span.toFloat(), 4f, 2f), resources.fill(0xff484d59.toInt()))
-                if (filled > 0) canvas.drawRRect(RRect.makeXYWH(48f, 12f, filled.toFloat(), 4f, 2f), resources.fill(progress.color))
-                if (progress.enabled) canvas.drawCircle(50f + filled, 14f, 5f, resources.fill(progress.color))
-                text(canvas, progress.positionLabel, 0f, progress.color)
-                val duration = LyricTypography.shape(progress.durationLabel, timeFont)
-                text(canvas, progress.durationLabel, bounds.width - duration.layout.advance.roundToInt().toFloat(), progress.color)
+                if (filled > 0) canvas.drawRRect(RRect.makeXYWH(48f, 12f, filled, 4f, 2f), resources.fill(progress.color))
+                if (progress.knobOpacity > 0f) canvas.drawCircle(50f + filled, 14f, 5f,
+                    resources.fill(opacity(progress.color, progress.knobOpacity)))
+                labels(canvas, progress.positionLabel, progress.durationLabel, bounds.width, progress.color,
+                    1f - progress.volumeMix, -5f * progress.volumeMix)
+                labels(canvas, "音量", progress.volumeLabel, bounds.width, progress.color,
+                    progress.volumeMix, 5f * (1f - progress.volumeMix))
             }
         }
     }
 
-    private fun text(canvas: Canvas, text: String, x: Float, color: Int) = canvas.scoped {
-        canvas.translate(x, 18f)
+    private fun labels(canvas: Canvas, left: String, right: String, width: Int, color: Int, alpha: Float, offset: Float) {
+        if (alpha <= 0f) return
+        val tint = opacity(color, alpha)
+        text(canvas, left, 0f, tint, offset)
+        val duration = LyricTypography.shape(right, timeFont)
+        text(canvas, right, width - duration.layout.advance.roundToInt().toFloat(), tint, offset)
+    }
+
+    private fun opacity(color: Int, alpha: Float) =
+        (color and 0x00ffffff) or (((color ushr 24) * alpha).roundToInt().coerceIn(0, 255) shl 24)
+
+    private fun text(canvas: Canvas, text: String, x: Float, color: Int, offset: Float) = canvas.scoped {
+        canvas.translate(x, 18f + offset)
         canvas.drawPath(resources.path(LyricTypography.shape(text, timeFont).outline), resources.fill(color))
     }
 

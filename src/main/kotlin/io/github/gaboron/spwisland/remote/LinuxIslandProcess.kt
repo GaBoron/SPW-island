@@ -8,6 +8,7 @@ import io.github.gaboron.spwisland.ui.PlaybackActions
 import java.io.*
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -24,6 +25,7 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
     private val closed = AtomicBoolean()
     private val showAbout = AtomicBoolean()
     private val acknowledgedCommand = AtomicLong()
+    private val volumeResults = ConcurrentLinkedQueue<IslandVolumeResult>()
     private var previousSettings: IslandSettings? = null
     private var previousMetadata: TrackMetadata? = null
     private var previousLyrics: List<LyricLine>? = null
@@ -39,6 +41,7 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
                 val snapshot = timeline.snapshot()
                 val currentSettings = settings.read()
                 val now = System.nanoTime()
+                while (true) output.writeObject(volumeResults.poll() ?: break)
                 if (now >= nextState) {
                     spectrum.setEnabled(currentSettings.enabled && snapshot.playing &&
                         currentSettings.sideContent.showsSpectrum && currentSettings.performance.spectrumMode == SpectrumMode.LIVE)
@@ -88,6 +91,14 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
                 "toggle" -> actions.toggle()
                 "next" -> actions.next()
                 "seek" -> actions.seek(a.single().toLong())
+                "volume", "set_volume" -> {
+                    val completed: (Double?) -> Unit = { value ->
+                        if (!closed.get()) volumeResults.add(IslandVolumeResult(command.requestId, value))
+                    }
+                    val value = a.single().toDouble()
+                    if (command.action == "volume") actions.adjustVolume(value, completed)
+                    else actions.setVolume(value, completed)
+                }
                 "set" -> settings.set(a[0], if (a[1] == "boolean") a[2].toBooleanStrict() else a[2])
                 "position" -> settings.savePosition(a[0], a[1].toInt(), a[2].toInt(),
                     requireNotNull(IslandAnchor.fromStorage(a[3])))

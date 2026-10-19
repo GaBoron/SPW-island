@@ -9,12 +9,17 @@ import kotlin.math.roundToInt
 import io.github.gaboron.spwisland.longtone.LongToneAnalysis
 import io.github.gaboron.spwisland.ui.gpu.IslandGpuFrame
 
-interface PlaybackActions { fun previous(); fun toggle(); fun next(); fun seek(positionMs: Long) {} }
+interface PlaybackActions {
+    fun previous(); fun toggle(); fun next(); fun seek(positionMs: Long) {}
+    fun adjustVolume(delta: Double, completed: (Double?) -> Unit) { completed(null) }
+    fun setVolume(value: Double, completed: (Double?) -> Unit) { completed(null) }
+}
 
 class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> Unit = {}) : JPanel(null), AutoCloseable {
     private val alphaMask = IslandAlphaMask()
     private val expandedContent = IslandExpandedContentTransition()
     private val backgroundProgress = IslandProgressTransition()
+    private val volumeFeedback = IslandVolumeFeedback(actions::adjustVolume, actions::setVolume)
     private val lyricLayouts = IslandLyricsLayout.Cache()
     private val longTones = LongToneAnalysis()
     private val lyricsPreparation = IslandLyricsPreparation(lyricLayouts, longTones, report)
@@ -40,15 +45,19 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
     var anchor = IslandAnchor.TOP_CENTER
     var snapshot = PlaybackSnapshot(null, null, 0, false, PlaybackStatus.IDLE)
     var expanded = false
+        set(value) {
+            field = value
+            if (!value) volumeFeedback.reset()
+        }
     var expansion: Double? = null
     internal var controlsAnimating = false
     internal var hoverSettled = true
-    internal val progressAnimating get() = backgroundProgress.animating
+    internal val progressAnimating get() = backgroundProgress.animating || volumeFeedback.animating
     var animatedWidth = 280.0
     var animatedHeight = 58.0
     var transition = 1.0
     var outgoing: PlaybackSnapshot? = null
-    val progress = PlaybackProgress(::seekPlayback).also { add(it) }
+    val progress = PlaybackProgress(::seekPlayback, volumeFeedback).also { add(it) }
     private fun seekPlayback(positionMs: Long) {
         actions.seek(positionMs)
         // Publish the committed position before the gesture preview is removed.
@@ -68,7 +77,21 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
     private val play = control("播放或暂停", PlaybackIcon.PLAY) { actions.toggle() }
     private val next = control("下一首", PlaybackIcon.NEXT) { actions.next() }
 
-    init { isOpaque = false; getAccessibleContext().accessibleName = ApplicationIdentity.NAME }
+    init {
+        isOpaque = false; getAccessibleContext().accessibleName = ApplicationIdentity.NAME
+        addMouseWheelListener { event ->
+            val point = SwingUtilities.convertPoint(event.component, event.point, this)
+            if (volumeInteractive() && !progress.dragging &&
+                IslandGeometry.silhouette(width, height, settings.notch, settings.cornerRoundness).contains(point) &&
+                volumeFeedback.scroll(event.preciseWheelRotation)) event.consume()
+        }
+    }
+
+    private fun volumeInteractive(): Boolean {
+        val reveal = expansion ?: if (expanded) 1.0 else 0.0
+        return settings.enabled && settings.scrollVolume && !settings.clickThrough && !settings.autoHideOnHover &&
+            expanded && hoverSettled && IslandExpandedContentTransition.visible(reveal)
+    }
     private fun control(label: String, glyph: Icon, clicked: () -> Unit) = JButton(glyph).apply {
         toolTipText = label; accessibleContext.accessibleName = label
         isFocusable = false; isContentAreaFilled = false; isBorderPainted = false
@@ -130,6 +153,7 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
     }
 
     internal fun updateProgressTransition(dt: Double) {
+        volumeFeedback.update(volumeInteractive(), dt, !settings.performance.animateLayout)
         val reveal = expansion ?: if (expanded) 1.0 else 0.0
         val valid = settings.performance.renderBackgroundProgress && snapshot.track != null &&
             snapshot.metadata.durationMs > 0 && snapshot.status != PlaybackStatus.IDLE
@@ -230,5 +254,5 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
         } finally { g.dispose() }
     }
 
-    override fun close() { lyricsPreparation.close(); longTones.clear(); releaseBuffers() }
+    override fun close() { volumeFeedback.reset(); lyricsPreparation.close(); longTones.clear(); releaseBuffers() }
 }

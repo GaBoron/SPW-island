@@ -6,6 +6,7 @@ import java.awt.Component
 import java.awt.Cursor
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.event.MouseWheelEvent
 import javax.swing.JComponent
 import javax.swing.AbstractButton
 import javax.swing.SwingUtilities
@@ -29,9 +30,21 @@ internal class IslandGpuInput(private val source: Component, private val surface
         }
         override fun mouseClicked(e: MouseEvent) { target(e)?.let { send(it, e) }; redraw() }
         override fun mouseDragged(e: MouseEvent) { pressed?.let { send(it, e) }; redraw() }
+        override fun mouseWheelMoved(e: MouseWheelEvent) {
+            val panel = surface.island
+            val point = SwingUtilities.convertPoint(source, e.point, panel)
+            if (!panel.contains(point)) return
+            panel.dispatchEvent(MouseWheelEvent(panel, e.id, e.`when`, e.modifiersEx, point.x, point.y,
+                e.xOnScreen, e.yOnScreen, e.clickCount, e.isPopupTrigger, e.scrollType,
+                e.scrollAmount, e.wheelRotation, e.preciseWheelRotation))
+            redraw()
+        }
     }
 
-    init { source.addMouseListener(listener); source.addMouseMotionListener(listener) }
+    init {
+        source.addMouseListener(listener); source.addMouseMotionListener(listener)
+        source.addMouseWheelListener(listener)
+    }
 
     private fun target(event: MouseEvent): Component? {
         val panel = surface.island
@@ -60,6 +73,7 @@ internal class IslandGpuInput(private val source: Component, private val surface
 
     override fun close() {
         source.removeMouseListener(listener); source.removeMouseMotionListener(listener)
+        source.removeMouseWheelListener(listener)
         hover?.let { it.dispatchEvent(MouseEvent(it, MouseEvent.MOUSE_EXITED,
             System.currentTimeMillis(), 0, -1, -1, 0, false)) }
         (pressed as? AbstractButton)?.model?.apply { isArmed = false; isPressed = false }

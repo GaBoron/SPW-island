@@ -20,6 +20,7 @@ object LinuxIslandMain {
         }
         val timeline = RemotePlayback()
         val spectrum = RemoteSpectrum()
+        val volume = RemoteVolumeControl { action, value -> send(action, value.toString()) }
         val store = RemoteSettingsStore { action, arguments -> send(action, *arguments.toTypedArray()) }
         var window: IslandWindow? = null
         var lastHealth = 0L
@@ -28,6 +29,10 @@ object LinuxIslandMain {
                 while (true) {
                     val message = input.readObject()
                     if (message is IslandSpectrum) { spectrum.accept(message); continue }
+                    if (message is IslandVolumeResult) {
+                        SwingUtilities.invokeAndWait { volume.accept(message) }
+                        continue
+                    }
                     val state = message as IslandState
                     SwingUtilities.invokeAndWait {
                         timeline.accept(state)
@@ -37,6 +42,8 @@ object LinuxIslandMain {
                             override fun toggle() { send("toggle") }
                             override fun next() { send("next") }
                             override fun seek(positionMs: Long) = timeline.seek(positionMs) { send("seek", it.toString()) }
+                            override fun adjustVolume(delta: Double, completed: (Double?) -> Unit) = volume.adjust(delta, completed)
+                            override fun setVolume(value: Double, completed: (Double?) -> Unit) = volume.set(value, completed)
                         }, { send("error", it.toString()) }, spectrum::levels, spectrum::fallback, spectrum::status)
                         else if (settingsChanged) window.reload()
                         if (state.about) window.about()

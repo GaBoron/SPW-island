@@ -49,6 +49,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         hideFullscreen = Platform.isWindows() && config.get("hide_fullscreen", accepted?.hideFullscreen ?: true),
         clickThrough = config.get("click_through", accepted?.clickThrough ?: false),
         autoHideOnHover = config.get("auto_hide_on_hover", accepted?.autoHideOnHover ?: false),
+        scrollVolume = config.get("scroll_volume", false),
         // Keep the original key so existing users retain their enabled setting after the rename.
         lowPerformance = config.get("reduced_motion", false), notch = config.get("shape", "pill") == "notch",
         cornerRoundness = number("corner_roundness", 95, 0, 100),

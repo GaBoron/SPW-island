@@ -28,6 +28,7 @@ data class IslandSettings(
     val hideFullscreen: Boolean = true,
     val clickThrough: Boolean = false,
     val autoHideOnHover: Boolean = false,
+    val scrollVolume: Boolean = false,
     val lowPerformance: Boolean = false,
     val notch: Boolean = false,
     val cornerRoundness: Int = 95,

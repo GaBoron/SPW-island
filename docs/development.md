@@ -367,6 +367,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | --- | --- |
 | `WorkshopTrackMetadata.kt` | 封装公开的当前曲目、时长、内嵌封面和读取权限查询，转换为核心模型 |
 | `IslandShortcut.kt` | 在插件 start 线程注册 SPW 管理的显示快捷键，管理权限与注销句柄 |
+| `HostVolumeControl.kt` | 按需绑定 SPW 内部音量读写接口，在宿主 EDT 同步播放器、界面和保存值并回传实际音量；不轮询 |
 | `HostSettings.kt` | 适配 `SettingsStore`，负责配置同步、合并、保存重试和旧配置迁移 |
 | `IslandConfigFile.kt` | 解析同一次读取的完整 JSON 快照，拒绝空/部分内容，检查新编辑并原子保存 |
 | `IslandConfigWatch.kt` | 文件事件与宿主通知合并、短时读取重试和低频兜底检查 |
@@ -425,7 +426,8 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | 文件 | 职责 |
 | --- | --- |
 | `RemoteSettingsStore.kt` | 即时应用 Linux 菜单与位置操作，宿主确认后移除待确认编辑 |
-| `IslandWire.kt` | 定义 `IslandState`、`IslandCommand` 和 `IslandSpectrum`，以及子进程使用的 `RemotePlayback` 与 `RemoteSpectrum` |
+| `IslandWire.kt` | 定义状态、命令、频谱与音量结果消息，以及子进程使用的 `RemotePlayback` 与 `RemoteSpectrum` |
+| `RemoteVolumeControl.kt` | 发送滚轮增量与拖动绝对音量命令，按请求 ID 将最新宿主结果交回界面 |
 | `LinuxIslandProcess.kt` | 宿主侧独立界面进程管理；发送播放、设置和频谱状态，接收并确认播放/seek/设置等命令 |
 | `LinuxIslandMain.kt` | Linux 子 JVM 入口；接收状态、创建 `IslandWindow` 并把用户操作传回宿主 |
 
@@ -456,11 +458,11 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `gpu/SwingGlassContent.kt` | 仅在控件内容变化时更新 Swing 内容图像，与桌面背景刷新分开 |
 | `gpu/SwingGlassInput.kt` | 将原生输入窗口的鼠标事件转给原有按钮、拖动与滚动逻辑，观察键盘和焦点变化 |
 | `gpu/IslandGpuSides.kt` | 原生封面、频谱和播放状态 |
-| `gpu/IslandGpuControls.kt` | 原生控制图标、歌曲信息和可拖动进度的呈现 |
+| `gpu/IslandGpuControls.kt` | 原生控制图标、歌曲信息、可拖动进度和音量条过渡的呈现 |
 | `gpu/IslandGpuResources.kt` | 有界原生路径与封面缓存、复用画笔和透明图层资源 |
 | `IslandLyricPresentation.kt` | GPU 与兼容绘制共用的行位置、换行透明度和缩放 |
 | `LyricTextPlacement.kt` | 共用的逐字边界、双向 caret、居中与滚动计算 |
-| `gpu/IslandGpuInput.kt` | 将原生输入转给已有按钮、进度和拖动逻辑，保留拖动捕获 |
+| `gpu/IslandGpuInput.kt` | 将原生输入转给已有按钮、进度、拖动和滚轮逻辑，保留拖动捕获 |
 | `platform/WindowsGpuInput.kt` | 独立的非聚焦输入窗口；轮廓外穿透，不裁切 GPU 画面 |
 | `platform/WindowsDesktopBackdrop.kt` | JNA 接口、共享纹理或 Skia Data 帧快照、新帧重绘通知、状态与异步释放 |
 | `platform/WindowsGpuTextureImport.kt` | 获取实际 Skiko Direct3D 上下文及绘制锁，将共享 D3D12 资源快照为 GPU Image |
@@ -572,7 +574,8 @@ LyricPainter
 | `IslandPalette.kt` | 根据默认配色、设置和封面主色生成歌词、背景和频谱颜色 |
 | `IslandBackgroundProgress.kt` | 在词岛背景中绘制整曲播放进度，包括注水和边缘细线；细线位于胶囊顶部或刘海底部 |
 | `IslandProgressTransition.kt` | 背景进度的非线性淡入淡出和退出样式保留；独立状态由窗口帧更新，绘制不推进动画 |
-| `PlaybackProgress.kt` | 展开状态下的播放进度条和 seek 手势；松手时一次提交，并防止切歌后误 seek |
+| `PlaybackProgress.kt` | 共用的进度 / 音量呈现、悬停命中与鼠标手势；音量反馈期间点击 / 拖动调音量，播放进度仍在松手时一次提交并防止切歌后误 seek |
+| `IslandVolumeFeedback.kt` | 音量反馈的悬停保持、拖动预览与请求合并、2 秒超时和连续过渡；收起复位并按代次拒绝迟到结果 |
 | `PlaybackIcon.kt` | 与字体无关的上一首、播放、暂停和下一首矢量图标 |
 | `SyntheticSpectrum.kt` | 无需音频捕获的低成本模拟频谱 |
 
@@ -956,6 +959,10 @@ IslandWindow
 
 播放命令最终由 `PlaybackActions` 回到 `IslandRuntime` 或 Linux IPC。
 
+`scroll_volume` 默认为 `false`。`IslandVolumeFeedback` 仅在正常交互且控件展开时接收滚轮，按每格 2% 发送增量。音量条未完全消失时，悬停或拖动会保持显示，移开后重新计时 2 秒。点击 / 拖动使用绝对音量，立即预览并按窗口帧时钟合并宿主请求，松手时提交最终值；拖动捕获由现有 GPU / Swing 输入路径保留，拖动期间保持词岛展开。低性能模式沿用 `PerformanceProfile` 的低帧率降低请求频率，并通过 `animateLayout` 直接切换样式。
+
+进度填充、时间 / 音量标签在 GPU 与 Java2D 路径共用呈现数据；收起或隐藏时立即取消音量手势并复位，拒绝该次展开中尚未返回的结果。Linux 使用 `volume` / `set_volume` 命令分别传递增量 / 绝对值，通过 `IslandVolumeResult` 返回实际音量；复用现有发送线程，不增加后台轮询。
+
 ### 修改设置
 
 通常同时查看：
@@ -1176,6 +1183,8 @@ IslandRuntime
 快捷键必须在插件 `start()` 的调用线程注册，默认 `Ctrl+Shift+D`，允许用户在 SPW 中配置全局绑定。停用时关闭注册句柄，保留宿主管理的用户键位。
 
 宿主对象仅在 `host/` 内使用，不传播到 `core/`。
+
+dev23 尚无公开音量 API。`HostVolumeControl` 使用宿主类加载器按确切签名绑定 SPW 1.19 的 `AppConfig.getVolume()` / `updateVolume(float)`、`PlaybackController.changeVolume(float)` 与 `Spkv.encode(String, float)`，在宿主 EDT 同步界面、播放器和保存值。音量反馈由词岛自身呈现。绑定仅在首次音量操作发生，读写由滚轮和点击 / 拖动触发；到达音量边界时不重复写入。不扫描类、不修改方法；绑定或调用失败时返回空结果，每个插件生命周期最多提示一次。宿主版本更新后应重新确认此内部接入路径。
 
 ---
 

@@ -51,6 +51,13 @@
         },
         {
           "type": "switch",
+          "key": "scroll_volume",
+          "title": "鼠标滚轮调节音量",
+          "default_value": false,
+          "summary": "正常交互模式展开后，在词岛上滚动调节 SPW 音量，每格 2%。音量条支持点击和拖动，悬停时保持显示；移开且停止调节 2 秒后恢复播放进度，收起时立即恢复。低性能模式直接切换样式。"
+        },
+        {
+          "type": "switch",
           "key": "hide_fullscreen",
           "title": "全屏时隐藏（Windows）",
           "default_value": true

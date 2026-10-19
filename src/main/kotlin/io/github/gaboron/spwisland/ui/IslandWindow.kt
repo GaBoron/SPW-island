@@ -199,6 +199,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         val visible = settings.enabled && (!settings.hidePaused || snap.playing) && (!settings.hideFullscreen || !fullscreen)
         globalPointer?.setEnabled(clickThrough && settings.autoHideOnHover && visible)
         if (!visible) {
+            panel.expanded = false
             // Avoid changing the native bounds or painting while the transparent peer is hidden.
             if (window.isVisible) window.isVisible = false
             if (!settings.enabled && !buffersReleased) {

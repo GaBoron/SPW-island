@@ -20,6 +20,9 @@ internal data class IslandCommand(val action: String, val arguments: List<String
 /** Small audio frames travel separately; lyric/cover payloads keep their original cadence. */
 internal data class IslandSpectrum(val levels: FloatArray, val fallback: Boolean, val status: String) : Serializable
 
+/** Volume is returned only in response to a wheel command, without periodic host queries. */
+internal data class IslandVolumeResult(val requestId: Long, val value: Double?) : Serializable
+
 internal class RemoteSpectrum {
     @Volatile private var frame = IslandSpectrum(FloatArray(4), false, "正在连接 SPW 音频")
     @Volatile private var received = 0L

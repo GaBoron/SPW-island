@@ -36,6 +36,7 @@ class IslandRuntime : AutoCloseable {
         }
     }, ::report) else null
     private val shortcut = IslandShortcut { safely { settings.set("enabled", !settings.read().enabled) } }
+    private val volume = HostVolumeControl(::report)
     fun start() {
         updateSpectrumMode()
         shortcut.start()
@@ -50,6 +51,8 @@ class IslandRuntime : AutoCloseable {
                     WorkshopApi.playback.seekTo(positionMs)
                     timeline.seek(positionMs)
                 }
+                override fun adjustVolume(delta: Double, completed: (Double?) -> Unit) = volume.adjust(delta, completed)
+                override fun setVolume(value: Double, completed: (Double?) -> Unit) = volume.set(value, completed)
         }
         if (Platform.isLinux()) {
             linuxWindow = LinuxIslandProcess(timeline, settings, actions, ::report, spectrum)
@@ -96,6 +99,7 @@ class IslandRuntime : AutoCloseable {
         if (closed) return
         closed = true
         shortcut.close()
+        volume.close()
         linuxWindow?.close(); linuxWindow = null
         try {
             fontPicker?.close()
