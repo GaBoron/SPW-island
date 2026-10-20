@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.ui.gpu
 
+import io.github.gaboron.spwisland.platform.IslandLog
+
 import org.jetbrains.skia.*
 import kotlin.math.abs
 
@@ -85,7 +87,7 @@ internal class IslandLyricContrast : AutoCloseable {
             sampleBuilder?.close(); sampleBuilder = null
             sampleEffect?.close(); sampleEffect = null
             releaseSurfaces()
-            System.err.println("[SPW Island] 歌词背景对比度检测不可用，恢复原描边：${error.message}")
+            IslandLog.error("gpu.contrast", "contrast analysis failed; using standard outline", error)
         } finally { paint.shader = null }
     }
 
