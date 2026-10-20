@@ -27,6 +27,7 @@ internal class WindowsGpuInput(private val owner: Window) : AutoCloseable {
         opacity = 1f / 255f
     }
     private var regionKey: Any? = null
+    private val diagnostics = WindowsOverlay()
     internal val captureWindow: Window get() = window
     private val visibility = object : ComponentAdapter() {
         override fun componentHidden(event: ComponentEvent) {
@@ -48,7 +49,10 @@ internal class WindowsGpuInput(private val owner: Window) : AutoCloseable {
         }
         if (window.bounds != owner.bounds) window.bounds = owner.bounds
         if (regionKey != key) { window.shape = shape(); regionKey = key }
-        if (!window.isVisible) window.isVisible = true
+        if (!window.isVisible) {
+            window.isVisible = true
+            IslandLog.info("gpu.input", "shown; bounds=${window.bounds}; " + diagnostics.describeWindow(window))
+        }
         IslandLog.state("gpu.input.visibility", "visible")
     }
 
