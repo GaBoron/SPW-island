@@ -35,17 +35,26 @@ internal class WindowsGpuInput(private val owner: Window) : AutoCloseable {
         }
     }
 
-    init { owner.addComponentListener(visibility) }
+    init {
+        owner.addComponentListener(visibility)
+        IslandLog.info("gpu.input", "native input peer initialized; ownerDisplayable=${owner.isDisplayable}")
+    }
 
     fun update(key: Any, clickThrough: Boolean, shape: () -> Shape) {
         if (clickThrough || !owner.isVisible) {
+            IslandLog.state("gpu.input.visibility", "hidden; clickThrough=$clickThrough; ownerVisible=${owner.isVisible}")
             window.isVisible = false
             return
         }
         if (window.bounds != owner.bounds) window.bounds = owner.bounds
         if (regionKey != key) { window.shape = shape(); regionKey = key }
         if (!window.isVisible) window.isVisible = true
+        IslandLog.state("gpu.input.visibility", "visible")
     }
 
-    override fun close() { owner.removeComponentListener(visibility); window.dispose() }
+    override fun close() {
+        IslandLog.info("gpu.input", "disposing input peer")
+        owner.removeComponentListener(visibility)
+        window.dispose()
+    }
 }
