@@ -31,6 +31,18 @@ class WindowsOverlay {
         return api.GetWindowLong(hwnd, -20) and 0x00000008 != 0 // WS_EX_TOPMOST
     }
 
+    fun isNativeVisible(window: Window): Boolean? {
+        val api = user32 ?: return null
+        val hwnd = existingHandle(window, api) ?: return null
+        return api.IsWindowVisible(hwnd)
+    }
+
+    fun isMinimized(window: Window): Boolean? {
+        val api = user32 ?: return null
+        val hwnd = existingHandle(window, api) ?: return null
+        return api.IsIconic(hwnd)
+    }
+
     fun describeWindow(window: Window): String {
         val api = user32 ?: return "native API unavailable"
         val hwnd = existingHandle(window, api) ?: return "native peer missing; awtVisible=${window.isVisible}"
