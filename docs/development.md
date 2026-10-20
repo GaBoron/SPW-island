@@ -467,6 +467,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `LyricTextPlacement.kt` | 共用的逐字边界、双向 caret、居中与滚动计算 |
 | `gpu/IslandGpuInput.kt` | 将原生输入转给已有按钮、进度、拖动和滚轮逻辑，保留拖动捕获 |
 | `platform/WindowsGpuInput.kt` | 独立的非聚焦输入窗口；轮廓外穿透，不裁切 GPU 画面 |
+| `platform/IslandLog.kt` | Windows / Linux 共用的持久化诊断日志；记录窗口层级、显示策略、渲染心跳及异常 |
 | `platform/WindowsDesktopBackdrop.kt` | JNA 接口、共享纹理或 Skia Data 帧快照、新帧重绘通知、状态与异步释放 |
 | `platform/WindowsGpuTextureImport.kt` | 获取实际 Skiko Direct3D 上下文及绘制锁，将共享 D3D12 资源快照为 GPU Image |
 | `native/glass/DesktopCapture.cpp` / `tools/build-glass.ps1` | C++/WinRT 桌面采样及 MSVC 构建；MTA 线程负责捕获、裁切、窗口排除与恢复 |
