@@ -229,6 +229,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             hoverActive = false
             pointerPresence?.reset()
             nextTopmostCheck = 0
+            previousPaintCount = -1L
             frameInterval = 200_000_000L
             return
         }
@@ -337,18 +338,21 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             clickThrough && settings.autoHideOnHover, mouse, hoverRegion, dt,
             !performance.animateLayout, settings.notch)
         panel.hoverSettled = surface.hoverPose.fullyShown
+        IslandLog.state("window.hover", "autoHide=${settings.autoHideOnHover}; " +
+            "hidden=${surface.hoverPose.reveal < 0.01}; clickThrough=$clickThrough")
         panel.updateProgressTransition(dt)
         panel.doLayout()
         if (!window.isVisible) {
             IslandLog.info("window", "show requested; targetBounds=$bounds")
             window.isVisible = true
             nextTopmostCheck = 0
-            nextDiagnostics = 0
+            previousPaintCount = renderer.frames + window.presentedFrames
+            nextDiagnostics = now + TimeUnit.SECONDS.toNanos(5)
         }
         if (topmostAvailable && now >= nextTopmostCheck) {
             if (Platform.isWindows()) when (native.isActuallyTopmost(window)) {
                 false -> IslandLog.anomaly("window.topmost", "WS_EX_TOPMOST absent immediately before maintenance; " + native.describeWindow(window))
-                true -> IslandLog.recovered("window.topmost", "native topmost restored")
+                true -> Unit
                 null -> IslandLog.anomaly("window.nativePeer", "missing native handle during topmost maintenance")
             }
             try { native.reinforceTopmost(window) }
@@ -384,6 +388,9 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             } else IslandLog.recovered("render.stalled", "frames are advancing")
             previousPaintCount = paintCount
             if (Platform.isWindows()) {
+                if (native.isNativeVisible(window) == false || native.isMinimized(window) == true)
+                    IslandLog.anomaly("window.nativeVisibility", "expected visible non-minimized HWND; " + native.describeWindow(window))
+                else IslandLog.recovered("window.nativeVisibility", "native HWND is visible and not minimized")
                 when (native.isActuallyTopmost(window)) {
                     false -> IslandLog.anomaly("window.topmost", "WS_EX_TOPMOST missing while the overlay should be visible")
                     true -> IslandLog.recovered("window.topmost", "WS_EX_TOPMOST is present")
