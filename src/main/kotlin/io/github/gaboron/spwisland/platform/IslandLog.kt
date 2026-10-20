@@ -78,13 +78,17 @@ object IslandLog {
         // Rotation bounds each process; expiry also bounds the accumulation from old launches.
         val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(14)
         Files.list(directory).use { stream ->
-            stream.filter { it.fileName.toString().startsWith("island-") &&
+            val files = stream.filter { it.fileName.toString().startsWith("island-") &&
                 it.fileName.toString().endsWith(".log") }
-                .forEach { path ->
-                    runCatching {
-                        if (Files.getLastModifiedTime(path).toMillis() < cutoff) Files.deleteIfExists(path)
-                    }
-                }
+                .sorted(compareByDescending<Path> { runCatching { Files.getLastModifiedTime(it).toMillis() }.getOrDefault(0) })
+                .toList()
+            var kept = 0L
+            for (path in files) runCatching {
+                val length = Files.size(path)
+                val expired = Files.getLastModifiedTime(path).toMillis() < cutoff
+                if (expired || kept + length > 128L * 1024 * 1024) Files.deleteIfExists(path)
+                else kept += length
+            }
         }
     }
 
