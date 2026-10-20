@@ -346,6 +346,11 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             nextDiagnostics = 0
         }
         if (topmostAvailable && now >= nextTopmostCheck) {
+            if (Platform.isWindows()) when (native.isActuallyTopmost(window)) {
+                false -> IslandLog.anomaly("window.topmost", "WS_EX_TOPMOST absent immediately before maintenance; " + native.describeWindow(window))
+                true -> IslandLog.recovered("window.topmost", "native topmost restored")
+                null -> IslandLog.anomaly("window.nativePeer", "missing native handle during topmost maintenance")
+            }
             try { native.reinforceTopmost(window) }
             catch (error: Exception) {
                 topmostAvailable = false
