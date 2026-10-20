@@ -4,6 +4,7 @@ package io.github.gaboron.spwisland.ui
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.core.*
 import io.github.gaboron.spwisland.platform.WindowsOverlay
+import io.github.gaboron.spwisland.platform.IslandLog
 import io.github.gaboron.spwisland.platform.X11InputRegion
 import io.github.gaboron.spwisland.platform.LinuxGlobalPointer
 import java.awt.*
@@ -77,6 +78,8 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     private var nextScreenCheck = 0L
     private var nextTopmostCheck = 0L
     private var topmostAvailable = true
+    private var nextDiagnostics = 0L
+    private var previousPaintCount = -1L
     private var lastFrame = System.nanoTime()
     private var lastLines: List<LyricLine> = emptyList()
     private var previousSnapshot: PlaybackSnapshot? = null
@@ -160,6 +163,12 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         })
         // Allocate a native peer while hidden, so full-screen checks also work before first show.
         window.addNotify()
+        IslandLog.info("window", "created; displayable=${window.isDisplayable}; " +
+            "backend=${if (Platform.isWindows()) "Windows" else "Linux"}; " +
+            "colorBits=${window.graphicsConfiguration.colorModel.pixelSize}; " +
+            "transparency=${window.graphicsConfiguration.transparency}; " +
+            "screen=${window.graphicsConfiguration.bounds}; " +
+            if (Platform.isWindows()) native.describeWindow(window) else "windowType=${window.type}")
         if (settings.enabled) renderer.install()
         window.gpuRendering = renderer.active
         try { menu.installTray() } catch (error: Exception) { report(error) }
@@ -167,6 +176,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     }
     fun reload() {
         if (closed) return
+        IslandLog.info("window", "settings reload requested")
         settings = store.read()
         // Settings notifications may arrive repeatedly while the mouse button is held.
         // Keep the in-progress gesture until release commits its position.
@@ -197,11 +207,17 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             nextScreenCheck = now + performance.screenCheckIntervalNs
         }
         val visible = settings.enabled && (!settings.hidePaused || snap.playing) && (!settings.hideFullscreen || !fullscreen)
+        IslandLog.state("window.policy", "enabled=${settings.enabled}; playing=${snap.playing}; " +
+            "hidePaused=${settings.hidePaused}; hideFullscreen=${settings.hideFullscreen}; " +
+            "fullscreen=$fullscreen; expectedVisible=$visible")
         globalPointer?.setEnabled(clickThrough && settings.autoHideOnHover && visible)
         if (!visible) {
             panel.expanded = false
             // Avoid changing the native bounds or painting while the transparent peer is hidden.
-            if (window.isVisible) window.isVisible = false
+            if (window.isVisible) {
+                IslandLog.info("window", "hiding due to current policy")
+                window.isVisible = false
+            }
             if (!settings.enabled && !buffersReleased) {
                 panel.releaseBuffers(); window.releaseFrame()
                 renderer.release(); window.gpuRendering = false
@@ -324,12 +340,18 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         panel.updateProgressTransition(dt)
         panel.doLayout()
         if (!window.isVisible) {
+            IslandLog.info("window", "show requested; targetBounds=$bounds")
             window.isVisible = true
             nextTopmostCheck = 0
+            nextDiagnostics = 0
         }
         if (topmostAvailable && now >= nextTopmostCheck) {
             try { native.reinforceTopmost(window) }
-            catch (error: Exception) { topmostAvailable = false; report(error) }
+            catch (error: Exception) {
+                topmostAvailable = false
+                IslandLog.error("window.topmost", "topmost maintenance disabled after an error", error)
+                report(error)
+            }
             nextTopmostCheck = now + performance.topmostCheckIntervalNs
         }
         if (nativeAvailable && clickThroughApplied != clickThrough) {
@@ -344,6 +366,29 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 try { window.paint(graphics) } finally { graphics.dispose() }
             }
         } else surface.repaint()
+        if (now >= nextDiagnostics) {
+            val paintCount = renderer.frames + window.presentedFrames
+            val nativeStatus = if (Platform.isWindows()) native.describeWindow(window) else
+                "displayable=${window.isDisplayable}; visible=${window.isVisible}; " +
+                "colorBits=${window.graphicsConfiguration.colorModel.pixelSize}"
+            IslandLog.info("window.health", "visible=${window.isVisible}; bounds=${window.bounds}; " +
+                "canvas=${surface.width}x${surface.height}; render=${if (renderer.active) "GPU" else "Java2D"}; " +
+                "frames=$paintCount; gpuFrames=${renderer.frames}; $nativeStatus")
+            if (previousPaintCount >= 0L && paintCount == previousPaintCount && window.isVisible) {
+                IslandLog.anomaly("render.stalled", "expected painting but frame count did not advance over 5 seconds")
+            } else IslandLog.recovered("render.stalled", "frames are advancing")
+            previousPaintCount = paintCount
+            if (Platform.isWindows()) {
+                when (native.isActuallyTopmost(window)) {
+                    false -> IslandLog.anomaly("window.topmost", "WS_EX_TOPMOST missing while the overlay should be visible")
+                    true -> IslandLog.recovered("window.topmost", "WS_EX_TOPMOST is present")
+                    null -> IslandLog.anomaly("window.nativePeer", "expected visible overlay but native peer is unavailable")
+                }
+                if (native.isActuallyTopmost(window) != null)
+                    IslandLog.recovered("window.nativePeer", "native peer is available")
+            }
+            nextDiagnostics = now + TimeUnit.SECONDS.toNanos(5)
+        }
         val displayInterval = frameClock.interval(device, performance)
         frameInterval = when {
             press != null || !performance.animateLayout -> displayInterval
@@ -361,8 +406,11 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             if (closed) return@schedule
             SwingUtilities.invokeLater {
                 if (closed) return@invokeLater
-                tick()
-                scheduleNextFrame()
+                try { tick() }
+                catch (error: Throwable) {
+                    IslandLog.error("window.frame", "frame processing failed; scheduling will continue", error)
+                    report(error)
+                } finally { scheduleNextFrame() }
             }
         }, frameClock.delay(frameInterval), TimeUnit.NANOSECONDS)
     }
@@ -396,6 +444,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
 
     override fun close() {
         if (closed) return
+        IslandLog.info("window", "closing; gpuFrames=${renderer.frames}; softwarePaints=${window.presentedFrames}")
         closed = true; frameScheduler.shutdownNow(); renderer.close(); panel.close(); menu.close()
         pointerPresence?.close(); globalPointer?.close(); inputRegion?.close(); window.releaseFrame(); window.dispose()
     }
