@@ -68,7 +68,7 @@ internal class LinuxProcessSpectrum : SpectrumSource {
             synchronized(this) {
                 if (enabled && !closed && generation == token) {
                     status = "实时频谱不可用：${error.message}（使用模拟频谱）"; fallback = true
-                    System.err.println("[SPW Island] $status")
+                    IslandLog.warn("spectrum.linux", status)
                 }
             }
         } finally {
