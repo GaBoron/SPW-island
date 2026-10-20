@@ -3,6 +3,7 @@ package io.github.gaboron.spwisland.ui.gpu
 
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.platform.SkikoRuntime
+import io.github.gaboron.spwisland.platform.IslandLog
 import io.github.gaboron.spwisland.platform.WindowsGpuInput
 import io.github.gaboron.spwisland.platform.WindowsDesktopBackdrop
 import io.github.gaboron.spwisland.platform.WindowsGpuTextureImport
@@ -44,6 +45,8 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
 
     fun install() {
         if (failed || layer != null || !owner.isDisplayable) return
+        IslandLog.info("gpu", "initializing; platform=${if (Platform.isWindows()) "Direct3D" else "OpenGL"}; " +
+            "ownerVisible=${owner.isVisible}; ownerDisplayable=${owner.isDisplayable}")
         try {
             SkikoRuntime.load()
             val painter = IslandGpuScene().also { scene = it }
@@ -84,6 +87,7 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
             resize()
             if (Platform.isWindows()) nativeInput = WindowsGpuInput(owner)
             input = IslandGpuInput(nativeInput?.component ?: created.canvas, surface, ::draw)
+            IslandLog.info("gpu", "initialized; renderApi=${created.renderApi}; inputPeer=${nativeInput != null}")
         } catch (error: Throwable) { fallback(error) }
     }
 
@@ -99,6 +103,7 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
         try {
             resize()
             if (owner.isDisplayable && current.isDisplayable) {
+                IslandLog.recovered("gpu.peer", "render peers displayable")
                 val settings = surface.island.settings
                 val scale = owner.graphicsConfiguration.defaultTransform
                 nativeInput?.update(listOf(surface.island.bounds, settings.notch,
@@ -127,6 +132,9 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
                     backdrop?.close(); backdrop = null
                 }
                 current.needRender()
+            } else if (owner.isVisible) {
+                IslandLog.anomaly("gpu.peer", "ownerVisible=${owner.isVisible}; ownerDisplayable=${owner.isDisplayable}; " +
+                    "layerDisplayable=${current.isDisplayable}")
             }
         } catch (error: Throwable) { fallback(error) }
     }
@@ -134,12 +142,14 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
     private fun fallback(error: Throwable) {
         if (failed) return
         failed = true
+        IslandLog.error("gpu", "GPU rendering failed; switching to Java2D", error)
         release()
         report(IllegalStateException("词岛 GPU 绘制不可用，已切换兼容绘制", error))
         surface.repaint()
     }
 
     fun release() {
+        if (layer != null) IslandLog.info("gpu", "releasing renderer; frames=$frames")
         val closeResources = {
             backdrop?.close(); backdrop = null
             scene?.close(); scene = null
