@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.ui.gpu
 
+import io.github.gaboron.spwisland.platform.IslandLog
+
 import io.github.gaboron.spwisland.platform.WindowsDesktopBackdrop
 import org.jetbrains.skia.*
 import java.awt.Shape
@@ -104,7 +106,7 @@ internal class IslandLiquidGlass : AutoCloseable {
     private fun disable(error: Throwable) {
         failure = error.message ?: error.javaClass.simpleName
         close()
-        System.err.println("[SPW Island] 液态玻璃光学绘制失败，恢复经典背景：$failure")
+        IslandLog.error("glass.shader", "liquid glass failed; switching to classic material", error)
     }
 
     override fun close() {
