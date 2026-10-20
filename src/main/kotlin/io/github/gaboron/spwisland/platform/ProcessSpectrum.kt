@@ -64,7 +64,7 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
                         receivedAt = System.nanoTime()
                     } else if (line.isNotBlank()) {
                         status = "频谱不可用：$line"
-                        System.err.println("[SPW Island] $status")
+                        IslandLog.warn("spectrum.windows", status)
                     }
                 }
             } }
@@ -90,7 +90,7 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
     private fun fallback(detail: String, notice: String) {
         syntheticFallback = true
         status = detail
-        System.err.println("[SPW Island] $status")
+        IslandLog.warn("spectrum.windows", status)
         if (!fallbackNotified) {
             fallbackNotified = true
             notifyFallback(notice)
