@@ -307,6 +307,13 @@
         },
         {
           "type": "button",
+          "title": "打开诊断日志目录",
+          "summary": "查找窗口不显示、置顶、GPU 渲染和插件异常的持久化日志。",
+          "arrow_type": "none",
+          "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.openLogs"
+        },
+        {
+          "type": "button",
           "title": "项目源代码（GitHub）",
           "summary": "查看源代码、反馈问题与参与贡献。",
           "arrow_type": "link",
