@@ -133,7 +133,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                     val message = reason.takeWhile { byte -> byte != 0.toByte() }.toByteArray().toString(Charsets.UTF_8)
                     if (gpuFallback == null) gpuFallback = message.ifBlank { "未取得 GPU 共享通路，原生端未报告原因" }
                     nativeGpuReasonRead = true
-                    System.err.println("[SPW Island] 液态玻璃 CPU 中转：$gpuFallback")
+                    IslandLog.warn("glass.capture", "GPU shared texture unavailable; using CPU readback: $gpuFallback")
                 }
                 val transport = if (it.texture != null) "GPU 共享纹理" else "CPU 中转"
                 status = GlassStatus(transport, gpuFallback.orEmpty(), gpuFallback != null,
