@@ -2,6 +2,8 @@
 @file:OptIn(com.xuncorp.spw.workshop.api.UnstableSpwWorkshopApi::class)
 package io.github.gaboron.spwisland.host
 
+import io.github.gaboron.spwisland.platform.IslandLog
+
 import com.xuncorp.spw.workshop.api.config.ConfigManager
 import com.xuncorp.spw.workshop.api.config.ConfigHelper
 import com.sun.jna.Platform
@@ -18,7 +20,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
     private var accepted: IslandSettings? = null
     private var fingerprint: ByteArray? = null
     private val watcher = IslandConfigWatch(config.getConfigPath(), ::refresh) {
-        System.err.println("[SPW Island] Settings sync: ${it.message}")
+        IslandLog.error("settings.sync", "settings synchronization failed", it)
     }
     // Notifications are hints only. Keep our helper instead of adopting the settings form's
     // mutable cache, which can still contain the position from before the latest drag.
