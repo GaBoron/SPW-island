@@ -45,7 +45,7 @@ object IslandLog {
                 override fun format(record: LogRecord): String = buildString {
                     append(Instant.ofEpochMilli(record.millis))
                     append(" [").append(record.level.name).append("] ")
-                    append(record.message).append('\\n')
+                    append(record.message).append(10.toChar())
                     record.thrown?.let { error ->
                         val buffer = StringWriter()
                         error.printStackTrace(PrintWriter(buffer))
