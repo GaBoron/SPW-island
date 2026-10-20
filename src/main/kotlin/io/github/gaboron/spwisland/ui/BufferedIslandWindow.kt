@@ -16,7 +16,11 @@ internal class BufferedIslandWindow(configuration: GraphicsConfiguration) : JFra
     fun releaseFrame() { frame?.flush(); frame = null }
     override fun update(graphics: Graphics) = paint(graphics)
     override fun paint(graphics: Graphics) {
-        if (!Platform.isLinux() || gpuRendering) { super.paint(graphics); return }
+        if (!Platform.isLinux() || gpuRendering) {
+            super.paint(graphics)
+            if (!gpuRendering) presentedFrames++
+            return
+        }
         if (width <= 0 || height <= 0) return
         val target = graphics as Graphics2D
         val sx = target.transform.scaleX
