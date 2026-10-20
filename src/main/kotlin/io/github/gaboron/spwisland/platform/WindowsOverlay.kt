@@ -24,6 +24,22 @@ class WindowsOverlay {
         return hwnd.takeIf { api.IsWindow(it) }
     }
 
+    /** Null means the native peer is missing, not that it is non-topmost. */
+    fun isActuallyTopmost(window: Window): Boolean? {
+        val api = user32 ?: return null
+        val hwnd = existingHandle(window, api) ?: return null
+        return api.GetWindowLong(hwnd, -20) and 0x00000008 != 0 // WS_EX_TOPMOST
+    }
+
+    fun describeWindow(window: Window): String {
+        val api = user32 ?: return "native API unavailable"
+        val hwnd = existingHandle(window, api) ?: return "native peer missing; awtVisible=${window.isVisible}"
+        val flags = api.GetWindowLong(hwnd, -20)
+        return "handle=${Native.getWindowPointer(window)}; nativeVisible=${api.IsWindowVisible(hwnd)}; " +
+            "minimized=${api.IsIconic(hwnd)}; topmost=${flags and 0x00000008 != 0}; " +
+            "layered=${flags and 0x00080000 != 0}; transparent=${flags and 0x00000020 != 0}"
+    }
+
     fun reinforceTopmost(window: Window) {
         val api = user32 ?: return
         if (!window.isDisplayable || !window.isVisible) return
