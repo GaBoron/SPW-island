@@ -2,6 +2,7 @@
 package io.github.gaboron.spwisland.host
 
 import io.github.gaboron.spwisland.ui.IslandWindow
+import io.github.gaboron.spwisland.platform.IslandLog
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 
@@ -18,10 +19,12 @@ internal class IslandUiLifecycle(
 
     fun start() = post {
         if (!closed.get() && !started) {
+            IslandLog.info("ui-lifecycle", "creating overlay on EDT")
             started = true
             try {
                 val created = create()
                 window = created
+                IslandLog.info("ui-lifecycle", "overlay constructed")
                 if (closed.get()) dispose()
             } catch (error: Throwable) {
                 report(IllegalStateException("词岛界面启动失败", error))
@@ -39,6 +42,7 @@ internal class IslandUiLifecycle(
     private fun dispose() {
         val previous = window
         window = null
+        IslandLog.info("ui-lifecycle", "disposing overlay; exists=${previous != null}")
         try { previous?.close() } catch (error: Throwable) { report(error) }
     }
 }
