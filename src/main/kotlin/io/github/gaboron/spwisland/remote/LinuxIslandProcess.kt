@@ -3,6 +3,7 @@ package io.github.gaboron.spwisland.remote
 
 import io.github.gaboron.spwisland.core.*
 import io.github.gaboron.spwisland.platform.LinuxHelper
+import io.github.gaboron.spwisland.platform.IslandLog
 import io.github.gaboron.spwisland.platform.SpectrumSource
 import io.github.gaboron.spwisland.ui.PlaybackActions
 import java.io.*
@@ -32,8 +33,11 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
     private var nextState = 0L
     private var audioEnabled = false
     private var lastAudioStatus = ""
+    private var lastFrameDiagnosticNs = 0L
+    private var previousDiagnosticFrames = -1L
 
     init {
+        IslandLog.info("linux-host", "UI child started; pid=${process.pid()}")
         sender.scheduleWithFixedDelay({
             if (!closed.get()) try {
                 // Read the watermark BEFORE the state: never acknowledge a command with its old snapshot.
@@ -86,7 +90,20 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
         val a = command.arguments
         try {
             when (command.action) {
-                "frames" -> presentedFrames = a.single().toLong()
+                "frames" -> {
+                    presentedFrames = a.single().toLong()
+                    val now = System.nanoTime()
+                    if (now - lastFrameDiagnosticNs >= TimeUnit.SECONDS.toNanos(5)) {
+                        IslandLog.info("linux-host.health", "childPid=${process.pid()}; presentedFrames=$presentedFrames; " +
+                            "alive=${process.isAlive}")
+                        if (previousDiagnosticFrames >= 0 && presentedFrames == previousDiagnosticFrames &&
+                            settings.read().enabled && (!settings.read().hidePaused || timeline.snapshot().playing)) {
+                            IslandLog.anomaly("linux-host.frames", "child reports no new presented frames")
+                        } else IslandLog.recovered("linux-host.frames", "child frames progressing or intentionally hidden")
+                        previousDiagnosticFrames = presentedFrames
+                        lastFrameDiagnosticNs = now
+                    }
+                }
                 "previous" -> actions.previous()
                 "toggle" -> actions.toggle()
                 "next" -> actions.next()
@@ -113,6 +130,7 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
     fun about() { showAbout.set(true) }
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        IslandLog.info("linux-host", "closing UI child; pid=${process.pid()}; lastFrames=$presentedFrames")
         spectrum.setEnabled(false)
         sender.shutdownNow()
         // Killing the process also closes a blocked pipe writer; do not wait for the host EDT.
