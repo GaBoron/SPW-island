@@ -166,7 +166,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         IslandLog.info("window", "created; displayable=${window.isDisplayable}; " +
             "backend=${if (Platform.isWindows()) "Windows" else "Linux"}; " +
             "colorBits=${window.graphicsConfiguration.colorModel.pixelSize}; " +
-            "transparency=${window.graphicsConfiguration.transparency}; " +
+            "transparency=${window.graphicsConfiguration.colorModel.transparency}; " +
             "screen=${window.graphicsConfiguration.bounds}; " +
             if (Platform.isWindows()) native.describeWindow(window) else "windowType=${window.type}")
         if (settings.enabled) renderer.install()
