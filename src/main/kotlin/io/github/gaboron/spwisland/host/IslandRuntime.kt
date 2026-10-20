@@ -10,6 +10,7 @@ import io.github.gaboron.spwisland.ui.*
 import io.github.gaboron.spwisland.platform.ProcessSpectrum
 import io.github.gaboron.spwisland.platform.LinuxProcessSpectrum
 import io.github.gaboron.spwisland.platform.SpectrumSource
+import io.github.gaboron.spwisland.platform.IslandLog
 import io.github.gaboron.spwisland.ui.ComposeFontPickerWindow
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.remote.LinuxIslandProcess
@@ -38,6 +39,7 @@ class IslandRuntime : AutoCloseable {
     private val shortcut = IslandShortcut { safely { settings.set("enabled", !settings.read().enabled) } }
     private val volume = HostVolumeControl(::report)
     fun start() {
+        IslandLog.info("runtime", "start; platform=${if (Platform.isLinux()) "Linux" else "Windows"}")
         updateSpectrumMode()
         shortcut.start()
         metadata.start()
@@ -87,16 +89,21 @@ class IslandRuntime : AutoCloseable {
     }
 
     fun openSource() { SwingUtilities.invokeLater { if (!closed) safely { ProjectLinks.openSource() } } }
+    fun openLogs() { SwingUtilities.invokeLater { if (!closed) safely {
+        java.awt.Desktop.getDesktop().open(IslandLog.directory.toFile())
+    } } }
     private fun safely(block: () -> Unit) { try { block() } catch (e: Exception) { report(e) } }
     private fun report(error: Throwable) {
-        System.err.println("[SPW Island] ${error.message}"); error.printStackTrace()
+        IslandLog.error("runtime", error.message ?: "unhandled failure", error)
         runCatching { WorkshopApi.ui.toast(error.message ?: "词岛操作失败", WorkshopApi.Ui.ToastType.Error) }
     }
     private fun notifySpectrumFallback(message: String) {
+        IslandLog.warn("spectrum", message)
         runCatching { WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning) }
     }
     override fun close() {
         if (closed) return
+        IslandLog.info("runtime", "closing")
         closed = true
         ui?.close()
         val remote = linuxWindow
@@ -104,5 +111,7 @@ class IslandRuntime : AutoCloseable {
         listOfNotNull(shortcut, volume, remote, fontPicker, metadata, settings, spectrum).forEach { resource ->
             try { resource.close() } catch (error: Throwable) { report(error) }
         }
+        IslandLog.info("runtime", "closed")
+        IslandLog.flush()
     }
 }
