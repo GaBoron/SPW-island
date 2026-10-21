@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.platform
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
+
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import io.github.gaboron.spwisland.diagnostics.DiagnosticProcesses
 
 /** Runs the private process-loopback reader only while live spectrum is enabled. */
 internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}) : SpectrumSource {
@@ -15,8 +19,8 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
     @Volatile private var fallbackNotified = false
     @Volatile override var status = "正在连接 SPW 音频"
         private set
-    private val worker = Executors.newSingleThreadExecutor { task ->
-        Thread(task, "SPW Island audio").apply { isDaemon = true }
+    private val worker = DiagnosticExecutors.single { task ->
+        Thread(task, "SPW Island audio").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("ProcessSpectrum") }
     }
 
     @Synchronized override fun setEnabled(value: Boolean) {
@@ -45,8 +49,8 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
                 )
                 return
             }
-            val helper = ProcessBuilder(executable.toString(), ProcessHandle.current().pid().toString())
-                .redirectErrorStream(true).start()
+            val helper = DiagnosticProcesses.start(ProcessBuilder(executable.toString(),
+                ProcessHandle.current().pid().toString()), "spectrum.windows")
             launched = helper
             synchronized(this) {
                 if (!enabled || closed) {
@@ -56,7 +60,10 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
                 process = helper
             }
             helper.inputStream.bufferedReader().useLines { lines -> lines.forEach { line ->
-                if (line == "READY") status = "SPW 进程音频频谱"
+                if (line == "READY") {
+                    status = "SPW 进程音频频谱"
+                    IslandLog.state("spectrum", "capture", "ready")
+                }
                 else {
                     val values = line.split(',').mapNotNull { it.toFloatOrNull()?.takeIf(Float::isFinite) }
                     if (values.size == 4) {
@@ -64,7 +71,7 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
                         receivedAt = System.nanoTime()
                     } else if (line.isNotBlank()) {
                         status = "频谱不可用：$line"
-                        System.err.println("[SPW Island] $status")
+                        IslandLog.warn("spectrum", "protocol.unexpected", mapOf("message" to line))
                     }
                 }
             } }
@@ -75,6 +82,7 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
                 )
             }
         } catch (error: Exception) {
+            IslandLog.failure("ProcessSpectrum", "caught.error", error);
             if (enabled && !closed) {
                 fallback(
                     "频谱不可用：${error.message}",
@@ -90,7 +98,7 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
     private fun fallback(detail: String, notice: String) {
         syntheticFallback = true
         status = detail
-        System.err.println("[SPW Island] $status")
+        IslandLog.state("spectrum", "capture", "fallback", mapOf("reason" to detail))
         if (!fallbackNotified) {
             fallbackNotified = true
             notifyFallback(notice)
@@ -107,7 +115,7 @@ internal class ProcessSpectrum(private val notifyFallback: (String) -> Unit = {}
             process
         }
         helper?.let {
-            runCatching { it.outputStream.bufferedWriter().apply { write("stop\n"); flush() } }
+            IslandLog.attempt("ProcessSpectrum", "close.attempt1") { it.outputStream.bufferedWriter().apply { write("stop\n"); flush() } }
             if (!it.waitFor(800, TimeUnit.MILLISECONDS)) it.destroy()
             if (!it.waitFor(200, TimeUnit.MILLISECONDS)) it.destroyForcibly()
         }

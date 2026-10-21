@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.host
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+
 import io.github.gaboron.spwisland.ui.IslandWindow
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
@@ -16,29 +18,46 @@ internal class IslandUiLifecycle(
     private var started = false
     private var window: IslandWindow? = null
 
-    fun start() = post {
-        if (!closed.get() && !started) {
-            started = true
-            try {
-                val created = create()
-                window = created
-                if (closed.get()) dispose()
-            } catch (error: Throwable) {
-                report(IllegalStateException("词岛界面启动失败", error))
+    fun start() {
+        val operation = IslandLog.operation("window", "create")
+        dispatch {
+            operation.runningHere()
+            if (!closed.get() && !started) {
+                started = true
+                try {
+                    val created = create()
+                    window = created
+                    operation.close()
+                    if (closed.get()) dispose()
+                } catch (error: Throwable) {
+                    operation.failed(error)
+                    report(IllegalStateException("词岛界面启动失败", error))
+                }
+            } else {
+                IslandLog.event("window", "create.cancelled")
+                operation.cancel()
             }
         }
     }
 
-    fun reload() = post { if (!closed.get()) window?.reload() }
-    fun about() = post { if (!closed.get()) window?.about() }
+    private fun dispatch(action: () -> Unit) = post {
+        try { action() } catch (error: Throwable) {
+            IslandLog.failure("window", "edt.operation_failed", error); report(error)
+        }
+    }
+    fun reload() = dispatch { if (!closed.get()) window?.reload() }
+    fun about() = dispatch { if (!closed.get()) window?.about() }
 
     override fun close() {
-        if (closed.compareAndSet(false, true)) post { dispose() }
+        if (closed.compareAndSet(false, true)) dispatch { dispose() }
     }
 
     private fun dispose() {
         val previous = window
         window = null
-        try { previous?.close() } catch (error: Throwable) { report(error) }
+        val operation = IslandLog.operation("window", "dispose")
+        try { previous?.close(); operation.close() } catch (error: Throwable) {
+            operation.failed(error); report(error)
+        }
     }
 }

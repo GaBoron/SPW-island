@@ -9,6 +9,10 @@ import sys
 import tempfile
 import threading
 import time
+import runpy
+
+diagnostics = runpy.run_path(os.environ.get(
+    "SPW_ISLAND_PY_DIAGNOSTICS", os.path.join(os.path.dirname(__file__), "island-diagnostics.py")))["install"]("island-pointer.py")
 
 P, S, I = C.c_void_p, C.c_char_p, C.c_int
 INTERFACE = 'io.github.gaboron.SpwIsland.Pointer'
@@ -48,6 +52,9 @@ cleanup.start();
 
 
 class Bus:
+    class Error(C.Structure):
+        _fields_ = [('domain', C.c_uint), ('code', C.c_int), ('message', S)]
+
     def __init__(self):
         self.gio = C.CDLL('libgio-2.0.so.0')
         self.glib = C.CDLL('libglib-2.0.so.0')
@@ -80,22 +87,35 @@ class Bus:
         self.loop_unref = bind(self.glib, 'g_main_loop_unref', None, P)
         self.timeout = bind(self.glib, 'g_timeout_add', C.c_uint, C.c_uint, P, P)
         self.remove_source = bind(self.glib, 'g_source_remove', I, C.c_uint)
-        self.connection = self.bus_get(2, None, None)  # G_BUS_TYPE_SESSION
+        self.free_error = bind(self.glib, 'g_error_free', None, P)
+        error = P()
+        self.connection = self.bus_get(2, None, C.byref(error))  # G_BUS_TYPE_SESSION
         if not self.connection:
-            raise RuntimeError('会话 D-Bus 不可用')
+            self.fail(error, '会话 D-Bus 不可用')
+
+    def fail(self, error, operation):
+        detail = ''
+        if error:
+            try:
+                value = C.cast(error, C.POINTER(self.Error)).contents
+                detail = f' [{value.domain}:{value.code}] ' + value.message.decode('utf-8', 'replace')
+            finally:
+                self.free_error(error)
+        raise RuntimeError(operation + detail)
 
     def call(self, service, path, interface, method, strings=(), signature=None):
         children = (P * len(strings))(*(self.string(s.encode()) for s in strings))
         params = self.tuple(children, len(strings))
         reply_type = self.type_new(signature.encode()) if signature else None
+        error = P()
         try:
             result = self.call_sync(self.connection, service.encode(), path.encode(), interface.encode(),
-                                    method.encode(), params, reply_type, 0, 750, None, None)
+                                    method.encode(), params, reply_type, 0, 750, None, C.byref(error))
         finally:
             if reply_type:
                 self.type_free(reply_type)
         if not result:
-            raise RuntimeError(f'D-Bus {method} 失败')
+            self.fail(error, f'D-Bus {method} 失败')
         return result
 
     def first(self, variant, reader):
@@ -138,7 +158,8 @@ def run(parent):
             received[:] = [time.monotonic(), True]
             print('POINT %.3f %.3f' % tuple(values), flush=True)
             bus.reply(invocation, None)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as error:
+            diagnostics.failure('pointer.callback_failed', error)
             stopped.set()
             bus.reply(invocation, None)
     class VTable(C.Structure):
@@ -176,7 +197,8 @@ def run(parent):
         # Plasma 6 uses the qualified path; Plasma 5 used /<id>.
         try:
             result = bus.call('org.kde.KWin', f'/Scripting/Script{script_id}', 'org.kde.kwin.Script', 'run')
-        except RuntimeError:
+        except RuntimeError as error:
+            diagnostics.failure('kwin.path_fallback', error)
             result = bus.call('org.kde.KWin', f'/{script_id}', 'org.kde.kwin.Script', 'run')
         bus.unref(result)
         timer = bus.timeout(200, tick, None)
@@ -187,8 +209,8 @@ def run(parent):
         if loaded:
             try:
                 bus.unref(bus.call('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'unloadScript', (name,)))
-            except RuntimeError:
-                pass
+            except RuntimeError as error:
+                diagnostics.failure('kwin.unload_failed', error)
         if filename:
             Path(filename).unlink(missing_ok=True)
         bus.unregister(bus.connection, registration)
@@ -208,6 +230,7 @@ def run_gnome(parent):
         try:
             result = bus.call('org.gnome.Shell', OBJECT, INTERFACE, 'GetPointer', signature='(dd)')
         except RuntimeError as error:
+            diagnostics.failure("caught.error", error)
             raise RuntimeError('GNOME 悬停隐藏需启用 SPW Island Pointer 扩展；首次安装后请重新登录') from error
         try:
             values = []
@@ -227,5 +250,6 @@ if __name__ == '__main__':
     try:
         (run_gnome if len(sys.argv) > 2 and sys.argv[2] == 'gnome' else run)(int(sys.argv[1]))
     except (OSError, RuntimeError, ValueError) as error:
+        diagnostics.failure("caught.error", error)
         print(f'UNAVAILABLE 悬停隐藏不可用：{error}', flush=True)
         sys.exit(1)

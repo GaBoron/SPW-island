@@ -2,6 +2,8 @@
 @file:OptIn(com.xuncorp.spw.workshop.api.UnstableSpwWorkshopApi::class)
 package io.github.gaboron.spwisland.host
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.google.gson.Strictness
@@ -32,21 +34,28 @@ internal class IslandConfigFile(private val path: Path) : ConfigHelper {
     }
     override fun set(key: String, value: Any) { values.add(key, gson.toJsonTree(value)) }
 
-    override fun reload(): Boolean = runCatching { reload(Files.readAllBytes(path)) }.getOrDefault(false)
-    fun reload(bytes: ByteArray): Boolean = runCatching {
-        if (bytes.isEmpty()) return false
-        val parsed = gson.fromJson(bytes.toString(Charsets.UTF_8), JsonObject::class.java) ?: return false
+    override fun reload(): Boolean = IslandLog.attempt("IslandConfigFile", "reload.attempt1") { reload(Files.readAllBytes(path)) }.getOrDefault(false)
+    fun reload(bytes: ByteArray): Boolean = IslandLog.attempt("IslandConfigFile", "reload.attempt2") {
+        if (bytes.isEmpty()) {
+            IslandLog.state("settings", "config_read", "empty_retrying"); return false
+        }
+        val parsed = gson.fromJson(bytes.toString(Charsets.UTF_8), JsonObject::class.java) ?: run {
+            IslandLog.state("settings", "config_read", "incomplete_retrying"); return false
+        }
         values = parsed
         loaded = bytes
+        IslandLog.state("settings", "config_read", "valid")
         true
     }.getOrDefault(false)
 
-    override fun save(): Boolean = runCatching {
+    override fun save(): Boolean = IslandLog.attempt("IslandConfigFile", "save.attempt3") {
         Files.createDirectories(path.parent)
         // Do not replace an edit which arrived since reload. The caller retries from the new file.
         val current = if (Files.exists(path)) Files.readAllBytes(path) else null
-        if (loaded == null && current != null || loaded != null && (current == null || !loaded!!.contentEquals(current)))
+        if (loaded == null && current != null || loaded != null && (current == null || !loaded!!.contentEquals(current))) {
+            IslandLog.warn("settings", "save.concurrent_edit_retry")
             return false
+        }
         val bytes = gson.toJson(values).toByteArray(Charsets.UTF_8)
         val temporary = Files.createTempFile(path.parent, ".island-", ".json")
         try {

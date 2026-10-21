@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.remote
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
+
 import io.github.gaboron.spwisland.core.*
 import io.github.gaboron.spwisland.platform.LinuxHelper
 import io.github.gaboron.spwisland.platform.SpectrumSource
@@ -11,6 +14,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import io.github.gaboron.spwisland.diagnostics.DiagnosticPulse
 
 /** The host's Skiko swapBuffers can block its EDT when minimized; never render on that EDT. */
 internal class LinuxIslandProcess(private val timeline: PlaybackSource, private val settings: SettingsStore,
@@ -18,10 +22,14 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
                          private val spectrum: SpectrumSource,
                          javaHome: String = System.getProperty("java.home")) : AutoCloseable {
     private val process = LinuxHelper.startUi(javaHome)
+    private val sending = DiagnosticPulse("ipc", "state_sending").apply { expected = true }
+    private val receiving = DiagnosticPulse("ipc", "ui_heartbeat").apply { expected = true }
+    private var sent = 0L
+    private var received = 0L
     @Volatile var presentedFrames: Long = 0
         private set
     private val output = ObjectOutputStream(BufferedOutputStream(process.outputStream)).apply { flush() }
-    private val sender = Executors.newSingleThreadScheduledExecutor { Thread(it, "SPW Island IPC").apply { isDaemon = true } }
+    private val sender = DiagnosticExecutors.scheduled { Thread(it, "SPW Island IPC").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("LinuxIslandProcess") } }
     private val closed = AtomicBoolean()
     private val showAbout = AtomicBoolean()
     private val acknowledgedCommand = AtomicLong()
@@ -40,6 +48,8 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
                 val acknowledged = acknowledgedCommand.get()
                 val snapshot = timeline.snapshot()
                 val currentSettings = settings.read()
+                sending.timeoutNs = currentSettings.performance.diagnosticStallTimeoutNs
+                receiving.timeoutNs = currentSettings.performance.diagnosticStallTimeoutNs
                 val now = System.nanoTime()
                 while (true) output.writeObject(volumeResults.poll() ?: break)
                 if (now >= nextState) {
@@ -67,7 +77,9 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
                 }
                 output.reset() // Bound the stream's object table over long listening sessions.
                 output.flush()
+                sending.beat(++sent)
             } catch (error: Exception) {
+                IslandLog.failure("LinuxIslandProcess", "caught.error", error);
                 if (!closed.get()) { close(); report(IllegalStateException("Linux 词岛进程已断开", error)) }
             }
         }, 0, 33, TimeUnit.MILLISECONDS)
@@ -77,13 +89,17 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
                     while (!closed.get()) dispatch(input.readObject() as IslandCommand)
                 }
             } catch (error: Exception) {
+                IslandLog.failure("LinuxIslandProcess", "caught.error", error);
                 if (!closed.get()) { close(); report(IllegalStateException("Linux 词岛进程已退出", error)) }
             }
-        }, "SPW Island commands").apply { isDaemon = true }.start()
+        }, "SPW Island commands").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("LinuxIslandProcess") }.start()
     }
 
     private fun dispatch(command: IslandCommand) {
         val a = command.arguments
+        receiving.beat(++received)
+        if (command.action !in setOf("frames", "volume", "set_volume")) IslandLog.event("ipc", "command.received",
+            mapOf("action" to command.action, "request" to command.requestId, "childPid" to process.pid()))
         try {
             when (command.action) {
                 "frames" -> presentedFrames = a.single().toLong()
@@ -106,20 +122,25 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
                 "reset_all" -> settings.resetAll()
                 "error" -> report(IllegalStateException(a.single()))
             }
-        } catch (error: Exception) { report(error) }
-        finally { acknowledgedCommand.set(command.requestId) }
+        } catch (error: Exception) {
+            IslandLog.failure("LinuxIslandProcess", "caught.error", error); report(error) }
+        finally {
+            acknowledgedCommand.set(command.requestId)
+            if (command.action !in setOf("frames", "volume", "set_volume")) IslandLog.event("ipc", "command.handled", mapOf("request" to command.requestId))
+        }
     }
 
     fun about() { showAbout.set(true) }
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        sending.close(); receiving.close()
         spectrum.setEnabled(false)
         sender.shutdownNow()
         // Killing the process also closes a blocked pipe writer; do not wait for the host EDT.
         process.destroy()
         Thread({
             if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly()
-            runCatching { output.close() }
-        }, "SPW Island cleanup").apply { isDaemon = true }.start()
+            IslandLog.attempt("LinuxIslandProcess", "close.attempt1") { output.close() }
+        }, "SPW Island cleanup").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("LinuxIslandProcess") }.start()
     }
 }

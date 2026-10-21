@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.ui
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
+
 import java.awt.Shape
 import java.awt.geom.Rectangle2D
 import java.text.BreakIterator
@@ -16,8 +19,8 @@ object WordGeometry {
     data class Cluster(val bounds: Rectangle2D, val shape: Shape)
     data class Cell(val bounds: Rectangle2D, val clusters: List<Cluster>)
     private data class Key(val shaped: ShapedText, val words: List<Word>)
-    private val worker = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, ArrayBlockingQueue(8),
-        { task -> Thread(task, "island-word-geometry").apply { isDaemon = true } },
+    private val worker = DiagnosticExecutors.pool(1, 1, 30, TimeUnit.SECONDS, ArrayBlockingQueue(8),
+        { task -> Thread(task, "island-word-geometry").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("WordGeometry") } },
         ThreadPoolExecutor.AbortPolicy()).apply { allowCoreThreadTimeOut(true) }
     private val cache = object : LinkedHashMap<Key, CompletableFuture<List<Cell>>>(8, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, CompletableFuture<List<Cell>>>) = size > 8
@@ -26,8 +29,12 @@ object WordGeometry {
     @Synchronized fun ready(shaped: ShapedText, text: String, words: List<Word>): List<Cell>? {
         val key = Key(shaped, words)
         val future = cache[key] ?: try {
-            CompletableFuture.supplyAsync({ prepare(shaped, text, words) }, worker).also { cache[key] = it }
-        } catch (_: java.util.concurrent.RejectedExecutionException) { return null }
+            CompletableFuture.supplyAsync({ prepare(shaped, text, words) }, worker).whenComplete { _, error ->
+                if (error != null) IslandLog.failure("lyrics", "geometry.failed", error)
+            }.also { cache[key] = it }
+        } catch (error: java.util.concurrent.RejectedExecutionException) {
+            IslandLog.warn("lyrics", "geometry.queue_full"); return null
+        }
         return if (future.isCompletedExceptionally) null else future.getNow(null)
     }
 

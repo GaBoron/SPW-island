@@ -4,6 +4,10 @@ import ctypes as C
 import os
 import sys
 import threading
+import runpy
+
+diagnostics = runpy.run_path(os.environ.get(
+    "SPW_ISLAND_PY_DIAGNOSTICS", os.path.join(os.path.dirname(__file__), "island-diagnostics.py")))["install"]("island-linux.py")
 
 P = C.c_void_p
 I = C.c_int
@@ -22,6 +26,7 @@ def load_library(soname):
     try:
         return C.CDLL(soname)
     except OSError as error:
+        diagnostics.failure("caught.error", error)
         failures = [str(error)]
     # An installed library may be absent from the loader cache visible to SPW.
     # Stay inside this process's filesystem; do not mix in /run/host libraries.
@@ -32,6 +37,7 @@ def load_library(soname):
             try:
                 return C.CDLL(path)
             except OSError as error:
+                diagnostics.failure("caught.error", error)
                 failures.append(str(error))
     raise OSError("; ".join(failures))
 
@@ -49,6 +55,7 @@ def tray_libraries():
         try:
             return load_library(soname), obj, glib, indicators
         except OSError as error:
+            diagnostics.failure("caught.error", error)
             failures.append(str(error))
     raise RuntimeError("当前 SPW 运行环境无法加载 GTK 3 或 GTK 2；请检查该运行环境中的 GTK 库。" +
                        "\n" + "\n".join(failures))
@@ -181,7 +188,8 @@ def native_tray(name, icon_path, libraries):
             if indicator:
                 indicator_lib = candidate
                 break
-        except (OSError, AttributeError):
+        except (OSError, AttributeError) as error:
+            diagnostics.failure('tray.indicator_fallback', error)
             continue
     callbacks = []
     if indicator:
@@ -252,6 +260,7 @@ def run_tray(name, icon_path, dbus_path, width, height, pixels):
     try:
         libraries = tray_libraries()
     except (OSError, RuntimeError) as gtk_error:
+        diagnostics.failure("caught.gtk_error", gtk_error)
         # Steam Runtime can omit both GTK versions. Use the desktop's tray over
         # its session bus, without importing host libraries into the container.
         print("[SPW Island] GTK 不可用，尝试 D-Bus 托盘。", file=sys.stderr, flush=True)
@@ -259,6 +268,7 @@ def run_tray(name, icon_path, dbus_path, width, height, pixels):
         try:
             runpy.run_path(dbus_path)["native_tray"](name, width, height, pixels, load_library)
         except (OSError, RuntimeError) as dbus_error:
+            diagnostics.failure("caught.dbus_error", dbus_error)
             raise RuntimeError(str(gtk_error) + "\nD-Bus 托盘：" + str(dbus_error)) from dbus_error
     else:
         native_tray(name, icon_path, libraries)
@@ -272,6 +282,7 @@ if __name__ == "__main__":
             try:
                 launch_jvm(*sys.argv[2:6])
             except BaseException as error:
+                diagnostics.failure("caught.error", error)
                 failures.append(error)
                 print(error, file=sys.stderr)
 
@@ -284,6 +295,7 @@ if __name__ == "__main__":
         try:
             run_tray(*sys.argv[2:8])
         except (OSError, RuntimeError) as error:
+            diagnostics.failure("caught.error", error)
             print("[SPW Island] Linux 托盘不可用；词岛仍可运行，设置可从 SPW 插件设置页修改。\n" +
                   str(error), file=sys.stderr, flush=True)
             sys.exit(1)

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.ui.gpu
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+
 import org.jetbrains.skia.*
 import kotlin.math.abs
 
@@ -79,13 +81,14 @@ internal class IslandLyricContrast : AutoCloseable {
                 lineShader = it.makeShader(FilterTileMode.CLAMP, FilterTileMode.CLAMP, sampling)
             }
         } catch (error: Throwable) {
+            IslandLog.failure("IslandLyricContrast", "caught.error", error);
             unavailable = true
             builder?.close(); builder = null
             effect?.close(); effect = null
             sampleBuilder?.close(); sampleBuilder = null
             sampleEffect?.close(); sampleEffect = null
             releaseSurfaces()
-            System.err.println("[SPW Island] 歌词背景对比度检测不可用，恢复原描边：${error.message}")
+            IslandLog.warn("rendering", "contrast.outline_fallback")
         } finally { paint.shader = null }
     }
 

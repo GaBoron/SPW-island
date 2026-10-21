@@ -4,6 +4,7 @@ package io.github.gaboron.spwisland.ui
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.roundToInt
+import io.github.gaboron.spwisland.diagnostics.IslandLog
 
 /** Event-driven volume feedback; the existing frame clock owns timeout and reversible motion. */
 internal class IslandVolumeFeedback(private val adjust: (Double, (Double?) -> Unit) -> Unit,
@@ -48,6 +49,7 @@ internal class IslandVolumeFeedback(private val adjust: (Double, (Double?) -> Un
     fun beginDrag(fraction: Double): Boolean {
         if (!canDrag || !fraction.isFinite()) return false
         dragging = true; showing = true
+        IslandLog.event("volume", "drag.started")
         dragTo(fraction)
         return true
     }
@@ -66,6 +68,7 @@ internal class IslandVolumeFeedback(private val adjust: (Double, (Double?) -> Un
         if (!dragging) return
         flushVolume()
         dragging = false; lastOperation = nanoTime()
+        IslandLog.event("volume", "drag.submitted", mapOf("percent" to (volume * 100).roundToInt()))
     }
 
     fun cancelDrag() {
@@ -112,6 +115,7 @@ internal class IslandVolumeFeedback(private val adjust: (Double, (Double?) -> Un
         flushVolume()
         if (held) showing = true
         else if (nanoTime() - lastOperation >= TIMEOUT_NS) {
+            if (pending) IslandLog.warn("volume", "request.timeout")
             showing = false; pending = false
         }
         mix = motion.update(showing, dt, instant, false).coerceIn(0.0, 1.0)

@@ -11,8 +11,13 @@ export default class SpwIslandPointer extends Extension {
     enable() {
         this._service = Gio.DBusExportedObject.wrapJSObject(INTERFACE, {
             GetPointer() {
-                const [x, y] = global.get_pointer();
-                return [x, y];
+                try {
+                    const [x, y] = global.get_pointer();
+                    return [x, y];
+                } catch (error) {
+                    // The caller records the D-Bus error through the helper's diagnostic channel.
+                    throw new Error(`GetPointer failed: ${error.stack ?? error}`);
+                }
             },
         });
         this._service.export(Gio.DBus.session, '/io/github/gaboron/SpwIsland/Pointer');

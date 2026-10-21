@@ -8,6 +8,8 @@ import javax.swing.JPanel
 
 /** Stable translucent backing surface; animation changes the child silhouette, not the native bitmap. */
 class IslandSurface(val island: IslandPanel) : JPanel(null) {
+    var presentedFrames = 0L
+        private set
     internal var hoverPose = IslandHoverMotion.Pose.SHOWN
     internal val renderCapacity = Dimension()
     internal var gpuRedraw: (() -> Unit)? = null
@@ -19,6 +21,7 @@ class IslandSurface(val island: IslandPanel) : JPanel(null) {
             g.translate(island.x.toDouble(), island.y.toDouble())
             island.paintPresentation(g, IslandHoverGeometry.frame(island.width, island.height,
                 island.settings.notch, island.settings.cornerRoundness, hoverPose))
+            presentedFrames++
         } finally { g.dispose() }
     }
     override fun paintComponent(graphics: Graphics) {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.ui.gpu
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.platform.SkikoRuntime
 import io.github.gaboron.spwisland.platform.WindowsGpuInput
@@ -26,7 +28,7 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
     private var backdrop: WindowsDesktopBackdrop? = null
     private var textureImport: WindowsGpuTextureImport? = null
     private var failed = System.getProperty("spw.island.renderer") == "software"
-    var frames = 0L
+    @Volatile var frames = 0L
         private set
     val active get() = layer != null
     val fallbackRendering get() = failed
@@ -37,7 +39,7 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
     }
     private val visibility = object : ComponentAdapter() {
         override fun componentHidden(event: ComponentEvent) {
-            if (!owner.isVisible) { backdrop?.close(); backdrop = null }
+            IslandLog.guard("IslandGpuRenderer", "componentHidden.callback_failed") { if (!owner.isVisible) { backdrop?.close(); backdrop = null } }
         }
     }
     init { owner.addComponentListener(visibility) }
@@ -55,27 +57,32 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
             created.transparency = true
             created.isFocusable = false
             created.renderDelegate = SkikoRenderDelegate { canvas, _, _, _ ->
-                try {
-                    val paint = {
-                        check(created.renderApi == GraphicsApi.DIRECT3D || created.renderApi == GraphicsApi.OPENGL) {
-                            "GPU 后端不可用：${created.renderApi}"
+                IslandLog.guard("IslandGpuRenderer", "SkikoRenderDelegate.callback_failed") {
+                    try {
+                        val paint = {
+                            IslandLog.guard("IslandGpuRenderer", "SkikoRenderDelegate.callback_failed") {
+                                check(created.renderApi == GraphicsApi.DIRECT3D || created.renderApi == GraphicsApi.OPENGL) {
+                                    "GPU 后端不可用：${created.renderApi}"
+                                }
+                                canvas.clear(0)
+                                val scale = owner.graphicsConfiguration.defaultTransform
+                                canvas.scoped {
+                                    canvas.scale(scale.scaleX.toFloat(), scale.scaleY.toFloat())
+                                    canvas.translate(surface.island.x.toFloat(), surface.island.y.toFloat())
+                                    val frame = surface.island.gpuFrame()
+                                    painter.paint(canvas, frame, IslandHoverGeometry.frame(frame.width, frame.height,
+                                        frame.settings.notch, frame.settings.cornerRoundness, surface.hoverPose), scale.scaleY,
+                                        backdrop?.sample(surface.island.x, surface.island.y,
+                                            scale.scaleX.toFloat(), scale.scaleY.toFloat()), gpu?.context)
+                                }
+                                frames++
+                            }
                         }
-                        canvas.clear(0)
-                        val scale = owner.graphicsConfiguration.defaultTransform
-                        canvas.scoped {
-                            canvas.scale(scale.scaleX.toFloat(), scale.scaleY.toFloat())
-                            canvas.translate(surface.island.x.toFloat(), surface.island.y.toFloat())
-                            val frame = surface.island.gpuFrame()
-                            painter.paint(canvas, frame, IslandHoverGeometry.frame(frame.width, frame.height,
-                                frame.settings.notch, frame.settings.cornerRoundness, surface.hoverPose), scale.scaleY,
-                                backdrop?.sample(surface.island.x, surface.island.y,
-                                    scale.scaleX.toFloat(), scale.scaleY.toFloat()), gpu?.context)
-                        }
-                        frames++
+                        if (gpu != null) gpu.locked(paint) else paint()
+                    } catch (error: Throwable) {
+                        IslandLog.failure("IslandGpuRenderer", "caught.error", error);
+                        SwingUtilities.invokeLater { IslandLog.guard("IslandGpuRenderer", "invokeLater.callback_failed") { fallback(error) } }
                     }
-                    if (gpu != null) gpu.locked(paint) else paint()
-                } catch (error: Throwable) {
-                    SwingUtilities.invokeLater { fallback(error) }
                 }
             }
             surface.island.releaseBuffers(); surface.island.gpuDrawing = true
@@ -84,7 +91,8 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
             resize()
             if (Platform.isWindows()) nativeInput = WindowsGpuInput(owner)
             input = IslandGpuInput(nativeInput?.component ?: created.canvas, surface, ::draw)
-        } catch (error: Throwable) { fallback(error) }
+        } catch (error: Throwable) {
+            IslandLog.failure("IslandGpuRenderer", "caught.error", error); fallback(error) }
     }
 
     private fun resize() {
@@ -111,7 +119,8 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
                             if (layer === current && owner.isVisible && scene?.glassFailure == null &&
                                 surface.island.settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
                                 !surface.island.settings.lowPerformance) current.needRender()
-                        } catch (error: Throwable) { fallback(error) }
+                        } catch (error: Throwable) {
+                            IslandLog.failure("IslandGpuRenderer", "caught.error", error); fallback(error) }
                     }.also { backdrop = it }
                     // Capture the visible animated contour, not the much larger reserved backing canvas.
                     // 32 physical pixel tiles keep small layout changes from constantly resizing readback buffers.
@@ -128,7 +137,8 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
                 }
                 current.needRender()
             }
-        } catch (error: Throwable) { fallback(error) }
+        } catch (error: Throwable) {
+            IslandLog.failure("IslandGpuRenderer", "caught.error", error); fallback(error) }
     }
 
     private fun fallback(error: Throwable) {

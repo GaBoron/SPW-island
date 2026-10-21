@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.ui
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
+
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.core.*
 import io.github.gaboron.spwisland.platform.WindowsOverlay
@@ -57,7 +60,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     private val expandedMotion = IslandExpandedMotion()
     private val native = WindowsOverlay()
     private val inputRegion = if (Platform.isLinux() && Toolkit.getDefaultToolkit().javaClass.name.contains("XToolkit"))
-        runCatching { X11InputRegion() }.onFailure(report).getOrNull() else null
+        IslandLog.attempt("IslandWindow", "overlayGraphicsConfiguration.attempt1") { X11InputRegion() }.onFailure(report).getOrNull() else null
     private val pointerPresence = if (Platform.isLinux()) IslandPointerPresence(window) else null
     private val globalPointer = if (Platform.isLinux()) LinuxGlobalPointer() else null
     private val stableTranslucentCanvas = Platform.isWindows() || window.graphicsConfiguration.isTranslucencyCapable
@@ -65,7 +68,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         IslandRuntimeStatus.describe(store.read(), timeline.snapshot(), window.isVisible,
             surface.hoverPose.reveal < .01, fullscreen, inputRegion != null || native.supportsClickThrough && nativeAvailable,
             if (globalPointer != null) globalPointer.location() != null else
-                runCatching { MouseInfo.getPointerInfo() != null }.getOrDefault(false),
+                IslandLog.attempt("IslandWindow", "overlayGraphicsConfiguration.attempt2") { MouseInfo.getPointerInfo() != null }.getOrDefault(false),
             globalPointer?.status.orEmpty(), spectrumFallback(), spectrumStatus(),
             renderer.active, renderer.fallbackRendering, renderer.glassStatus)
     }
@@ -86,6 +89,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     private var lyricHeight = 58.0
     private var controlsWidth = 0.0
     private var hoverActive = false
+    private var frameFailed = false
 
     private var canvasWidth = 0
     private var canvasHeight = 0
@@ -97,9 +101,10 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     private var dragging = false
     private var placementAnchor = settings.positionAnchor ?: IslandAnchor.TOP_CENTER
     private val frameClock = IslandFrameClock()
+    private val diagnostics = WindowDiagnostics()
     @Volatile private var frameInterval = 16_666_666L
-    private val frameScheduler = Executors.newSingleThreadScheduledExecutor { task ->
-        Thread(task, "SPW Island frame scheduler").apply { isDaemon = true }
+    private val frameScheduler = DiagnosticExecutors.scheduled { task ->
+        Thread(task, "SPW Island frame scheduler").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("IslandWindow") }
     }
 
     init {
@@ -108,61 +113,69 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         window.setSize(width.toInt(), height.toInt())
         panel.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
-                if (!Platform.isLinux() && e.isPopupTrigger) menu.popup(panel, e.x, e.y)
-                if (SwingUtilities.isLeftMouseButton(e) && !settings.clickThrough && !settings.autoHideOnHover) {
-                    press = e.locationOnScreen
-                    dragOrigin = Point(window.x + panel.x, window.y + panel.y)
-                    dragAnchor = placementAnchor
-                    frameInterval = frameClock.interval(window.graphicsConfiguration.device, settings.performance)
+                IslandLog.guard("IslandWindow", "mousePressed.callback_failed") {
+                    if (!Platform.isLinux() && e.isPopupTrigger) menu.popup(panel, e.x, e.y)
+                    if (SwingUtilities.isLeftMouseButton(e) && !settings.clickThrough && !settings.autoHideOnHover) {
+                        press = e.locationOnScreen
+                        dragOrigin = Point(window.x + panel.x, window.y + panel.y)
+                        dragAnchor = placementAnchor
+                        frameInterval = frameClock.interval(window.graphicsConfiguration.device, settings.performance)
+                    }
                 }
             }
             override fun mouseReleased(e: MouseEvent) {
-                if (!Platform.isLinux() && e.isPopupTrigger) menu.popup(panel, e.x, e.y)
-                if (dragging) {
-                    val topLeft = dragTopLeft ?: Point(window.x + panel.x, window.y + panel.y)
-                    val current = Rectangle(topLeft.x, topLeft.y, panel.width, panel.height)
-                    val devices = GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
-                    val device = devices.find { it.defaultConfiguration.bounds.contains(current.centerPoint()) }
-                        ?: window.graphicsConfiguration.device
-                    val workArea = IslandPlacement.workArea(device.defaultConfiguration)
-                    if (settings.notch) current.y = workArea.y
-                    val automatic = IslandPlacement.automaticAnchor(workArea, current, settings.notch)
-                    val point = IslandPlacement.anchorPoint(current, automatic)
-                    try {
-                        store.savePosition(device.iDstring, point.x, point.y, automatic)
-                        settings = store.read()
+                IslandLog.guard("IslandWindow", "mouseReleased.callback_failed") {
+                    if (!Platform.isLinux() && e.isPopupTrigger) menu.popup(panel, e.x, e.y)
+                    if (dragging) {
+                        val topLeft = dragTopLeft ?: Point(window.x + panel.x, window.y + panel.y)
+                        val current = Rectangle(topLeft.x, topLeft.y, panel.width, panel.height)
+                        val devices = GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
+                        val device = devices.find { it.defaultConfiguration.bounds.contains(current.centerPoint()) }
+                            ?: window.graphicsConfiguration.device
+                        val workArea = IslandPlacement.workArea(device.defaultConfiguration)
+                        if (settings.notch) current.y = workArea.y
+                        val automatic = IslandPlacement.automaticAnchor(workArea, current, settings.notch)
+                        val point = IslandPlacement.anchorPoint(current, automatic)
+                        try {
+                            store.savePosition(device.iDstring, point.x, point.y, automatic)
+                            settings = store.read()
+                        }
+                        catch (error: Exception) {
+                            IslandLog.failure("IslandWindow", "caught.error", error); report(error) }
                     }
-                    catch (error: Exception) { report(error) }
+                    dragging = false; press = null; dragOrigin = null; dragTopLeft = null; dragAnchor = null
                 }
-                dragging = false; press = null; dragOrigin = null; dragTopLeft = null; dragAnchor = null
             }
             override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 2 && SwingUtilities.isLeftMouseButton(e)) actions.toggle()
+                IslandLog.guard("IslandWindow", "mouseClicked.callback_failed") { if (e.clickCount == 2 && SwingUtilities.isLeftMouseButton(e)) actions.toggle() }
             }
         })
         panel.addMouseMotionListener(object : MouseMotionAdapter() {
             override fun mouseDragged(e: MouseEvent) {
-                val start = press ?: return
-                val origin = dragOrigin ?: return
-                val current = e.locationOnScreen
-                if (start.distance(current) < 4 && !dragging) return
-                dragging = true
-                val candidate = Rectangle(origin.x + current.x - start.x, origin.y + current.y - start.y,
-                    panel.width, panel.height)
-                val devices = GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
-                val device = devices.find { it.defaultConfiguration.bounds.contains(current) }
-                    ?: window.graphicsConfiguration.device
-                val snapped = IslandPlacement.snapDrag(
-                    IslandPlacement.workArea(device.defaultConfiguration), candidate, notch = settings.notch)
-                dragTopLeft = snapped.topLeft
-                dragAnchor = snapped.anchor
+                IslandLog.guard("IslandWindow", "mouseDragged.callback_failed") {
+                    val start = press ?: return
+                    val origin = dragOrigin ?: return
+                    val current = e.locationOnScreen
+                    if (start.distance(current) < 4 && !dragging) return
+                    dragging = true
+                    val candidate = Rectangle(origin.x + current.x - start.x, origin.y + current.y - start.y,
+                        panel.width, panel.height)
+                    val devices = GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
+                    val device = devices.find { it.defaultConfiguration.bounds.contains(current) }
+                        ?: window.graphicsConfiguration.device
+                    val snapped = IslandPlacement.snapDrag(
+                        IslandPlacement.workArea(device.defaultConfiguration), candidate, notch = settings.notch)
+                    dragTopLeft = snapped.topLeft
+                    dragAnchor = snapped.anchor
+                }
             }
         })
         // Allocate a native peer while hidden, so full-screen checks also work before first show.
         window.addNotify()
         if (settings.enabled) renderer.install()
         window.gpuRendering = renderer.active
-        try { menu.installTray() } catch (error: Exception) { report(error) }
+        try { menu.installTray() } catch (error: Exception) {
+            IslandLog.failure("IslandWindow", "caught.error", error); report(error) }
         tick(); scheduleNextFrame()
     }
     fun reload() {
@@ -175,7 +188,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         tick()
     }
     fun about() = menu.about()
-    internal val presentedFrames: Long get() = renderer.frames + window.presentedFrames
+    internal val presentedFrames: Long get() = renderer.frames + surface.presentedFrames
 
     private fun tick() {
         if (closed) return
@@ -188,12 +201,14 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         val dt = ((now - lastFrame) / 1_000_000_000.0).coerceIn(0.0, .1)
         lastFrame = now
         val performance = settings.performance
+        diagnostics.tick(performance)
         val clickThrough = (settings.clickThrough || settings.autoHideOnHover) &&
             (native.supportsClickThrough || inputRegion != null)
         val snap = timeline.snapshot()
         if (settings.enabled && nativeAvailable && now >= nextScreenCheck) {
             try { fullscreen = settings.hideFullscreen && native.foregroundIsFullscreen(window) }
-            catch (error: Exception) { nativeAvailable = false; fullscreen = false; report(error) }
+            catch (error: Exception) {
+                IslandLog.failure("IslandWindow", "caught.error", error); nativeAvailable = false; fullscreen = false; report(error) }
             nextScreenCheck = now + performance.screenCheckIntervalNs
         }
         val visible = settings.enabled && (!settings.hidePaused || snap.playing) && (!settings.hideFullscreen || !fullscreen)
@@ -214,6 +229,11 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             pointerPresence?.reset()
             nextTopmostCheck = 0
             frameInterval = 200_000_000L
+            diagnostics.sample(window, when {
+                !settings.enabled -> "disabled"
+                settings.hidePaused && !snap.playing -> "paused"
+                else -> "fullscreen"
+            }, performance, presentedFrames, renderer.rendererInfo)
             return
         }
         buffersReleased = false
@@ -237,7 +257,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         val mouse = if (globalPointer != null) {
             if (clickThrough && settings.autoHideOnHover) globalPointer.location() else null
         }
-            else runCatching { MouseInfo.getPointerInfo()?.location }.getOrNull()
+            else IslandLog.attempt("IslandWindow", "tick.attempt3") { MouseInfo.getPointerInfo()?.location }.getOrNull()
         val overIsland = mouse != null && IslandGeometry.silhouette(panel.width, panel.height, settings.notch,
             settings.cornerRoundness)
             .contains((mouse.x - window.x - panel.x).toDouble(), (mouse.y - window.y - panel.y).toDouble())
@@ -329,12 +349,14 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         }
         if (topmostAvailable && now >= nextTopmostCheck) {
             try { native.reinforceTopmost(window) }
-            catch (error: Exception) { topmostAvailable = false; report(error) }
+            catch (error: Exception) {
+                IslandLog.failure("IslandWindow", "caught.error", error); topmostAvailable = false; report(error) }
             nextTopmostCheck = now + performance.topmostCheckIntervalNs
         }
         if (nativeAvailable && clickThroughApplied != clickThrough) {
             try { native.clickThrough(window, clickThrough); clickThroughApplied = clickThrough }
-            catch (error: Exception) { nativeAvailable = false; report(error) }
+            catch (error: Exception) {
+                IslandLog.failure("IslandWindow", "caught.error", error); nativeAvailable = false; report(error) }
         }
         if (renderer.active) renderer.draw()
         else if (Platform.isLinux()) {
@@ -344,6 +366,10 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 try { window.paint(graphics) } finally { graphics.dispose() }
             }
         } else surface.repaint()
+        diagnostics.sample(window, if (settings.autoHideOnHover && surface.hoverPose.reveal < .01) "hover_hidden" else "visible",
+            performance, presentedFrames, renderer.rendererInfo,
+            nativeAvailable && native.supportsClickThrough || inputRegion != null, topmostAvailable,
+            if (settings.autoHideOnHover && clickThrough) mouse != null else null)
         val displayInterval = frameClock.interval(device, performance)
         frameInterval = when {
             press != null || !performance.animateLayout -> displayInterval
@@ -360,9 +386,23 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         frameScheduler.schedule({
             if (closed) return@schedule
             SwingUtilities.invokeLater {
-                if (closed) return@invokeLater
-                tick()
-                scheduleNextFrame()
+                IslandLog.guard("IslandWindow", "invokeLater.callback_failed") {
+                    if (closed) return@invokeLater
+                    try {
+                        tick()
+                        if (frameFailed) {
+                            frameFailed = false
+                            IslandLog.event("window", "frame_tick.recovered")
+                        }
+                    }
+                    catch (error: Throwable) {
+                        IslandLog.failure("IslandWindow", "frame_tick.failed", error)
+                        frameFailed = true
+                        frameInterval = settings.performance.diagnosticSampleIntervalNs
+                        report(error)
+                    }
+                    finally { scheduleNextFrame() }
+                }
             }
         }, frameClock.delay(frameInterval), TimeUnit.NANOSECONDS)
     }
@@ -396,7 +436,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
 
     override fun close() {
         if (closed) return
-        closed = true; frameScheduler.shutdownNow(); renderer.close(); panel.close(); menu.close()
+        closed = true; diagnostics.close(); frameScheduler.shutdownNow(); renderer.close(); panel.close(); menu.close()
         pointerPresence?.close(); globalPointer?.close(); inputRegion?.close(); window.releaseFrame(); window.dispose()
     }
 }

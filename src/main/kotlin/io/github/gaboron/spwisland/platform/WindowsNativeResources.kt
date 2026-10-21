@@ -3,6 +3,7 @@ package io.github.gaboron.spwisland.platform
 
 import java.nio.file.Files
 import java.nio.file.Path
+import io.github.gaboron.spwisland.diagnostics.IslandLog
 
 /** Loaded DLLs and running helpers must not pin files in the replaceable plugin directory. */
 internal object WindowsNativeResources {
@@ -16,6 +17,7 @@ internal object WindowsNativeResources {
             checkNotNull(input) { "插件中缺少原生资源：$resource" }
             Files.copy(input, target)
         }
+        IslandLog.event("native", "resource.extracted", mapOf("resource" to resource.substringAfterLast('/')))
         target
     }
 

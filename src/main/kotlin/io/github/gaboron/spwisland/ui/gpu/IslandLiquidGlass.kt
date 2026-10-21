@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.ui.gpu
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+
 import io.github.gaboron.spwisland.platform.WindowsDesktopBackdrop
 import org.jetbrains.skia.*
 import java.awt.Shape
@@ -64,14 +66,16 @@ internal class IslandLiquidGlass : AutoCloseable {
                 // Keep upstream's seven samples, but respect the requested faint dispersion.
                 program.uniform("chromaticAberration", .2f / IslandGlassShaders.LENS_AMOUNT)
                 val next = program.makeShader()
-                try { target.shader = next } catch (error: Throwable) { next.close(); throw error }
+                try { target.shader = next } catch (error: Throwable) {
+                    IslandLog.failure("IslandLiquidGlass", "caught.error", error); next.close(); throw error }
                 shader?.close(); shader = next; shaderKey = nextKey
             }
             deviceScale = sample.scaleY
             target.shader = material(opacity, progress, progressOpacity, width, surfaceColor)
             canvas.drawPath(path, target)
             true
-        } catch (error: Throwable) { disable(error); false }
+        } catch (error: Throwable) {
+            IslandLog.failure("IslandLiquidGlass", "caught.error", error); disable(error); false }
     }
 
     private fun material(opacity: Int, progress: Float, progressOpacity: Float, width: Int, surfaceColor: Int): Shader {
@@ -98,13 +102,14 @@ internal class IslandLiquidGlass : AutoCloseable {
         try {
             val renderer = highlight ?: IslandGlassHighlight().also { highlight = it }
             renderer.draw(canvas, path, contour, deviceScale)
-        } catch (error: Throwable) { disable(error) }
+        } catch (error: Throwable) {
+            IslandLog.failure("IslandLiquidGlass", "caught.error", error); disable(error) }
     }
 
     private fun disable(error: Throwable) {
         failure = error.message ?: error.javaClass.simpleName
         close()
-        System.err.println("[SPW Island] 液态玻璃光学绘制失败，恢复经典背景：$failure")
+        IslandLog.failure("rendering", "glass.classic_fallback", error)
     }
 
     override fun close() {

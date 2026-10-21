@@ -123,6 +123,7 @@ tasks.register<Exec>("buildWindowsGlass") {
     inputs.file("native/glass/DesktopCapture.cpp")
     inputs.file("native/glass/DesktopReadback.h")
     inputs.file("native/glass/DesktopViewport.h")
+    inputs.file("native/glass/CaptureDiagnostics.h")
     inputs.file("native/glass/DesktopSharedTexture.h")
     inputs.file("tools/build-glass.ps1")
     outputs.file(output)

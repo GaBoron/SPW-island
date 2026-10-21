@@ -11,6 +11,10 @@ import sys
 import time
 import tempfile
 import zipfile
+import runpy
+
+diagnostics = runpy.run_path(os.environ.get(
+    "SPW_ISLAND_PY_DIAGNOSTICS", os.path.join(os.path.dirname(__file__), "island-diagnostics.py")))["install"]("install-gnome-pointer.py")
 
 UUID = 'spw-island-pointer@gaboron.github.io'
 
@@ -53,7 +57,8 @@ def install(archive):
             directory.rename(backup)
         try:
             staging.rename(directory)
-        except OSError:
+        except OSError as error:
+            diagnostics.failure('extension.replace_failed', error)
             if backup is not None:
                 backup.rename(directory)
             raise
@@ -74,5 +79,6 @@ if __name__ == '__main__':
     try:
         install(sys.argv[1])
     except (OSError, RuntimeError, ValueError, KeyError, zipfile.BadZipFile, subprocess.TimeoutExpired) as error:
+        diagnostics.failure("caught.error", error)
         print(str(error))
         sys.exit(1)

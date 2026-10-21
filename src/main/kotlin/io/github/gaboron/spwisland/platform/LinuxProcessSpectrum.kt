@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.platform
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
+
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -15,15 +18,15 @@ internal class LinuxProcessSpectrum : SpectrumSource {
     @Volatile override var status = "实时频谱未启用"
         private set
     private var generation = 0L
-    private val worker = Executors.newSingleThreadExecutor {
-        Thread(it, "SPW Island PipeWire").apply { isDaemon = true }
+    private val worker = DiagnosticExecutors.single {
+        Thread(it, "SPW Island PipeWire").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("LinuxProcessSpectrum") }
     }
 
     @Synchronized override fun setEnabled(value: Boolean) {
         if (closed || value == enabled) return
         enabled = value
         val token = ++generation
-        runCatching { process?.outputStream?.close() } // EOF lets the helper reap its pw-record child.
+        IslandLog.attempt("LinuxProcessSpectrum", "setEnabled.attempt1") { process?.outputStream?.close() } // EOF lets the helper reap its pw-record child.
         sample = FloatArray(4); receivedAt = 0
         fallback = false
         status = if (value) "正在连接 SPW 音频" else "实时频谱未启用"
@@ -44,16 +47,20 @@ internal class LinuxProcessSpectrum : SpectrumSource {
                 synchronized(this) {
                     if (generation != token || !enabled || closed) return@forEach
                     when {
-                        line.startsWith("READY ") -> { status = line.substring(6); fallback = false }
+                        line.startsWith("READY ") -> {
+                            status = line.substring(6); fallback = false
+                            IslandLog.state("spectrum", "capture", "ready")
+                        }
                         line.startsWith("WAIT ") || line.startsWith("FALLBACK ") -> {
                             status = line.substringAfter(' '); fallback = true; sample = FloatArray(4)
+                            IslandLog.state("spectrum", "capture", status)
                         }
                         else -> {
                             val values = line.split(',').mapNotNull { it.toFloatOrNull()?.takeIf(Float::isFinite) }
                             if (values.size == 4) {
                                 sample = values.map { it.coerceIn(0f, 1f) }.toFloatArray()
                                 receivedAt = System.nanoTime()
-                            }
+                            } else if (line.isNotBlank()) IslandLog.warn("spectrum", "protocol.unexpected", mapOf("message" to line))
                         }
                     }
                 }
@@ -65,15 +72,16 @@ internal class LinuxProcessSpectrum : SpectrumSource {
                 }
             }
         } catch (error: Exception) {
+            IslandLog.failure("LinuxProcessSpectrum", "caught.error", error);
             synchronized(this) {
                 if (enabled && !closed && generation == token) {
                     status = "实时频谱不可用：${error.message}（使用模拟频谱）"; fallback = true
-                    System.err.println("[SPW Island] $status")
+                    IslandLog.state("spectrum", "capture", "fallback", mapOf("reason" to status))
                 }
             }
         } finally {
             helper?.let {
-                runCatching { it.outputStream.close() }
+                IslandLog.attempt("LinuxProcessSpectrum", "capture.attempt2") { it.outputStream.close() }
                 if (!it.waitFor(3, TimeUnit.SECONDS)) it.destroy()
                 if (!it.waitFor(1, TimeUnit.SECONDS)) it.destroyForcibly()
             }

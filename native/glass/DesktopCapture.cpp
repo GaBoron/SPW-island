@@ -24,6 +24,7 @@
 #include <vector>
 #include "DesktopReadback.h"
 #include "DesktopViewport.h"
+#include "CaptureDiagnostics.h"
 
 using namespace winrt;
 using namespace winrt::Windows::Graphics::Capture;
@@ -33,6 +34,7 @@ using winrt::Windows::Foundation::Metadata::ApiInformation;
 using winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus;
 
 namespace {
+thread_local HRESULT creationFailure = S_OK;
 struct DpiScope {
     DPI_AWARENESS_CONTEXT previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     ~DpiScope() { if (previous) SetThreadDpiAwarenessContext(previous); }
@@ -107,6 +109,7 @@ void requireSdr(com_ptr<IDXGIOutput6> const& output) {
 }
 
 class Capture {
+    CaptureDiagnostics diagnostics;
     std::mutex mutex;
     std::shared_ptr<CaptureSignal> signal = std::make_shared<CaptureSignal>();
     std::shared_ptr<CaptureSignal> publishedSignal = std::make_shared<CaptureSignal>();
@@ -126,6 +129,7 @@ class Capture {
     std::thread worker; // Start only after every shared state member has been constructed.
 
     void gpuFallback(char const* stage, HRESULT code) {
+        diagnostics.record(stage, code);
         char result[16]{};
         std::snprintf(result, sizeof(result), "0x%08lX", static_cast<unsigned long>(code));
         std::lock_guard lock(mutex);
@@ -207,12 +211,12 @@ class Capture {
             int64_t desktopTime = 0;
             const auto closeSession = [&] {
                 { std::lock_guard lock(mutex); ready = false; publishedGpu.reset(); }
-                try { if (pool) pool.FrameArrived(frameArrived); } catch (...) {}
-                try { if (item) item.Closed(itemClosed); } catch (...) {}
-                try { if (heldFrame) heldFrame.Close(); } catch (...) {}
+                try { if (pool) pool.FrameArrived(frameArrived); } catch (...) { diagnostics.record("release.FrameArrived", winrt::to_hresult()); }
+                try { if (item) item.Closed(itemClosed); } catch (...) { diagnostics.record("release.ItemClosed", winrt::to_hresult()); }
+                try { if (heldFrame) heldFrame.Close(); } catch (...) { diagnostics.record("release.Frame", winrt::to_hresult()); }
                 heldFrame = nullptr;
-                try { if (session) session.Close(); } catch (...) {}
-                try { if (pool) pool.Close(); } catch (...) {}
+                try { if (session) session.Close(); } catch (...) { diagnostics.record("release.Session", winrt::to_hresult()); }
+                try { if (pool) pool.Close(); } catch (...) { diagnostics.record("release.Pool", winrt::to_hresult()); }
                 session = nullptr; pool = nullptr; item = nullptr;
                 desktop = nullptr; readback.reset(); viewport.reset();
                 contentWidth = 0; contentHeight = 0;
@@ -358,11 +362,14 @@ class Capture {
             } catch (...) { closeSession(); throw; }
             closeSession();
         } catch (hresult_error const& error) {
+            diagnostics.record("capture.worker", error.code());
             std::lock_guard lock(mutex);
             failure = to_string(error.message()) + " (HRESULT " + std::to_string(error.code().value) + ")";
         } catch (std::exception const& error) {
+            diagnostics.record("capture.std_exception", E_FAIL);
             std::lock_guard lock(mutex); failure = error.what();
         } catch (...) {
+            diagnostics.record("capture.unexpected", winrt::to_hresult());
             std::lock_guard lock(mutex); failure = "Unexpected desktop capture failure";
         }
         publishedSignal->notify();
@@ -372,7 +379,10 @@ class Capture {
 public:
     explicit Capture(std::wstring adapter = {}, int priority = 0)
         : adapterName(std::move(adapter)), adapterPriority(priority), worker([this] { run(); }) {}
-    ~Capture() { stop(); worker.join(); }
+    ~Capture() { finish(); }
+    void finish() { stop(); if (worker.joinable()) worker.join(); }
+    int diagnostic(char* buffer, int capacity) { return diagnostics.take(buffer, capacity); }
+    void record(char const* stage, HRESULT code) { diagnostics.record(stage, code); }
     void stop() {
         { std::lock_guard lock(mutex); stopping = true; }
         signal->notify(); publishedSignal->notify();
@@ -435,16 +445,23 @@ public:
 }
 
 extern "C" {
-__declspec(dllexport) void* GlassCreate() noexcept { try { return new Capture(); } catch (...) { return nullptr; } }
+__declspec(dllexport) void* GlassCreate() noexcept {
+    try { creationFailure = S_OK; return new Capture(); }
+    catch (...) { creationFailure = winrt::to_hresult(); return nullptr; }
+}
 __declspec(dllexport) void* GlassCreateGpu(wchar_t const* adapter) noexcept {
-    try { return new Capture(adapter ? adapter : L""); } catch (...) { return nullptr; }
+    try { creationFailure = S_OK; return new Capture(adapter ? adapter : L""); }
+    catch (...) { creationFailure = winrt::to_hresult(); return nullptr; }
 }
 __declspec(dllexport) void* GlassCreateGpuWithPreference(wchar_t const* adapter, int priority) noexcept {
-    try { return new Capture(adapter ? adapter : L"", priority); } catch (...) { return nullptr; }
+    try { creationFailure = S_OK; return new Capture(adapter ? adapter : L"", priority); }
+    catch (...) { creationFailure = winrt::to_hresult(); return nullptr; }
 }
+__declspec(dllexport) HRESULT GlassCreationError() noexcept { return creationFailure; }
 __declspec(dllexport) void GlassUseCpu(void* capture) noexcept { static_cast<Capture*>(capture)->useCpu(); }
 __declspec(dllexport) void* GlassAcquireGpu(void* capture, int64_t* metadata) noexcept {
-    try { return static_cast<Capture*>(capture)->acquireGpu(metadata); } catch (...) { return nullptr; }
+    try { return static_cast<Capture*>(capture)->acquireGpu(metadata); }
+    catch (...) { static_cast<Capture*>(capture)->record("acquireGpu", winrt::to_hresult()); return nullptr; }
 }
 __declspec(dllexport) void GlassReleaseGpu(void* lease) noexcept {
     delete static_cast<std::shared_ptr<DesktopSharedTexture>*>(lease);
@@ -453,7 +470,8 @@ __declspec(dllexport) void GlassRequest(void* capture, HWND owner, HWND input, i
     static_cast<Capture*>(capture)->request(owner, input, x, y, width, height);
 }
 __declspec(dllexport) int GlassRead(void* capture, uint64_t previous, uint8_t* pixels, int capacity, int64_t* metadata) noexcept {
-    try { return static_cast<Capture*>(capture)->read(previous, pixels, capacity, metadata); } catch (...) { return -1; }
+    try { return static_cast<Capture*>(capture)->read(previous, pixels, capacity, metadata); }
+    catch (...) { static_cast<Capture*>(capture)->record("read", winrt::to_hresult()); return -1; }
 }
 __declspec(dllexport) int GlassWait(void* capture, int timeout) noexcept {
     return static_cast<Capture*>(capture)->wait(static_cast<DWORD>(std::clamp(timeout, 0, 1000)));
@@ -461,5 +479,9 @@ __declspec(dllexport) int GlassWait(void* capture, int timeout) noexcept {
 __declspec(dllexport) void GlassError(void* capture, char* buffer, int capacity) noexcept { static_cast<Capture*>(capture)->error(buffer, capacity); }
 __declspec(dllexport) void GlassGpuError(void* capture, char* buffer, int capacity) noexcept { static_cast<Capture*>(capture)->gpuError(buffer, capacity); }
 __declspec(dllexport) void GlassStop(void* capture) noexcept { static_cast<Capture*>(capture)->stop(); }
+__declspec(dllexport) void GlassFinish(void* capture) noexcept { static_cast<Capture*>(capture)->finish(); }
+__declspec(dllexport) int GlassDiagnostic(void* capture, char* buffer, int capacity) noexcept {
+    return static_cast<Capture*>(capture)->diagnostic(buffer, capacity);
+}
 __declspec(dllexport) void GlassDestroy(void* capture) noexcept { delete static_cast<Capture*>(capture); }
 }

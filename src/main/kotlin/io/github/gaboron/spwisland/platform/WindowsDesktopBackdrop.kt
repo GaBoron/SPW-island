@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.platform
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+
 import com.sun.jna.Library
 import com.sun.jna.Native
 import com.sun.jna.Pointer
@@ -24,6 +26,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
 
     private interface Api : Library {
         fun GlassCreate(): Pointer?
+        fun GlassCreationError(): Int
         fun GlassCreateGpuWithPreference(adapter: WString, priority: Int): Pointer?
         fun GlassUseCpu(capture: Pointer)
         fun GlassAcquireGpu(capture: Pointer, metadata: LongArray): Pointer?
@@ -34,6 +37,8 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
         fun GlassError(capture: Pointer, message: ByteArray, capacity: Int)
         fun GlassGpuError(capture: Pointer, message: ByteArray, capacity: Int)
         fun GlassStop(capture: Pointer)
+        fun GlassFinish(capture: Pointer)
+        fun GlassDiagnostic(capture: Pointer, message: ByteArray, capacity: Int): Int
         fun GlassDestroy(capture: Pointer)
     }
 
@@ -66,12 +71,13 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                 gpuFallback = gpu?.failure
                 checkNotNull(adapter?.let { native.GlassCreateGpuWithPreference(WString(it.name), it.priority) }
                     ?: native.GlassCreate()) {
-                    "无法启动桌面捕获线程"
+                    "无法启动桌面捕获线程：HRESULT 0x${native.GlassCreationError().toUInt().toString(16)}"
                 }.also { capture = it; listen(native, it) }
             }
             native.GlassRequest(current, Native.getWindowPointer(owner),
                 input?.takeIf { it.isDisplayable }?.let(Native::getWindowPointer), x, y, width, height)
-        } catch (error: Throwable) { fail(error) }
+        } catch (error: Throwable) {
+            IslandLog.failure("WindowsDesktopBackdrop", "caught.error", error); fail(error) }
     }
 
     fun sample(islandX: Int, islandY: Int, scaleX: Float, scaleY: Float): Sample? {
@@ -93,6 +99,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                         dispose(previous); receivedFrames++
                     }
                 } catch (error: Throwable) {
+                    IslandLog.failure("WindowsDesktopBackdrop", "caught.error", error);
                     gpuFallback = error.message ?: error.javaClass.simpleName
                     native.GlassUseCpu(current)
                     return null
@@ -133,14 +140,15 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                     val message = reason.takeWhile { byte -> byte != 0.toByte() }.toByteArray().toString(Charsets.UTF_8)
                     if (gpuFallback == null) gpuFallback = message.ifBlank { "未取得 GPU 共享通路，原生端未报告原因" }
                     nativeGpuReasonRead = true
-                    System.err.println("[SPW Island] 液态玻璃 CPU 中转：$gpuFallback")
+                    IslandLog.warn("capture", "transport.cpu_fallback", mapOf("reason" to gpuFallback))
                 }
                 val transport = if (it.texture != null) "GPU 共享纹理" else "CPU 中转"
                 status = GlassStatus(transport, gpuFallback.orEmpty(), gpuFallback != null,
                     updateRate, (metadata[7] + 500) / 1000)
                 Sample(it, metadata[5] + islandX * scaleX, metadata[6] + islandY * scaleY, scaleX, scaleY)
             }
-        } catch (error: Throwable) { fail(error); null }
+        } catch (error: Throwable) {
+            IslandLog.failure("WindowsDesktopBackdrop", "caught.error", error); fail(error); null }
     }
 
     private fun dispose(pixels: Pixels?) {
@@ -153,6 +161,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
             try {
                 while (capture === current) {
                     val result = native.GlassWait(current, 250)
+                    drainDiagnostics(native, current)
                     if (capture !== current) break
                     if (result != 0 && redrawPending.compareAndSet(false, true)) dispatch {
                         redrawPending.set(false)
@@ -161,9 +170,10 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                     if (result < 0) break
                 }
             } catch (error: Throwable) {
+                IslandLog.failure("WindowsDesktopBackdrop", "caught.error", error);
                 dispatch { if (capture === current) { fail(error); redraw() } }
             }
-        }, "SPW Island backdrop frames").apply { isDaemon = true; start() }
+        }, "SPW Island backdrop frames").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("WindowsDesktopBackdrop"); start() }
     }
 
     private fun fail(error: Throwable) {
@@ -171,6 +181,15 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
         close()
         status = GlassStatus("使用经典背景", error.message ?: error.javaClass.simpleName, warning = true)
         report(IllegalStateException("液态玻璃：${status.summary}，${status.detail}", error))
+    }
+
+    private fun drainDiagnostics(native: Api, current: Pointer) {
+        val buffer = ByteArray(2048)
+        repeat(65) {
+            if (native.GlassDiagnostic(current, buffer, buffer.size) == 0) return
+            IslandLog.warn("capture.native", "native.exception", mapOf("message" to
+                buffer.takeWhile { it != 0.toByte() }.toByteArray().toString(Charsets.UTF_8)))
+        }
     }
 
     override fun close() {
@@ -183,9 +202,15 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
         if (previous != null && native != null) {
             native.GlassStop(previous)
             // WinRT session shutdown and a pending system access request must never block the EDT.
+            val release = IslandLog.operation("capture", "release")
             CompletableFuture.runAsync {
-                previousListener?.join()
-                native.GlassDestroy(previous)
+                release.runningHere()
+                IslandLog.attempt("capture", "release.failed") {
+                    previousListener?.join()
+                    native.GlassFinish(previous)
+                    drainDiagnostics(native, previous)
+                    native.GlassDestroy(previous)
+                }.fold({ release.close() }, { release.failed(it) })
             }
         }
     }

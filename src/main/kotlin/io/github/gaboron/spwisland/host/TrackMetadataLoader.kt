@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.host
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
+
 import io.github.gaboron.spwisland.core.*
 import com.xuncorp.spw.workshop.api.PlaybackExtensionPoint
 import java.util.concurrent.ArrayBlockingQueue
@@ -14,8 +17,8 @@ internal class TrackMetadataLoader(
     private val current: () -> PlaybackExtensionPoint.MediaItem? = WorkshopTrackMetadata::current,
     private val read: (Track, PlaybackExtensionPoint.MediaItem?) -> TrackMetadata = WorkshopTrackMetadata::read
 ) : AutoCloseable {
-    private val executor = ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(1),
-        { task -> Thread(task, "SPW Island track metadata").apply { isDaemon = true } },
+    private val executor = DiagnosticExecutors.pool(1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(1),
+        { task -> Thread(task, "SPW Island track metadata").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("TrackMetadataLoader") } },
         ThreadPoolExecutor.DiscardOldestPolicy())
     private var pending: Future<*>? = null
     private var token: Long? = null
@@ -24,7 +27,7 @@ internal class TrackMetadataLoader(
         if (closed || pending != null) return
         val initial = timeline.trackGeneration()
         pending = executor.submit {
-            val item = runCatching(current).getOrNull() ?: return@submit
+            val item = IslandLog.attempt("TrackMetadataLoader", "start.attempt1", current).getOrNull() ?: return@submit
             val track = item.toTrack()
             val generation = synchronized(this) {
                 if (closed) return@submit
@@ -40,11 +43,16 @@ internal class TrackMetadataLoader(
         token = generation
         pending?.cancel(true)
         pending = executor.submit {
-            publish(generation, track, runCatching(current).getOrNull())
+            publish(generation, track, IslandLog.attempt("TrackMetadataLoader", "load.attempt2", current).getOrNull())
         }
     }
     private fun publish(generation: Long, track: Track, item: PlaybackExtensionPoint.MediaItem?) {
-        val value = runCatching { read(track, item) }.getOrDefault(TrackMetadata())
+        val operation = IslandLog.operation("metadata", "read")
+        val result = IslandLog.attempt("TrackMetadataLoader", "publish.attempt3") { read(track, item) }
+        result.exceptionOrNull()?.let(operation::failed) ?: operation.close()
+        val value = result.getOrDefault(TrackMetadata())
+        IslandLog.event("metadata", "read.result", mapOf("generation" to generation,
+            "durationAvailable" to (value.durationMs > 0), "coverAvailable" to (value.cover != null)))
         synchronized(this) { if (!closed) timeline.metadataLoaded(generation, value) }
     }
     @Synchronized override fun close() {

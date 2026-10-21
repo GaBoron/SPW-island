@@ -6,6 +6,7 @@ import com.xuncorp.spw.workshop.api.PluginPermission
 import com.xuncorp.spw.workshop.api.PluginPermissionDeniedException
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import java.awt.event.KeyEvent
+import io.github.gaboron.spwisland.diagnostics.IslandLog
 
 /** Registration must stay on the plugin start thread; SPW owns bindings and conflicts. */
 internal class IslandShortcut(private val toggle: () -> Unit) : AutoCloseable {
@@ -13,7 +14,10 @@ internal class IslandShortcut(private val toggle: () -> Unit) : AutoCloseable {
     @Volatile private var closed = false
 
     fun start() {
-        if (closed || !WorkshopApi.manager.isPermissionGranted(PluginPermission.KEY_BINDINGS)) return
+        if (closed) return
+        val granted = WorkshopApi.manager.isPermissionGranted(PluginPermission.KEY_BINDINGS)
+        IslandLog.state("permissions", "key_bindings", granted.toString())
+        if (!granted) return
         try {
             registration = WorkshopApi.manager.keyBindingManager.register(
                 "toggle-island", "显示 / 隐藏词岛",
@@ -23,7 +27,9 @@ internal class IslandShortcut(private val toggle: () -> Unit) : AutoCloseable {
                     if (!closed && WorkshopApi.manager.isPermissionGranted(PluginPermission.KEY_BINDINGS)) toggle()
                 }
             )
-        } catch (_: PluginPermissionDeniedException) {
+            IslandLog.event("shortcut", "registered")
+        } catch (error: PluginPermissionDeniedException) {
+            IslandLog.failure("shortcut", "permission.revoked", error)
             // Permission can be revoked between the check and registration.
         }
     }

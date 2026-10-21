@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.platform
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
+
 import java.awt.MouseInfo
 import java.awt.Point
 import java.util.concurrent.Executors
@@ -22,15 +25,15 @@ internal class LinuxGlobalPointer : AutoCloseable {
     @Volatile var status = if (!wayland) "悬停隐藏：X11" else if (kde || gnome) "悬停隐藏：等待 $desktop" else
         "当前 Wayland 桌面不支持穿透时悬停隐藏"
         private set
-    private val worker = Executors.newSingleThreadExecutor {
-        Thread(it, "SPW Island pointer bridge").apply { isDaemon = true }
+    private val worker = DiagnosticExecutors.single {
+        Thread(it, "SPW Island pointer bridge").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("LinuxGlobalPointer") }
     }
 
     @Synchronized fun setEnabled(value: Boolean) {
         if (closed || enabled == value) return
         enabled = value
         val token = ++generation
-        runCatching { process?.outputStream?.close() }
+        IslandLog.attempt("LinuxGlobalPointer", "setEnabled.attempt1") { process?.outputStream?.close() }
         point = null; received = 0
         if (!value || !wayland || (!kde && !gnome)) return
         status = "悬停隐藏：正在连接 $desktop"
@@ -62,16 +65,19 @@ internal class LinuxGlobalPointer : AutoCloseable {
                     if (parts.firstOrNull() == "POINT" && x != null && y != null) {
                         point = Point(x.roundToInt(), y.roundToInt()); received = System.nanoTime()
                         status = "悬停隐藏：$desktop"
+                        IslandLog.state("input", "pointer_bridge", "ready")
                     } else if (line.startsWith("UNAVAILABLE ")) {
                         point = null; status = line.substringAfter(' ')
+                        IslandLog.state("input", "pointer_bridge", "unavailable", mapOf("reason" to status))
                     }
                 }
             } }
         } catch (error: Exception) {
+            IslandLog.failure("LinuxGlobalPointer", "caught.error", error);
             synchronized(this) { if (generation == token) status = "悬停隐藏不可用：${error.message}" }
         } finally {
             helper?.let {
-                runCatching { it.outputStream.close() }
+                IslandLog.attempt("LinuxGlobalPointer", "bridge.attempt2") { it.outputStream.close() }
                 if (!it.waitFor(3, TimeUnit.SECONDS)) it.destroy()
                 if (!it.waitFor(1, TimeUnit.SECONDS)) it.destroyForcibly()
             }
@@ -85,7 +91,7 @@ internal class LinuxGlobalPointer : AutoCloseable {
         }
     }
 
-    fun location(): Point? = if (!wayland) runCatching { MouseInfo.getPointerInfo()?.location }.getOrNull()
+    fun location(): Point? = if (!wayland) IslandLog.attempt("LinuxGlobalPointer", "location.attempt3") { MouseInfo.getPointerInfo()?.location }.getOrNull()
         else if (process?.isAlive == true && System.nanoTime() - received < 750_000_000L) point else null
 
     override fun close() {

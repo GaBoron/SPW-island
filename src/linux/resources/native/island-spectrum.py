@@ -13,6 +13,10 @@ import subprocess
 import sys
 import threading
 import time
+import runpy
+
+diagnostics = runpy.run_path(os.environ.get(
+    "SPW_ISLAND_PY_DIAGNOSTICS", os.path.join(os.path.dirname(__file__), "island-diagnostics.py")))["install"]("island-spectrum.py")
 
 SIZE = 2048
 RATE = 48000
@@ -80,8 +84,10 @@ def descendant_pids(root):
             # comm can contain spaces and parentheses; fields after its final ')' are stable.
             fields = (entry / 'stat').read_text().rsplit(')', 1)[1].split()
             parents[int(entry.name)] = int(fields[1])
-        except (OSError, ValueError, IndexError):
-            pass
+        except FileNotFoundError:
+            pass  # Processes can exit during /proc enumeration.
+        except (OSError, ValueError, IndexError) as error:
+            diagnostics.failure('proc.read_failed', error)
     owned = {root}
     while True:
         expanded = owned | {pid for pid, parent in parents.items() if parent in owned}
@@ -118,7 +124,7 @@ def select_node(objects, owned):
 
 
 def discover(root):
-    dump = subprocess.run(['pw-dump'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    dump = subprocess.run(['pw-dump'], stdout=subprocess.PIPE, stderr=sys.stderr,
                           timeout=2, check=True)
     return select_node(json.loads(dump.stdout), descendant_pids(root))
 
@@ -129,7 +135,8 @@ def terminate(process):
     process.terminate()
     try:
         process.wait(timeout=.5)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as error:
+        diagnostics.failure('capture.stop_timeout', error)
         process.kill()
         process.wait(timeout=.5)
     if process.stdout:
@@ -163,7 +170,9 @@ def run(root):
                 next_discovery = now + 1
                 try:
                     found = discover(root)
-                except (OSError, ValueError, subprocess.SubprocessError):
+                    diagnostics.recovered('discovery.failed')
+                except (OSError, ValueError, subprocess.SubprocessError) as error:
+                    diagnostics.failure('discovery.failed', error)
                     found = None
                 if capture is not None and capture.poll() is not None:
                     found = None
@@ -179,7 +188,7 @@ def run(root):
                         capture = subprocess.Popen(['pw-record', '--raw', '--format', 'f32', '--rate', str(RATE),
                                                     '--channels', '2', '--latency', '2048', '--target', found,
                                                     '-P', json.dumps(props), '-'], stdin=subprocess.DEVNULL,
-                                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+                                                   stdout=subprocess.PIPE, stderr=sys.stderr, bufsize=0)
                         selector.register(capture.stdout, selectors.EVENT_READ)
                         status('WAIT 正在连接 SPW 音频（暂用模拟频谱）')
                 if target is None:
@@ -217,5 +226,6 @@ if __name__ == '__main__':
     try:
         sys.exit(run(int(sys.argv[1])))
     except (OSError, ValueError, subprocess.SubprocessError) as error:
+        diagnostics.failure("caught.error", error)
         print(f'FALLBACK 实时频谱不可用：{error}（使用模拟频谱）', flush=True)
         sys.exit(1)

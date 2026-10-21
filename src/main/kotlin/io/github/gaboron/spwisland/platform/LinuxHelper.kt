@@ -9,6 +9,7 @@ import java.nio.file.Path
 import org.jetbrains.skiko.SkiaLayer
 import kotlinx.coroutines.Job
 import java.net.JarURLConnection
+import io.github.gaboron.spwisland.diagnostics.DiagnosticProcesses
 
 /** Python desktop bridges use system libraries directly, without extra Python packages. */
 internal object LinuxHelper {
@@ -41,12 +42,14 @@ internal object LinuxHelper {
         return message
     }
 
-    fun startScript(name: String, vararg arguments: String): Process = ProcessBuilder(
-        listOf("/usr/bin/python3", extract(name).toString()) + arguments
-    ).redirectError(ProcessBuilder.Redirect.INHERIT).apply {
-        // GTK menus and AWT use the same X11/XWayland coordinate and popup-grab space.
-        environment()["GDK_BACKEND"] = "x11"
-    }.start()
+    fun startScript(name: String, vararg arguments: String): Process {
+        val builder = ProcessBuilder(listOf("/usr/bin/python3", extract(name).toString()) + arguments).apply {
+            // GTK menus and AWT use the same X11/XWayland coordinate and popup-grab space.
+            environment()["GDK_BACKEND"] = "x11"
+            environment()["SPW_ISLAND_PY_DIAGNOSTICS"] = extract("island-diagnostics.py").toString()
+        }
+        return DiagnosticProcesses.start(builder, "linux.${if (arguments.firstOrNull() == "jvm") "ui" else name.substringBeforeLast('.')}")
+    }
 
     internal fun uiClasspath(): String {
         val classes = listOf(LinuxHelper::class.java, kotlin.Unit::class.java, Native::class.java, X11::class.java,

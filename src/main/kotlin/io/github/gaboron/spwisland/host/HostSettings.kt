@@ -9,6 +9,7 @@ import io.github.gaboron.spwisland.core.*
 import java.util.function.Consumer
 import java.nio.file.Files
 import kotlin.math.roundToInt
+import io.github.gaboron.spwisland.diagnostics.IslandLog
 
 class HostSettings(private val manager: ConfigManager, private val changed: () -> Unit) : SettingsStore, AutoCloseable {
     private val lock = Any()
@@ -18,7 +19,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
     private var accepted: IslandSettings? = null
     private var fingerprint: ByteArray? = null
     private val watcher = IslandConfigWatch(config.getConfigPath(), ::refresh) {
-        System.err.println("[SPW Island] Settings sync: ${it.message}")
+        IslandLog.failure("settings", "sync.failed", it)
     }
     // Notifications are hints only. Keep our helper instead of adopting the settings form's
     // mutable cache, which can still contain the position from before the latest drag.
@@ -26,6 +27,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
     init {
         migrateSettings()
         accepted = decode()
+        SettingsDiagnostics.changed(null, checkNotNull(accepted), "initial")
         manager.addConfigChangeListener("island.json", listener)
         watcher.start()
     }
@@ -101,7 +103,10 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
             // and never decode the mutable helper again to replace our owned state.
             fingerprint = if (needsSave) null else bytes
             retry = needsSave
-            (value != accepted).also { accepted = value }
+            (value != accepted).also {
+                if (it) SettingsDiagnostics.changed(accepted, value, "host")
+                accepted = value
+            }
         }
         if (notify) changed()
         return !retry
@@ -229,6 +234,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
                     change(config)
                     val next = decodePreservingPluginSettings(retainedPosition, retainedFont)
                     if (saveConfig()) {
+                        SettingsDiagnostics.changed(accepted, next, "plugin", attempt + 1)
                         accepted = next
                         fingerprint = null
                         saved = true

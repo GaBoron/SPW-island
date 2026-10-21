@@ -3,27 +3,42 @@ package io.github.gaboron.spwisland.host
 
 import com.xuncorp.spw.workshop.api.PluginContext
 import com.xuncorp.spw.workshop.api.SpwPlugin
+import io.github.gaboron.spwisland.diagnostics.IslandLog
 
 class IslandPlugin(context: PluginContext) : SpwPlugin(context) {
+    private fun startDiagnostics() = IslandLog.start("host", mapOf("pluginVersion" to pluginContext.pluginVersion,
+        "spwVersion" to pluginContext.spwVersion, "spwChannel" to pluginContext.spwChannel))
+    init { startDiagnostics() }
     override fun start() {
         if (runtime != null) return
-        val created = IslandRuntime()
-        runtime = created
+        startDiagnostics()
+        val operation = IslandLog.operation("lifecycle", "plugin.start")
+        var created: IslandRuntime? = null
         try {
-            created.start()
-            playback.attach(created)
+            val next = IslandRuntime()
+            created = next
+            runtime = next
+            next.start()
+            playback.attach(next)
+            operation.close()
         } catch (error: Throwable) {
-            playback.detach(created)
+            IslandLog.failure("IslandPlugin", "caught.error", error);
+            operation.failed(error)
+            created?.let(playback::detach)
             runtime = null
-            created.close()
+            IslandLog.attempt("lifecycle", "plugin.start_cleanup_failed") { created?.close() }
             throw error
         }
     }
     override fun stop() {
-        val old = runtime ?: return
+        val old = runtime ?: run { IslandLog.finish(); return }
         playback.detach(old)
         runtime = null
-        old.close()
+        val operation = IslandLog.operation("lifecycle", "plugin.stop")
+        try { old.close(); operation.close() }
+        catch (error: Throwable) {
+            IslandLog.failure("IslandPlugin", "caught.error", error); operation.failed(error); throw error }
+        finally { IslandLog.finish() }
     }
     override fun update() = stop()
     override fun delete() = stop()
@@ -38,5 +53,7 @@ class IslandPlugin(context: PluginContext) : SpwPlugin(context) {
         @JvmStatic @JvmName("resetSettings") fun resetSettings() { runtime?.resetSettings() }
         @JvmStatic @JvmName("installGnomePointer") fun installGnomePointer() { runtime?.installGnomePointer() }
         @JvmStatic @JvmName("openSource") fun openSource() { runtime?.openSource() }
+        @JvmStatic @JvmName("openLogs") fun openLogs() { HostDiagnosticActions.openLogs() }
+        @JvmStatic @JvmName("exportDiagnostics") fun exportDiagnostics() { HostDiagnosticActions.export() }
     }
 }

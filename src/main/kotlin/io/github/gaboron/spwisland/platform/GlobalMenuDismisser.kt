@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.platform
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+
 import com.sun.jna.Native
 import com.sun.jna.Platform
 import com.sun.jna.Pointer
@@ -43,15 +45,17 @@ internal class GlobalMenuDismisser(private val onOutsidePress: () -> Unit) : Aut
         disarm()
         if (!Platform.isWindows()) {
             val listener = AWTEventListener { event ->
-                if (event is MouseEvent && event.id == MouseEvent.MOUSE_PRESSED) {
-                    val point = MouseInfo.getPointerInfo()?.location
-                    if (point != null && !window.bounds.contains(point)) onOutsidePress()
+                IslandLog.guard("GlobalMenuDismisser", "AWTEventListener.callback_failed") {
+                    if (event is MouseEvent && event.id == MouseEvent.MOUSE_PRESSED) {
+                        val point = MouseInfo.getPointerInfo()?.location
+                        if (point != null && !window.bounds.contains(point)) onOutsidePress()
+                    }
                 }
             }
             Toolkit.getDefaultToolkit().addAWTEventListener(listener, AWTEvent.MOUSE_EVENT_MASK)
             awtListener = listener
             if (Platform.isLinux() && Toolkit.getDefaultToolkit().javaClass.name.contains("XToolkit")) {
-                x11 = runCatching { X11MenuDismisser(window, onOutsidePress) }.getOrNull()
+                x11 = IslandLog.attempt("GlobalMenuDismisser", "arm.attempt1") { X11MenuDismisser(window, onOutsidePress) }.getOrNull()
                 return x11 != null
             }
             return false
@@ -67,15 +71,17 @@ internal class GlobalMenuDismisser(private val onOutsidePress: () -> Unit) : Aut
         val session = HookSession()
         session.callback = object : LowLevelMouseProc {
             override fun callback(nCode: Int, wParam: WPARAM, info: MSLLHOOKSTRUCT): LRESULT {
-                if (nCode >= 0 && activeSession === session && wParam.toInt() in PRESS_MESSAGES &&
-                    (!window.isVisible || info.pt.x < rect.left || info.pt.x >= rect.right ||
-                        info.pt.y < rect.top || info.pt.y >= rect.bottom)
-                ) {
-                    SwingUtilities.invokeLater {
-                        if (activeSession === session) onOutsidePress()
+                IslandLog.guard("GlobalMenuDismisser", "callback.callback_failed") {
+                    if (nCode >= 0 && activeSession === session && wParam.toInt() in PRESS_MESSAGES &&
+                        (!window.isVisible || info.pt.x < rect.left || info.pt.x >= rect.right ||
+                            info.pt.y < rect.top || info.pt.y >= rect.bottom)
+                    ) {
+                        SwingUtilities.invokeLater {
+                            IslandLog.guard("GlobalMenuDismisser", "invokeLater.callback_failed") { if (activeSession === session) onOutsidePress() }
+                        }
                     }
+                    return user32.CallNextHookEx(null, nCode, wParam, LPARAM(Pointer.nativeValue(info.pointer)))
                 }
-                return user32.CallNextHookEx(null, nCode, wParam, LPARAM(Pointer.nativeValue(info.pointer)))
             }
         }
         activeSession = session
@@ -88,6 +94,7 @@ internal class GlobalMenuDismisser(private val onOutsidePress: () -> Unit) : Aut
             session.threadId = kernel32.GetCurrentThreadId()
             val hook = user32.SetWindowsHookEx(WH_MOUSE_LL, session.callback, kernel32.GetModuleHandle(null), 0)
             if (hook == null) {
+                IslandLog.warn("menu", "outside_click_hook.unavailable", mapOf("win32Error" to Native.getLastError()))
                 installed.set(0)
                 ready.countDown()
                 return@Thread
@@ -113,7 +120,7 @@ internal class GlobalMenuDismisser(private val onOutsidePress: () -> Unit) : Aut
                 session.hook?.let(user32::UnhookWindowsHookEx)
                 session.hook = null
             }
-        }, "spw-menu-hook-pump").apply { isDaemon = true }.start()
+        }, "spw-menu-hook-pump").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("GlobalMenuDismisser") }.start()
 
         val installedSuccessfully = try {
             ready.await(2, TimeUnit.SECONDS) && installed.get() == 1
@@ -121,7 +128,10 @@ internal class GlobalMenuDismisser(private val onOutsidePress: () -> Unit) : Aut
             Thread.currentThread().interrupt()
             false
         }
-        if (!installedSuccessfully) disarm()
+        if (!installedSuccessfully) {
+            IslandLog.warn("menu", "outside_click_hook.not_ready")
+            disarm()
+        }
         return installedSuccessfully
     }
 

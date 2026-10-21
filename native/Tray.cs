@@ -30,6 +30,7 @@ namespace SpwIsland.Tray
             {
                 try
                 {
+                    Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
                     Application.EnableVisualStyles();
                     using (var image = new MemoryStream(Convert.FromBase64String(args[0])))
                     using (var bitmap = new Bitmap(image))
@@ -62,7 +63,7 @@ namespace SpwIsland.Tray
                                         string line;
                                         while ((line = commands.ReadLine()) != null && line != "STOP") { }
                                     }
-                                    catch (Exception) { }
+                                    catch (Exception error) { Console.Error.WriteLine(error); }
                                     Application.Exit();
                                 });
                                 input.IsBackground = true;
@@ -77,6 +78,7 @@ namespace SpwIsland.Tray
                 }
                 catch (Exception error)
                 {
+                    Console.Error.WriteLine(error);
                     output.WriteLine("ERROR\t" + error.Message.Replace('\n', ' ').Replace('\r', ' '));
                     return 1;
                 }

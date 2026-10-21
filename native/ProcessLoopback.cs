@@ -17,7 +17,7 @@ namespace SpwIsland.Audio
         public void ActivateCompleted(IActivationOperation operation)
         {
             try { int hr; operation.GetActivateResult(out hr, out Client); Native.Check(hr); }
-            catch (Exception error) { Error = error; }
+            catch (Exception error) { Console.Error.WriteLine(error); Error = error; }
             finally { Completed.Set(); }
         }
     }
@@ -40,7 +40,7 @@ namespace SpwIsland.Audio
                 }
                 catch (Exception error)
                 {
-                    errors.WriteLine("WASAPI process loopback: " + error.Message + " (0x" + error.HResult.ToString("X8") + ")");
+                    errors.WriteLine("WASAPI process loopback: " + error + " (0x" + error.HResult.ToString("X8") + ")");
                     return 1;
                 }
             }

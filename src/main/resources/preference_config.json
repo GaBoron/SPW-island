@@ -293,6 +293,20 @@
       "preferences": [
         {
           "type": "button",
+          "title": "打开日志目录",
+          "summary": "异常与关键操作日志默认开启，保留 10 天；词岛无法显示时也可使用。",
+          "arrow_type": "none",
+          "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.openLogs"
+        },
+        {
+          "type": "button",
+          "title": "导出诊断包",
+          "summary": "将日志与运行环境导出为 ZIP。分享前请检查异常堆栈中可能包含的隐私信息；不会自动上传。",
+          "arrow_type": "none",
+          "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.exportDiagnostics"
+        },
+        {
+          "type": "button",
           "title": "安装 GNOME 悬停隐藏支持（Linux）",
           "summary": "适用于 GNOME Wayland 45–50；首次安装或更新配套指针扩展后需重新登录。",
           "arrow_type": "none",

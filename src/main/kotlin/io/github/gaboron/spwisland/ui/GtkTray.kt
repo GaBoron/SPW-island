@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.ui
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
+
 import io.github.gaboron.spwisland.platform.LinuxHelper
 import java.nio.ByteBuffer
 import java.nio.file.Files
@@ -21,12 +24,13 @@ internal class GtkTray(private val entries: () -> List<PopupMenuEntry>,
         LinuxHelper.startTray(ApplicationIdentity.NAME, icon, image.width, image.height,
             Base64.getEncoder().encodeToString(pixels.array()))
     }
-        catch (error: Exception) { Files.deleteIfExists(icon); throw error }
+        catch (error: Exception) {
+            IslandLog.failure("GtkTray", "caught.error", error); Files.deleteIfExists(icon); throw error }
     private val writer = process.outputStream.bufferedWriter(Charsets.UTF_8)
-    private val sender = Executors.newSingleThreadExecutor { Thread(it, "SPW tray updates").apply { isDaemon = true } }
+    private val sender = DiagnosticExecutors.single { Thread(it, "SPW tray updates").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("GtkTray") } }
     private var previous: List<PopupMenuEntry>? = null
     private var closed = false
-    private val timer = Timer(250) { update() }
+    private val timer = Timer(250) { IslandLog.guard("GtkTray", "Timer.callback_failed") { update() } }
 
     init {
         update()
@@ -35,21 +39,27 @@ internal class GtkTray(private val entries: () -> List<PopupMenuEntry>,
             try {
                 process.inputStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
                     lines.forEach { line ->
-                        val command = line.toIntOrNull() ?: return@forEach
+                        val command = line.toIntOrNull() ?: run {
+                            if (line.isNotBlank()) IslandLog.warn("tray", "protocol.unexpected", mapOf("message" to line))
+                            return@forEach
+                        }
                         SwingUtilities.invokeLater {
-                            if (!closed && entries().any { it.id == command &&
-                                    it.kind in setOf(PopupMenuKind.ACTION, PopupMenuKind.TOGGLE) }) selected(command)
+                            IslandLog.guard("GtkTray", "invokeLater.callback_failed") {
+                                if (!closed && entries().any { it.id == command &&
+                                it.kind in setOf(PopupMenuKind.ACTION, PopupMenuKind.TOGGLE) }) selected(command)
+                            }
                         }
                     }
                 }
                 val exit = process.waitFor()
                 SwingUtilities.invokeLater {
-                    unavailable(IllegalStateException("Linux 托盘已退出（$exit）"))
+                    IslandLog.guard("GtkTray", "invokeLater.callback_failed") { unavailable(IllegalStateException("Linux 托盘已退出（$exit）")) }
                 }
             } catch (error: Exception) {
-                SwingUtilities.invokeLater { unavailable(error) }
+                IslandLog.failure("GtkTray", "caught.error", error);
+                SwingUtilities.invokeLater { IslandLog.guard("GtkTray", "invokeLater.callback_failed") { unavailable(error) } }
             }
-        }, "SPW tray commands").apply { isDaemon = true }.start()
+        }, "SPW tray commands").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("GtkTray") }.start()
     }
 
     private fun update() {
@@ -65,7 +75,8 @@ internal class GtkTray(private val entries: () -> List<PopupMenuEntry>,
                 }
                 writer.write("END\n"); writer.flush()
             } catch (error: Exception) {
-                SwingUtilities.invokeLater { unavailable(error) }
+                IslandLog.failure("GtkTray", "caught.error", error);
+                SwingUtilities.invokeLater { IslandLog.guard("GtkTray", "invokeLater.callback_failed") { unavailable(error) } }
             }
         }
     }
@@ -83,8 +94,8 @@ internal class GtkTray(private val entries: () -> List<PopupMenuEntry>,
         timer.stop(); sender.shutdownNow(); process.destroy()
         Thread({
             if (!process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) process.destroyForcibly()
-            runCatching { writer.close() }
-            runCatching { Files.deleteIfExists(icon) }
-        }, "SPW tray cleanup").apply { isDaemon = true }.start()
+            IslandLog.attempt("GtkTray", "close.attempt1") { writer.close() }
+            IslandLog.attempt("GtkTray", "close.attempt2") { Files.deleteIfExists(icon) }
+        }, "SPW tray cleanup").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("GtkTray") }.start()
     }
 }
