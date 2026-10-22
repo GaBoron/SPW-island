@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.platform
 
+import io.github.gaboron.spwisland.diagnostics.IslandLog
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
@@ -83,7 +84,9 @@ internal object OpusFileMetadata {
                     val encodedLength = start + length - separator - 1
                     if (encodedLength <= ((MAX_ARTWORK + 1024) * 4L / 3 + 4)) {
                         val encoded = packet.copyOfRange(separator + 1, start + length)
-                        val picture = runCatching { Base64.getDecoder().decode(encoded) }.getOrNull()
+                        val picture = IslandLog.attempt("metadata", "opus.artwork_decode_failed") {
+                            Base64.getDecoder().decode(encoded)
+                        }.getOrNull()
                         val image = picture?.let(::pictureData)
                         if (image != null) return image
                     }

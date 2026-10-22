@@ -31,6 +31,7 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
     private val repeated = LinkedHashMap<String, Repeated>()
     @Volatile private var closed = false
     private var output: BufferedWriter? = null
+    private var outputLease: DiagnosticFileLease? = null
     private var day: LocalDate? = null
     private var size = 0L
     private var part = 0
@@ -89,8 +90,7 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
                 } catch (error: Throwable) {
                     if (value is Barrier) value.latch.countDown()
                     lost.incrementAndGet()
-                    try { output?.close() } catch (_: Throwable) { }
-                    output = null
+                    try { closeOutput() } catch (_: Throwable) { }
                     if (System.nanoTime() - lastFallback > 60_000_000_000L || lastFallback == 0L) {
                         lastFallback = System.nanoTime()
                         System.err.println("[SPW Island] Persistent diagnostics unavailable: ${DiagnosticPrivacy.text(error)}")
@@ -101,7 +101,7 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
         } catch (error: Throwable) {
             System.err.println("[SPW Island] Diagnostic writer stopped: ${DiagnosticPrivacy.text(error)}")
         } finally {
-            try { output?.close() } catch (_: Throwable) { }
+            try { closeOutput() } catch (_: Throwable) { }
             while (true) { val pending = queue.poll() ?: break; if (pending is Barrier) pending.latch.countDown() }
         }
     }
@@ -133,12 +133,16 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
     private fun write(event: DiagnosticEvent) {
         val currentDay = LocalDate.now(ZoneOffset.UTC)
         if (output == null || day != currentDay || size >= 4 * 1_048_576) {
-            output?.close(); output = null
+            closeOutput()
             storage.prepare()
             retention.request()
             check(storage.hasCapacity()) { "Log capacity reached; historical files could not be recycled" }
             val file = directory.resolve("island-$session-$role-$pid-$currentDay-${part++}.jsonl")
-            output = Files.newBufferedWriter(file, Charsets.UTF_8, CREATE_NEW, WRITE)
+            val lease = DiagnosticFileLease.create(file)
+            try {
+                output = Files.newBufferedWriter(file, Charsets.UTF_8, CREATE_NEW, WRITE)
+                outputLease = lease
+            } catch (error: Throwable) { lease.close(); throw error }
             day = currentDay; size = 0
         }
         val record = linkedMapOf<String, Any?>("time" to event.time, "monotonicNs" to event.monotonicNs,
@@ -149,6 +153,15 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
         val line = gson.toJson(record)
         output!!.write(line); output!!.newLine()
         size += line.toByteArray(Charsets.UTF_8).size + 1
+    }
+
+    private fun closeOutput() {
+        try { output?.close() }
+        finally {
+            output = null
+            outputLease?.close()
+            outputLease = null
+        }
     }
 
     override fun close() {

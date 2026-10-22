@@ -16,7 +16,7 @@ internal class DiagnosticStorage(private val directory: Path) {
     private data class Entry(val path: Path, val size: Long, val modified: Instant)
     private var cleanupWarning = false
     private fun entries(): List<Entry> = if (!Files.isDirectory(directory, NOFOLLOW_LINKS)) emptyList() else
-        Files.list(directory).use { paths -> paths.filter { ownFile(it) }.toList().mapNotNull { path ->
+        Files.list(directory).use { paths -> paths.filter { ownFile(it) && !it.fileName.toString().endsWith(".lease") }.toList().mapNotNull { path ->
             try {
                 val attributes = Files.readAttributes(path, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
                 Entry(path, attributes.size(), attributes.lastModifiedTime().toInstant())
@@ -30,21 +30,20 @@ internal class DiagnosticStorage(private val directory: Path) {
         val files = entries().sortedBy { it.modified }
         var bytes = files.sumOf { it.size }
         val deadline = Instant.now().minus(10, ChronoUnit.DAYS)
-        val active = files.groupBy { it.path.fileName.toString().substringBeforeLast('-', "") }.values.mapNotNull { it.lastOrNull() }.toSet()
         var failed = false
         for (entry in files) {
             val file = entry.path
             if (entry.modified >= deadline && bytes <= MAX_BYTES - 4 * 1_048_576) continue
-            // A currently written file must survive another process's retention pass.
-            if (entry in active && entry.modified > Instant.now().minusSeconds(120)) continue
-            if (recycle(file) || !Files.exists(file, NOFOLLOW_LINKS)) bytes -= entry.size else {
-                failed = true
-                if (!cleanupWarning) {
-                    cleanupWarning = true
-                    IslandLog.warn("diagnostics", "retention.trash_unavailable", mapOf("file" to file.fileName,
-                        "action" to "retained; file logging pauses at capacity"))
-                }
-            }
+            if (DiagnosticFileLease.active(file)) continue
+            if (recycleOrWarn(file)) bytes -= entry.size else failed = true
+        }
+        // Closed and crashed writers can leave sidecars; recycle them only after the log is gone.
+        val leases = Files.list(directory).use { paths ->
+            paths.filter { ownFile(it) && it.fileName.toString().endsWith(".lease") }.toList()
+        }
+        for (lease in leases) {
+            val log = lease.resolveSibling(lease.fileName.toString().removeSuffix(".lease"))
+            if (!Files.exists(log, NOFOLLOW_LINKS) && !DiagnosticFileLease.active(log) && !recycleOrWarn(lease)) failed = true
         }
         if (!failed && cleanupWarning) { cleanupWarning = false; IslandLog.event("diagnostics", "retention.recovered") }
     }
@@ -52,7 +51,17 @@ internal class DiagnosticStorage(private val directory: Path) {
     fun hasCapacity(): Boolean = entries().sumOf { it.size } < MAX_BYTES
 
     private fun ownFile(path: Path): Boolean = path.toAbsolutePath().normalize().parent == directory.toAbsolutePath().normalize() &&
-        Files.isRegularFile(path, NOFOLLOW_LINKS) && path.fileName.toString().matches(Regex("island-[A-Za-z0-9.-]+\\.(jsonl|stderr)"))
+        Files.isRegularFile(path, NOFOLLOW_LINKS) && path.fileName.toString().matches(Regex("island-[A-Za-z0-9.-]+\\.(jsonl|stderr)(\\.lease)?"))
+
+    private fun recycleOrWarn(path: Path): Boolean {
+        if (recycle(path) || !Files.exists(path, NOFOLLOW_LINKS)) return true
+        if (!cleanupWarning) {
+            cleanupWarning = true
+            IslandLog.warn("diagnostics", "retention.trash_unavailable", mapOf("file" to path.fileName,
+                "action" to "retained; file logging pauses at capacity"))
+        }
+        return false
+    }
 
     private fun recycle(path: Path): Boolean {
         if (!ownFile(path)) return false

@@ -15,8 +15,10 @@ internal object DiagnosticPrivacy {
     fun text(value: Any?): String {
         val raw = value?.toString().orEmpty()
         var text = if (raw.length > 32_768) raw.take(24_576) + "\n<middle truncated>\n" + raw.takeLast(8192) else raw
+        // Keep absolute paths recognizable until their complete suffix has been removed.
+        text = unixPath.replace(windowsPath.replace(text, "<path>"), "<path>")
         if (home != null) text = text.replace(home, "<home>", ignoreCase = true)
-        return credential.replace(bearer.replace(unixPath.replace(windowsPath.replace(text, "<path>"), "<path>"), "<credential>")) {
+        return credential.replace(bearer.replace(text, "<credential>")) {
             "${it.groupValues[1]}${it.groupValues[2]}<redacted>"
         }
     }

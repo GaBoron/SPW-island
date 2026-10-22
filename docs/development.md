@@ -372,6 +372,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `diagnostics/DiagnosticWatchdog.kt` | 独立于文件写入的进展与超时采样，按性能配置调度 |
 | `diagnostics/DiagnosticRetention.kt` | 合并历史清理请求，在独立工作线程使用系统回收站 |
 | `diagnostics/DiagnosticStorage.kt` | 日志目录、10 天保留与 64 MiB 容量预算；历史文件仅移入回收站，失败时保留并记录 |
+| `diagnostics/DiagnosticFileLease.kt` | 在打开日志前登记进程与启动时间，关闭后释放；清理时保护仍在使用的文件，无需心跳轮询 |
 | `diagnostics/DiagnosticPrivacy.kt` | 显式上下文、异常堆栈的常见路径和凭据脱敏 |
 | `diagnostics/DiagnosticOperation.kt` | 操作编号、开始与结果、超时及恢复 |
 | `diagnostics/DiagnosticPulse.kt` | 不依赖 EDT 的进展停滞与恢复监测 |

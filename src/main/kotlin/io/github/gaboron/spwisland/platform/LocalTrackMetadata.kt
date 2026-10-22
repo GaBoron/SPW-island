@@ -3,6 +3,7 @@ package io.github.gaboron.spwisland.platform
 
 import io.github.gaboron.spwisland.core.TrackMetadata
 import io.github.gaboron.spwisland.core.CoverArtwork
+import io.github.gaboron.spwisland.diagnostics.IslandLog
 import org.jaudiotagger.audio.AudioFileIO
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
@@ -18,18 +19,20 @@ object LocalTrackMetadata {
         val file = File(path)
         val needsTags = file.isFile && (durationMs <= 0 || artwork == null)
         val opus = if (needsTags && file.extension.equals("opus", ignoreCase = true))
-            runCatching { OpusFileMetadata.read(file) }.getOrNull() else null
-        val audio = if (needsTags && opus == null) runCatching { AudioFileIO.read(file) }.getOrNull() else null
+            IslandLog.attempt("metadata", "opus.read_failed") { OpusFileMetadata.read(file) }.getOrNull() else null
+        val audio = if (needsTags && opus == null)
+            IslandLog.attempt("metadata", "tags.read_failed") { AudioFileIO.read(file) }.getOrNull() else null
         val duration = durationMs.takeIf { it > 0 } ?: opus?.durationMs ?: audio?.audioHeader?.preciseTrackLength
             ?.takeIf { it.isFinite() && it > 0 }?.let { (it * 1000).roundToLong() } ?: 0
-        val embedded = artwork ?: opus?.artwork ?: runCatching { audio?.tag?.firstArtwork?.binaryData }.getOrNull()
+        val embedded = artwork ?: opus?.artwork ?:
+            IslandLog.attempt("metadata", "artwork.read_failed") { audio?.tag?.firstArtwork?.binaryData }.getOrNull()
         val cover = embedded?.takeIf { it.size <= 16 * 1024 * 1024 }?.let { bytes ->
-            runCatching { ByteArrayInputStream(bytes).use { decode(it) } }.getOrNull()
+            IslandLog.attempt("metadata", "artwork.decode_failed") { ByteArrayInputStream(bytes).use { decode(it) } }.getOrNull()
         } ?: sequenceOf("cover.jpg", "cover.png", "folder.jpg", "folder.png").mapNotNull { name ->
             if (!file.isFile) return@mapNotNull null
             val image = File(file.parentFile, name)
             if (!image.isFile || image.length() > 16 * 1024 * 1024) null
-            else runCatching { image.inputStream().use { decode(it) } }.getOrNull()
+            else IslandLog.attempt("metadata", "sidecar.decode_failed") { image.inputStream().use { decode(it) } }.getOrNull()
         }.firstOrNull()
         return TrackMetadata(duration, cover?.let(CoverColorExtractor::dominant), cover?.let(::artwork))
     }
