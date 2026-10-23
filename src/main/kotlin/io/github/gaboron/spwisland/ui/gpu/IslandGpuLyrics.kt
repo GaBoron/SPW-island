@@ -100,8 +100,7 @@ internal class IslandGpuLyrics(private val resources: IslandGpuResources) {
 
     private fun timed(canvas: Canvas, shaped: ShapedText, words: List<Word>, time: Long, size: Float,
                       color: Int, contrast: Boolean, alpha: Float, adaptive: Boolean) {
-        val path = resources.path(shaped.outline)
-        outline(canvas, path, size, contrast, alpha, adaptive)
+        outline(canvas, resources.path(shaped.outline), size, contrast, alpha, adaptive)
         var start = 0
         for (word in words) {
             val end = start + word.text.length
@@ -110,7 +109,8 @@ internal class IslandGpuLyrics(private val resources: IslandGpuResources) {
                 canvas.clipPath(region, ClipMode.INTERSECT, true)
                 val paint = highlight(shaped.layout.isLeftToRight,
                     shaped.layout.getLogicalHighlightShape(start, end).bounds2D, word.progress(time), size, color, alpha)
-                canvas.drawPath(path, paint)
+                // Region lookups can evict the outline from the bounded native path cache.
+                canvas.drawPath(resources.path(shaped.outline), paint)
             }
             start = end
         }

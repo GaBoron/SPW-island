@@ -55,6 +55,7 @@ internal class IslandGpuResources : AutoCloseable {
         return fill
     }
 
+    /** Borrowed until another path/region lookup; eviction closes the native object. */
     fun path(shape: Shape): Path = paths[shape] ?: PathBuilder().use { builder ->
         val iterator = shape.getPathIterator(null)
         builder.setFillType(if (iterator.windingRule == PathIterator.WIND_EVEN_ODD) PathFillMode.EVEN_ODD else PathFillMode.WINDING)
