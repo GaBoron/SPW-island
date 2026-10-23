@@ -6,8 +6,6 @@ import java.awt.font.FontRenderContext
 import java.awt.font.TextAttribute
 import java.awt.font.TextLayout
 import java.awt.geom.AffineTransform
-import java.awt.geom.Area
-import java.awt.geom.Rectangle2D
 import java.text.AttributedString
 import java.text.BreakIterator
 import java.util.Locale
@@ -49,13 +47,6 @@ object LyricTypography {
 
 class ShapedText(val layout: TextLayout) {
     val outline by lazy { layout.getOutline(null) }
-    private val glyphs = mutableMapOf<Pair<Int, Int>, java.awt.Shape>()
-    @Synchronized fun glyph(start: Int, end: Int): java.awt.Shape = glyphs.getOrPut(start to end) {
-        val bounds = layout.getLogicalHighlightShape(start, end).bounds2D
-        val minX = if (start == 0) minOf(bounds.x, left.toDouble()) else bounds.x
-        val maxX = if (end == layout.characterCount) maxOf(bounds.maxX, right.toDouble()) else bounds.maxX
-        Area(outline).apply { intersect(Area(Rectangle2D.Double(minX, top.toDouble() - 1, maxX - minX, height.toDouble() + 2))) }
-    }
     // Include ink overhangs as well as advances; ceil is applied only at the window boundary.
     val left = minOf(0f, layout.bounds.minX.toFloat())
     val right = maxOf(layout.advance, layout.bounds.maxX.toFloat())

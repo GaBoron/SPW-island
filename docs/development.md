@@ -576,7 +576,8 @@ LyricPainter
 | `IslandTextBlock.kt` | 决定主歌词/翻译文本、字体、字形布局、逐字单元和单行尺寸 |
 | `IslandLyricsPainter.kt` | 绘制当前歌词行，并处理歌词切换和多行位置过渡 |
 | `LyricPainter.kt` | 单行歌词的实际绘制入口；负责居中、长歌词滚动、逐字高亮和低性能绘制路径 |
-| `LyricTypography.kt` | 使用 `TextLayout` 统一文本塑形、测量、字体 fallback 和字形轮廓缓存 |
+| `LyricTypography.kt` | 使用 `TextLayout` 统一文本塑形、测量、字体 fallback 和整行轮廓缓存 |
+| `LyricGlyphOutline.kt` | 筛选当前 grapheme 附近的轮廓，在复杂度预算内生成裁剪字形 |
 | `AmllWordPainter.kt` | 对已塑形的 grapheme 应用逐字高亮、位移、缩放和辉光 |
 | `AmllMotion.kt` | AMLL 来源的逐字浮动、长音强调和歌词行切换运动曲线；只接收规则给出的长音结果 |
 | `longtone/` | 准备 Unicode 文本信息、选择语言规则，并保守判断当前 timing cell 是否为长音 |
@@ -1282,7 +1283,7 @@ Windows 原生 DLL、音频辅助程序和 ICU 数据由 `WindowsNativeResources
 
 `IslandLyricsPreparation` 提前预备后续歌词的测量结果，按需请求轮廓和逐字几何。布局缓存和 `LyricTypography` 的缓存锁只用于读取与发布结果，冷塑形在锁外执行，后台任务不会因持有缓存锁阻塞绘制线程。
 
-`WordGeometry` 在有界后台线程准备昂贵的字形轮廓。
+`WordGeometry` 在有界后台线程准备逐字几何。`LyricGlyphOutline` 仅对当前 grapheme 附近的轮廓做相交运算，避免为每个字重新解析整行。字符、轮廓段数和累计运算量均有上限；超出预算时使用已有的逐字高亮，省略逐字浮动和辉光。逐字几何仅由有界缓存持有，整行塑形缓存不再重复保留裁剪字形。低性能模式继续跳过逐字几何准备。
 
 动画线程可以在几何尚未准备完成时使用轻量 fallback，不应等待后台任务。
 
