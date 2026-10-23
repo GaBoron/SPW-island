@@ -47,7 +47,6 @@ namespace SpwIsland.Tray
                                     output.WriteLine("MENU\t{0}\t{1}", cursor.X, cursor.Y);
                                 }))
                             {
-                                output.WriteLine("READY");
                                 var input = new Thread(() =>
                                 {
                                     try
@@ -59,8 +58,17 @@ namespace SpwIsland.Tray
                                     Application.Exit();
                                 });
                                 input.IsBackground = true;
-                                input.Start();
-                                Application.Run();
+                                EventHandler started = null;
+                                started = (sender, message) =>
+                                {
+                                    Application.Idle -= started;
+                                    // STOP can arrive immediately after READY; the message loop must already exist.
+                                    output.WriteLine("READY");
+                                    input.Start();
+                                };
+                                Application.Idle += started;
+                                try { Application.Run(); }
+                                finally { Application.Idle -= started; }
                             }
                         }
                         finally { DestroyIcon(handle); }

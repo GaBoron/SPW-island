@@ -35,8 +35,10 @@ internal class WindowsTray(private val toggle: () -> Unit, private val menu: (Po
                     lines.forEach { line ->
                         if (ready.count > 0) {
                             if (line != "READY") startupError = IllegalStateException("Windows 托盘启动失败：$line")
+                            else IslandLog.event("tray.windows", "ready", mapOf("childPid" to process.pid()))
                             ready.countDown()
                         } else when {
+                            line.startsWith("ERROR\t") -> throw IllegalStateException("Windows 托盘运行失败：${line.substringAfter('\t')}")
                             line == "TOGGLE" -> SwingUtilities.invokeLater { IslandLog.guard("WindowsTray", "invokeLater.callback_failed") { if (!closed) toggle() } }
                             line.startsWith("MENU\t") -> {
                                 val coords = line.split('\t')
@@ -46,14 +48,21 @@ internal class WindowsTray(private val toggle: () -> Unit, private val menu: (Po
                                     IslandLog.guard("WindowsTray", "invokeLater.callback_failed") { if (!closed) menu(Point(x, y)) }
                                 }
                             }
+                            else -> IslandLog.warn("tray.windows", "protocol.unexpected",
+                                mapOf("childPid" to process.pid(), "message" to line.take(512)))
                         }
                     }
                 }
+                // stdout can reach EOF just before the OS publishes the process exit code.
+                val exit = if (process.waitFor(200, TimeUnit.MILLISECONDS)) process.exitValue().toString()
+                    else "输出管道已关闭，进程仍在运行"
                 if (ready.count > 0) {
-                    startupError = IllegalStateException("Windows 托盘未能启动（${process.waitFor()}）")
+                    startupError = IllegalStateException("Windows 托盘未能启动（$exit）")
                     ready.countDown()
                 } else if (!closed) SwingUtilities.invokeLater {
-                    IslandLog.guard("WindowsTray", "invokeLater.callback_failed") { if (!closed) { close(); report(IllegalStateException("Windows 托盘已退出")) } }
+                    IslandLog.guard("WindowsTray", "invokeLater.callback_failed") { if (!closed) {
+                        close(); report(IllegalStateException("Windows 托盘已退出（$exit）"))
+                    } }
                 }
             } catch (error: Exception) {
                 IslandLog.failure("WindowsTray", "caught.error", error);
@@ -62,8 +71,11 @@ internal class WindowsTray(private val toggle: () -> Unit, private val menu: (Po
             }
         }, "SPW Island Windows tray events").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("WindowsTray") }.start()
         if (!ready.await(3, TimeUnit.SECONDS) || startupError != null) {
+            val error = startupError ?: if (process.isAlive) IllegalStateException("Windows 托盘启动超时（程序仍在运行）")
+                else IllegalStateException("Windows 托盘未能启动（${process.exitValue()}）")
+            IslandLog.failure("tray.windows", "startup.failed", error, mapOf("childPid" to process.pid()))
             close()
-            throw startupError ?: IllegalStateException("Windows 托盘启动超时")
+            throw error
         }
     }
 

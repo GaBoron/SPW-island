@@ -4,6 +4,7 @@ package io.github.gaboron.spwisland.ui
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.core.SettingsStore
 import io.github.gaboron.spwisland.platform.SystemTheme
+import io.github.gaboron.spwisland.diagnostics.IslandLog
 import java.awt.*
 import javax.swing.*
 
@@ -31,7 +32,8 @@ class IslandMenu(private val store: SettingsStore, private val report: (Throwabl
             return
         }
         popup?.prewarm(commands.entries(), !SystemTheme.isLight())
-        if (Platform.isWindows() && windowsTray == null) {
+        if (Platform.isWindows()) {
+            if (windowsTray != null || tray != null) return
             try {
                 windowsTray = WindowsTray(
                     { action { store.set("enabled", !store.read().enabled) } },
@@ -56,6 +58,7 @@ class IslandMenu(private val store: SettingsStore, private val report: (Throwabl
         }
         SystemTray.getSystemTray().add(created)
         tray = created
+        IslandLog.warn("tray", "awt_fallback.installed", mapOf("independentIdentity" to false))
     }
     private fun showPopup(anchor: Point) {
         popup?.show(

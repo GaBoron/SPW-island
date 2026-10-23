@@ -427,6 +427,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `WindowsOverlay.kt` | Windows 覆盖窗口能力：鼠标穿透、置顶强化和前台全屏判断 |
 | `WindowsNativeResources.kt` | 按插件类加载器提取并复用原生 DLL、辅助程序和配套数据的临时副本，避免占用插件安装目录 |
 | `WindowsTrayExecutable.kt` | 在用户本地应用数据目录部署并复用固定路径的托盘程序，按内容更新且串行安装 |
+| `WindowsApplicationData.kt` | 查询本地应用数据的实际重定向目标，使 MSIX 宿主部署的程序可由 CLR 直接访问 |
 | `SystemTheme.kt` | 读取 Windows 应用深浅色主题 |
 | `DotNetFrameworkRuntime.kt` | 在启动实时频谱 helper 前静默检查所需 .NET Framework CLR |
 
@@ -1263,7 +1264,7 @@ Windows 的：
 
 Windows 原生 DLL、音频辅助程序和 ICU 数据由 `WindowsNativeResources` 按需复制到临时运行目录；同一插件类加载器复用副本，新类加载器使用独立目录。已加载的 DLL 可以存活到 JVM 退出，因此不直接从可替换的插件安装目录加载。
 
-托盘程序由 `WindowsTrayExecutable` 部署到 `%LOCALAPPDATA%\spw-island\tray\spw-island-tray.exe`，启动时核对内容，仅在需要时更新。`NotificationIcon` 以固定 GUID 注册图标，新增、版本设置、注销及资源管理器重启后的恢复使用相同身份。两种性能模式共用上述按需部署路径，不增加轮询或持续后台任务。
+托盘程序由 `WindowsTrayExecutable` 部署到本地应用数据实际目录下的 `spw-island\tray\spw-island-tray.exe`，启动时核对内容，仅在需要时更新。`WindowsApplicationData` 使用 `SHGetKnownFolderPath` 的 `KF_FLAG_RETURN_FILTER_REDIRECTION_TARGET` 查询实际路径，兼容 Store / MSIX 宿主的应用数据虚拟化。`NotificationIcon` 以固定 GUID 注册图标，新增、版本设置、注销及资源管理器重启后的恢复使用相同身份。辅助程序在消息循环就绪后发送 `READY`，保证随后立即到达的 `STOP` 可以退出该循环。诊断日志区分辅助程序就绪、退出、启动失败及使用宿主身份的 AWT 降级。两种性能模式共用上述按需部署路径，不增加轮询或持续后台任务。
 
 不要在绘制函数中执行：
 

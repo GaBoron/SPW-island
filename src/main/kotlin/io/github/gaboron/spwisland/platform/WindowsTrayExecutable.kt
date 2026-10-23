@@ -17,8 +17,7 @@ import java.util.concurrent.TimeUnit
 /** Windows remembers the notification icon's GUID together with this executable's full path. */
 internal object WindowsTrayExecutable {
     @Synchronized fun prepare(): Path {
-        val root = System.getenv("LOCALAPPDATA")?.takeIf { it.isNotBlank() }?.let(Path::of)
-            ?: Path.of(System.getProperty("user.home"), "AppData", "Local")
+        val root = WindowsApplicationData.local()
         val directory = root.resolve("spw-island").resolve("tray").toAbsolutePath().normalize()
         Files.createDirectories(directory)
         val executable = directory.resolve("spw-island-tray.exe")
@@ -40,6 +39,8 @@ internal object WindowsTrayExecutable {
                 }
             }
         }
+        IslandLog.event("tray.windows", "executable.prepared", mapOf("redirected" to
+            !root.toString().equals(System.getenv("LOCALAPPDATA"), ignoreCase = true)))
         return executable
     }
 
