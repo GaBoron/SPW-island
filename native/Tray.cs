@@ -39,22 +39,14 @@ namespace SpwIsland.Tray
                         try
                         {
                             using (var icon = Icon.FromHandle(handle))
-                            using (var tray = new NotifyIcon())
-                            {
-                                tray.Icon = icon;
-                                tray.Text = "灵动词岛 for SPW";
-                                tray.MouseDoubleClick += (sender, eventArgs) =>
+                            using (var tray = new NotificationIcon(icon,
+                                () => output.WriteLine("TOGGLE"),
+                                cursor =>
                                 {
-                                    if (eventArgs.Button == MouseButtons.Left) output.WriteLine("TOGGLE");
-                                };
-                                tray.MouseUp += (sender, eventArgs) =>
-                                {
-                                    if (eventArgs.Button != MouseButtons.Right) return;
-                                    Point cursor = Cursor.Position;
                                     AllowSetForegroundWindow(parentId);
                                     output.WriteLine("MENU\t{0}\t{1}", cursor.X, cursor.Y);
-                                };
-                                tray.Visible = true;
+                                }))
+                            {
                                 output.WriteLine("READY");
                                 var input = new Thread(() =>
                                 {
@@ -69,7 +61,6 @@ namespace SpwIsland.Tray
                                 input.IsBackground = true;
                                 input.Start();
                                 Application.Run();
-                                tray.Visible = false;
                             }
                         }
                         finally { DestroyIcon(handle); }

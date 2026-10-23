@@ -5,7 +5,7 @@ import io.github.gaboron.spwisland.diagnostics.IslandLog
 
 import java.awt.Point
 import java.io.ByteArrayOutputStream
-import io.github.gaboron.spwisland.platform.WindowsNativeResources
+import io.github.gaboron.spwisland.platform.WindowsTrayExecutable
 import java.util.Base64
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -20,7 +20,7 @@ internal class WindowsTray(private val toggle: () -> Unit, private val menu: (Po
     @Volatile private var closed = false
 
     init {
-        val executable = WindowsNativeResources.extract("/native/spw-island-tray.exe")
+        val executable = WindowsTrayExecutable.prepare()
         val icon = ByteArrayOutputStream().use { bytes ->
             check(ImageIO.write(ApplicationIdentity.icon, "png", bytes)) { "托盘图标编码失败" }
             Base64.getEncoder().encodeToString(bytes.toByteArray())

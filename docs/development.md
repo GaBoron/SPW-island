@@ -426,6 +426,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | --- | --- |
 | `WindowsOverlay.kt` | Windows 覆盖窗口能力：鼠标穿透、置顶强化和前台全屏判断 |
 | `WindowsNativeResources.kt` | 按插件类加载器提取并复用原生 DLL、辅助程序和配套数据的临时副本，避免占用插件安装目录 |
+| `WindowsTrayExecutable.kt` | 在用户本地应用数据目录部署并复用固定路径的托盘程序，按内容更新且串行安装 |
 | `SystemTheme.kt` | 读取 Windows 应用深浅色主题 |
 | `DotNetFrameworkRuntime.kt` | 在启动实时频谱 helper 前静默检查所需 .NET Framework CLR |
 
@@ -635,6 +636,7 @@ PopupMenuEntry
 | `PopupMenuEntry.kt` | 菜单标题、说明、分隔线、开关和操作项的通用数据模型 |
 | `LightweightPopupMenu.kt` | 非 Linux 平台使用的进程内自绘弹出菜单 |
 | `WindowsTray.kt` / `native/Tray.cs` | Windows 独立托盘程序的生命周期与图标事件转发；菜单仍在插件进程内 |
+| `native/NotificationIcon.cs` | 固定 GUID 的 Shell 图标注册、消息转发与资源管理器重启恢复 |
 | `GtkTray.kt` | Linux 托盘进程及菜单同步；GTK 缺失时使用 GIO / D-Bus，托盘失败不阻断词岛 |
 | `AboutDialog.kt` | 组合分组状态与版权卡片；按文本实际宽度计算高度，窄屏或长说明可滚动 |
 | `AboutStatusPanel.kt` | 分组排版、主状态层级、自动换行与异常原因展示 |
@@ -1045,7 +1047,9 @@ Windows 托盘身份与 SPW 分离：
 
 ```text
 WindowsTray
+WindowsTrayExecutable
 native/Tray.cs
+native/NotificationIcon.cs
 ```
 
 Linux：
@@ -1256,7 +1260,9 @@ Windows 的：
 
 宿主调用插件生命周期方法时可能持有插件管理锁。`IslandUiLifecycle` 将 Windows 窗口创建和销毁异步投递到 EDT，生命周期线程不使用 `invokeAndWait`；停用先取消待执行的启动，已开始创建的窗口完成后立即释放。字体窗口也拒绝停用后的待执行打开操作。后台资源逐项关闭，一项失败仍继续释放其余资源。
 
-Windows 原生 DLL、托盘程序、音频辅助程序和 ICU 数据由 `WindowsNativeResources` 按需复制到临时运行目录；同一插件类加载器复用副本，新类加载器使用独立目录。已加载的 DLL 可以存活到 JVM 退出，因此不直接从可替换的插件安装目录加载。两种性能模式共用该按需提取路径，不增加轮询或持续后台任务。
+Windows 原生 DLL、音频辅助程序和 ICU 数据由 `WindowsNativeResources` 按需复制到临时运行目录；同一插件类加载器复用副本，新类加载器使用独立目录。已加载的 DLL 可以存活到 JVM 退出，因此不直接从可替换的插件安装目录加载。
+
+托盘程序由 `WindowsTrayExecutable` 部署到 `%LOCALAPPDATA%\spw-island\tray\spw-island-tray.exe`，启动时核对内容，仅在需要时更新。`NotificationIcon` 以固定 GUID 注册图标，新增、版本设置、注销及资源管理器重启后的恢复使用相同身份。两种性能模式共用上述按需部署路径，不增加轮询或持续后台任务。
 
 不要在绘制函数中执行：
 

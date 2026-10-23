@@ -108,14 +108,15 @@ tasks.register<Exec>("buildSpectrum") {
 
 tasks.register<Exec>("buildWindowsTray") {
     val output = layout.buildDirectory.file("native/spw-island-tray.exe")
-    inputs.file("native/Tray.cs")
+    inputs.files("native/Tray.cs", "native/NotificationIcon.cs")
     outputs.file(output)
     onlyIf { currentOs.isWindows }
     doFirst { output.get().asFile.parentFile.mkdirs() }
     executable = "${System.getenv("WINDIR") ?: "C:/Windows"}/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
     args("/nologo", "/target:winexe", "/platform:x64", "/optimize+",
         "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",
-        "/out:${output.get().asFile.absolutePath}", file("native/Tray.cs").absolutePath)
+        "/out:${output.get().asFile.absolutePath}", file("native/Tray.cs").absolutePath,
+        file("native/NotificationIcon.cs").absolutePath)
 }
 
 tasks.register<Exec>("buildWindowsGlass") {
