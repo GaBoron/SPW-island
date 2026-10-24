@@ -9,6 +9,8 @@ import java.awt.geom.Rectangle2D
 import java.text.BreakIterator
 import java.util.Locale
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionException
+import java.util.concurrent.CancellationException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -38,7 +40,11 @@ object WordGeometry {
         } catch (error: java.util.concurrent.RejectedExecutionException) {
             IslandLog.warn("lyrics", "geometry.queue_full"); return null
         }
-        return if (future.isCompletedExceptionally) null else future.getNow(null)
+        if (future.isCompletedExceptionally) return null
+        // The worker can fail after the check above; optional geometry must still fall back on the draw thread.
+        return try { future.getNow(null) }
+        catch (_: CompletionException) { null }
+        catch (_: CancellationException) { null }
     }
 
     internal fun prepare(shaped: ShapedText, text: String, words: List<Word>): List<Cell>? {
