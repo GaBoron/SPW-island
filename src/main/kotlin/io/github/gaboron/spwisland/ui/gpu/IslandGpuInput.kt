@@ -17,6 +17,7 @@ internal class IslandGpuInput(private val source: Component, private val surface
                               private val redraw: () -> Unit) : AutoCloseable {
     private var hover: Component? = null
     private var pressed: Component? = null
+    private var interactive = true
     private val listener = object : MouseAdapter() {
         override fun mouseEntered(e: MouseEvent) = move(e)
         override fun mouseMoved(e: MouseEvent) = move(e)
@@ -31,6 +32,7 @@ internal class IslandGpuInput(private val source: Component, private val surface
         override fun mouseClicked(e: MouseEvent) { target(e)?.let { send(it, e) }; redraw() }
         override fun mouseDragged(e: MouseEvent) { pressed?.let { send(it, e) }; redraw() }
         override fun mouseWheelMoved(e: MouseWheelEvent) {
+            if (!interactive) return
             val panel = surface.island
             val point = SwingUtilities.convertPoint(source, e.point, panel)
             if (!panel.contains(point)) return
@@ -47,6 +49,7 @@ internal class IslandGpuInput(private val source: Component, private val surface
     }
 
     private fun target(event: MouseEvent): Component? {
+        if (!interactive) return null
         val panel = surface.island
         val point = SwingUtilities.convertPoint(source, event.point, panel)
         if (!panel.contains(point)) return null
@@ -71,13 +74,25 @@ internal class IslandGpuInput(private val source: Component, private val surface
             event.xOnScreen, event.yOnScreen, event.clickCount, event.isPopupTrigger, event.button))
     }
 
-    override fun close() {
-        source.removeMouseListener(listener); source.removeMouseMotionListener(listener)
-        source.removeMouseWheelListener(listener)
+    fun setInteractive(value: Boolean) {
+        if (interactive == value) return
+        interactive = value
+        if (!value) cancelInteraction()
+    }
+
+    private fun cancelInteraction() {
         hover?.let { it.dispatchEvent(MouseEvent(it, MouseEvent.MOUSE_EXITED,
             System.currentTimeMillis(), 0, -1, -1, 0, false)) }
         (pressed as? AbstractButton)?.model?.apply { isArmed = false; isPressed = false }
         (pressed as? PlaybackProgress)?.cancelGesture()
         hover = null; pressed = null
+        source.cursor = Cursor.getDefaultCursor()
+        (source as? JComponent ?: source.parent as? JComponent)?.toolTipText = null
+    }
+
+    override fun close() {
+        source.removeMouseListener(listener); source.removeMouseMotionListener(listener)
+        source.removeMouseWheelListener(listener)
+        cancelInteraction()
     }
 }

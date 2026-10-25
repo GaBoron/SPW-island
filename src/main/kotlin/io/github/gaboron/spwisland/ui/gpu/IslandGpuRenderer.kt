@@ -109,9 +109,10 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
             if (owner.isDisplayable && current.isDisplayable) {
                 val settings = surface.island.settings
                 val scale = owner.graphicsConfiguration.defaultTransform
+                input?.setInteractive(surface.hoverPose.fullyShown)
                 nativeInput?.update(listOf(surface.island.bounds, settings.notch,
                     settings.cornerRoundness, scale.scaleX, scale.scaleY),
-                    settings.clickThrough || settings.autoHideOnHover, surface::inputRegion)
+                    settings.clickThrough || settings.autoHideOnHover || !surface.hoverPose.fullyShown, surface::inputRegion)
                 if (Platform.isWindows() && settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
                     !settings.lowPerformance && owner.isVisible && scene?.glassFailure == null) {
                     val source = backdrop ?: WindowsDesktopBackdrop(report, textureImport) {

@@ -115,7 +115,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             override fun mousePressed(e: MouseEvent) {
                 IslandLog.guard("IslandWindow", "mousePressed.callback_failed") {
                     if (!Platform.isLinux() && e.isPopupTrigger) menu.popup(panel, e.x, e.y)
-                    if (SwingUtilities.isLeftMouseButton(e) && !settings.clickThrough && !settings.autoHideOnHover) {
+                    if (panel.hoverSettled && SwingUtilities.isLeftMouseButton(e) && !settings.clickThrough && !settings.autoHideOnHover) {
                         press = e.locationOnScreen
                         dragOrigin = Point(window.x + panel.x, window.y + panel.y)
                         dragAnchor = placementAnchor
@@ -126,7 +126,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             override fun mouseReleased(e: MouseEvent) {
                 IslandLog.guard("IslandWindow", "mouseReleased.callback_failed") {
                     if (!Platform.isLinux() && e.isPopupTrigger) menu.popup(panel, e.x, e.y)
-                    if (dragging) {
+                    if (dragging && panel.hoverSettled) {
                         val topLeft = dragTopLeft ?: Point(window.x + panel.x, window.y + panel.y)
                         val current = Rectangle(topLeft.x, topLeft.y, panel.width, panel.height)
                         val devices = GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
@@ -147,12 +147,13 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 }
             }
             override fun mouseClicked(e: MouseEvent) {
-                IslandLog.guard("IslandWindow", "mouseClicked.callback_failed") { if (e.clickCount == 2 && SwingUtilities.isLeftMouseButton(e)) actions.toggle() }
+                IslandLog.guard("IslandWindow", "mouseClicked.callback_failed") { if (panel.hoverSettled && e.clickCount == 2 && SwingUtilities.isLeftMouseButton(e)) actions.toggle() }
             }
         })
         panel.addMouseMotionListener(object : MouseMotionAdapter() {
             override fun mouseDragged(e: MouseEvent) {
                 IslandLog.guard("IslandWindow", "mouseDragged.callback_failed") {
+                    if (!panel.hoverSettled) return
                     val start = press ?: return
                     val origin = dragOrigin ?: return
                     val current = e.locationOnScreen
@@ -211,10 +212,14 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 IslandLog.failure("IslandWindow", "caught.error", error); nativeAvailable = false; fullscreen = false; report(error) }
             nextScreenCheck = now + performance.screenCheckIntervalNs
         }
-        val visible = settings.enabled && (!settings.hidePaused || snap.playing) && (!settings.hideFullscreen || !fullscreen)
-        globalPointer?.setEnabled(clickThrough && settings.autoHideOnHover && visible)
+        val paused = settings.hidePaused && !snap.playing
+        val visible = settings.enabled && (!settings.hideFullscreen || !fullscreen) &&
+            hoverVisibility.shouldRender(!paused, window.isVisible, performance.animateLayout)
+        globalPointer?.setEnabled(clickThrough && settings.autoHideOnHover && visible && !paused)
         if (!visible) {
             panel.expanded = false
+            panel.hoverSettled = false
+            panel.progress.cancelGesture()
             // Avoid changing the native bounds or painting while the transparent peer is hidden.
             if (window.isVisible) window.isVisible = false
             if (!settings.enabled && !buffersReleased) {
@@ -224,7 +229,9 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 buffersReleased = true
             }
             surface.hoverPose = IslandHoverMotion.Pose.HIDDEN
-            hoverVisibility.update(false, null, Rectangle(), dt, true, settings.notch)
+            // Keep a paused reveal at zero so playback resumes through the same motion.
+            // Other policies retain their immediate native hide/show behavior.
+            hoverVisibility.update(false, null, Rectangle(), dt, true, settings.notch, show = !paused)
             hoverActive = false
             pointerPresence?.reset()
             nextTopmostCheck = 0
@@ -270,7 +277,8 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             hoverActive -> hoverRetention
             else -> overIsland
         }
-        panel.expanded = !controlsBlocked && !clickThrough && (dragging || panel.progress.dragging || hoverActive)
+        panel.expanded = !paused && surface.hoverPose.fullyShown && !controlsBlocked && !clickThrough &&
+            (dragging || panel.progress.dragging || hoverActive)
         val visibleLines = ActiveLyrics.select(snap, settings.experimentalMultiLine)
         if (visibleLines != lastLines || snap.track != previousSnapshot?.track) {
             panel.outgoing = previousSnapshot?.takeIf { it.track == snap.track }
@@ -327,22 +335,23 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         surface.setSize(bounds.width, bounds.height)
         panel.setBounds(islandBounds.x - bounds.x, islandBounds.y - bounds.y, islandBounds.width, islandBounds.height)
         panel.prepareBuffers(window.graphicsConfiguration.defaultTransform)
-        inputRegion?.let { input ->
-            val scale = window.graphicsConfiguration.defaultTransform
-            val shape = if (clickThrough) Rectangle() else scale.createTransformedShape(surface.inputRegion())
-            input.update(window, shape, listOf(panel.bounds, settings.notch, settings.cornerRoundness,
-                placementAnchor, scale.scaleX, scale.scaleY, clickThrough))
-        }
         val hoverRegion = java.awt.geom.AffineTransform.getTranslateInstance(
             islandBounds.x.toDouble(), islandBounds.y.toDouble()
         ).createTransformedShape(IslandGeometry.silhouette(panel.width, panel.height, settings.notch,
             settings.cornerRoundness))
         surface.hoverPose = hoverVisibility.update(
             clickThrough && settings.autoHideOnHover, mouse, hoverRegion, dt,
-            !performance.animateLayout, settings.notch)
+            !performance.animateLayout, settings.notch, show = !paused)
         panel.hoverSettled = surface.hoverPose.fullyShown
         panel.updateProgressTransition(dt)
         panel.doLayout()
+        val inputClickThrough = clickThrough || !surface.hoverPose.fullyShown
+        inputRegion?.let { input ->
+            val scale = window.graphicsConfiguration.defaultTransform
+            val shape = if (inputClickThrough) Rectangle() else scale.createTransformedShape(surface.inputRegion())
+            input.update(window, shape, listOf(panel.bounds, settings.notch, settings.cornerRoundness,
+                placementAnchor, scale.scaleX, scale.scaleY, inputClickThrough))
+        }
         if (!window.isVisible) {
             window.isVisible = true
             nextTopmostCheck = 0
@@ -353,8 +362,8 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 IslandLog.failure("IslandWindow", "caught.error", error); topmostAvailable = false; report(error) }
             nextTopmostCheck = now + performance.topmostCheckIntervalNs
         }
-        if (nativeAvailable && clickThroughApplied != clickThrough) {
-            try { native.clickThrough(window, clickThrough); clickThroughApplied = clickThrough }
+        if (nativeAvailable && clickThroughApplied != inputClickThrough) {
+            try { native.clickThrough(window, inputClickThrough); clickThroughApplied = inputClickThrough }
             catch (error: Exception) {
                 IslandLog.failure("IslandWindow", "caught.error", error); nativeAvailable = false; report(error) }
         }
@@ -366,7 +375,11 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 try { window.paint(graphics) } finally { graphics.dispose() }
             }
         } else surface.repaint()
-        diagnostics.sample(window, if (settings.autoHideOnHover && surface.hoverPose.reveal < .01) "hover_hidden" else "visible",
+        diagnostics.sample(window, when {
+            paused -> "pausing"
+            settings.autoHideOnHover && surface.hoverPose.reveal < .01 -> "hover_hidden"
+            else -> "visible"
+        },
             performance, presentedFrames, renderer.rendererInfo,
             nativeAvailable && native.supportsClickThrough || inputRegion != null, topmostAvailable,
             if (settings.autoHideOnHover && clickThrough) mouse != null else null)
