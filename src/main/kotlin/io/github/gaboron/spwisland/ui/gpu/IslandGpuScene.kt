@@ -38,22 +38,9 @@ internal class IslandGpuScene : AutoCloseable {
     }
 
     private fun content(canvas: Canvas, frame: IslandGpuFrame, palette: IslandPalette, scaleY: Double) {
-        val outerWidth = frame.animatedWidth.toFloat()
-        val contentHeight = frame.animatedHeight.toFloat()
-        val outerX = when (frame.anchor.horizontal) {
-            HorizontalAnchor.LEFT -> 0f
-            HorizontalAnchor.CENTER -> frame.width / 2f - outerWidth / 2
-            HorizontalAnchor.RIGHT -> frame.width - outerWidth
-        }
-        val inset = IslandGeometry.frameInset(frame.animatedHeight, frame.settings.notch, frame.settings.cornerRoundness).toFloat()
-        val contentWidth = (outerWidth - inset * 2).coerceAtLeast(1f)
-        val contentX = outerX + inset
-        val contentY = when (frame.anchor.vertical) {
-            VerticalAnchor.TOP -> 0f
-            VerticalAnchor.CENTER -> frame.height / 2f - contentHeight / 2
-            VerticalAnchor.BOTTOM -> frame.height - contentHeight
-        }
-        val lyricHeight = (contentHeight - frame.expansion * IslandTextBlock.EXPANDED_HEIGHT).toFloat().coerceAtLeast(1f)
+        val (contentX, contentY, contentWidth, lyricHeight) = IslandContentGeometry.from(
+            frame.width, frame.height, frame.animatedWidth, frame.animatedHeight, frame.anchor,
+            frame.settings.notch, frame.settings.cornerRoundness, frame.expansion)
         val layout = IslandContentLayout.from(frame.lyrics.blocks.first().mainLineHeight, frame.settings.sideContent.showsSides)
         canvas.scoped {
             canvas.clipPath(resources.path(IslandGeometry.silhouette(frame.width, frame.height, frame.settings.notch,

@@ -46,8 +46,8 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
     var snapshot = PlaybackSnapshot(null, null, 0, false, PlaybackStatus.IDLE)
     var expanded = false
         set(value) {
+            if (field && !value) volumeFeedback.dismiss()
             field = value
-            if (!value) volumeFeedback.reset()
         }
     var expansion: Double? = null
     internal var controlsAnimating = false
@@ -129,6 +129,8 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
 
     internal fun releaseBuffers() { alphaMask.release(); expandedContent.release() }
 
+    internal fun cancelInteractions() { progress.cancelGesture(); volumeFeedback.reset() }
+
     internal fun gpuFrame(): IslandGpuFrame {
         val reveal = expansion ?: if (expanded) 1.0 else 0.0
         val animation = if (settings.performance.animateLayout) transition else 1.0
@@ -200,26 +202,11 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
             val shape = IslandGeometry.silhouette(width, height, settings.notch, settings.cornerRoundness)
             val palette = IslandPalette.from(settings, snapshot.metadata.coverRgb)
             val reveal = expansion ?: if (expanded) 1.0 else 0.0
-            val outerWidth = animatedWidth.toFloat()
-            val contentHeight = animatedHeight.toFloat()
-            val outerX = when (anchor.horizontal) {
-                HorizontalAnchor.LEFT -> 0f
-                HorizontalAnchor.CENTER -> (width / 2).toFloat() - outerWidth / 2f
-                HorizontalAnchor.RIGHT -> width - outerWidth
-            }
-            val frameInset = IslandGeometry.frameInset(contentHeight.toDouble(), settings.notch,
-                settings.cornerRoundness).toFloat()
-            val contentWidth = (outerWidth - frameInset * 2f).coerceAtLeast(1f)
-            val contentX = outerX + frameInset
-            val contentY = when (anchor.vertical) {
-                VerticalAnchor.TOP -> 0f
-                VerticalAnchor.CENTER -> (height / 2).toFloat() - contentHeight / 2f
-                VerticalAnchor.BOTTOM -> height - contentHeight
-            }
+            val (contentX, contentY, contentWidth, lyricAreaHeight) = IslandContentGeometry.from(
+                width, height, animatedWidth, animatedHeight, anchor, settings.notch, settings.cornerRoundness, reveal)
             g.clip(shape)
             g.translate(contentX.toDouble(), contentY.toDouble())
             val lyricLayout = lyricsLayout()
-            val lyricAreaHeight = (contentHeight - reveal * IslandTextBlock.EXPANDED_HEIGHT).toFloat().coerceAtLeast(1f)
             val lyricAreaTop = 0f
             val animation = if (settings.performance.animateLayout) transition else 1.0
             val layout = IslandContentLayout.from(

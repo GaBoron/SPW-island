@@ -219,7 +219,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         if (!visible) {
             panel.expanded = false
             panel.hoverSettled = false
-            panel.progress.cancelGesture()
+            panel.cancelInteractions()
             // Avoid changing the native bounds or painting while the transparent peer is hidden.
             if (window.isVisible) window.isVisible = false
             if (!settings.enabled && !buffersReleased) {

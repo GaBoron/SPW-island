@@ -107,16 +107,16 @@ internal class IslandVolumeFeedback(private val adjust: (Double, (Double?) -> Un
     }
 
     fun update(interactive: Boolean, dt: Double, instant: Boolean) {
-        if (!interactive) {
-            if (active || blocksSeek) reset()
-            return
-        }
-        active = true
-        flushVolume()
-        if (held) showing = true
-        else if (nanoTime() - lastOperation >= TIMEOUT_NS) {
-            if (pending) IslandLog.warn("volume", "request.timeout")
-            showing = false; pending = false
+        if (interactive) {
+            active = true
+            flushVolume()
+            if (held) showing = true
+            else if (nanoTime() - lastOperation >= TIMEOUT_NS) {
+                if (pending) IslandLog.warn("volume", "request.timeout")
+                showing = false; pending = false
+            }
+        } else if (active || pending || dragging) {
+            dismiss()
         }
         mix = motion.update(showing, dt, instant, false).coerceIn(0.0, 1.0)
         displayedVolume = if (instant || dragging) volume else
@@ -126,10 +126,16 @@ internal class IslandVolumeFeedback(private val adjust: (Double, (Double?) -> Un
 
     fun fraction(playback: Double) = (playback + (displayedVolume - playback) * mix).coerceIn(0.0, 1.0)
 
-    fun reset() {
+    /** Revoke input and outstanding replies, but let the current presentation fade back to playback. */
+    fun dismiss() {
+        cancelDrag()
         generation++
         active = false; pending = false; showing = false; hovered = false; dragging = false
         queuedVolume = null
+    }
+
+    fun reset() {
+        dismiss()
         mix = motion.update(false, 0.0, true, false)
     }
 

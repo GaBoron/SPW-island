@@ -497,6 +497,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `gpu/IslandGpuControls.kt` | 原生控制图标、歌曲信息、可拖动进度和音量条过渡的呈现 |
 | `gpu/IslandGpuResources.kt` | 有界原生路径与封面缓存、复用画笔和透明图层资源 |
 | `IslandLyricPresentation.kt` | GPU 与兼容绘制共用的行位置、换行透明度和缩放 |
+| `IslandContentGeometry.kt` | GPU 与兼容绘制共用的内容坐标，匹配窗口整数锚点并保留连续动画尺寸 |
 | `LyricTextPlacement.kt` | 共用的逐字边界、双向 caret、居中与滚动计算 |
 | `gpu/IslandGpuInput.kt` | 将原生输入转给已有按钮、进度、拖动和滚轮逻辑，保留拖动捕获 |
 | `platform/WindowsGpuInput.kt` | 独立的非聚焦输入窗口；轮廓外穿透，不裁切 GPU 画面 |
@@ -612,7 +613,7 @@ LyricPainter
 | `IslandBackgroundProgress.kt` | 在词岛背景中绘制整曲播放进度，包括注水和边缘细线；细线位于胶囊顶部或刘海底部 |
 | `IslandProgressTransition.kt` | 背景进度的非线性淡入淡出和退出样式保留；独立状态由窗口帧更新，绘制不推进动画 |
 | `PlaybackProgress.kt` | 共用的进度 / 音量呈现、悬停命中与鼠标手势；音量反馈期间点击 / 拖动调音量，播放进度仍在松手时一次提交并防止切歌后误 seek |
-| `IslandVolumeFeedback.kt` | 音量反馈的悬停保持、拖动预览与请求合并、2 秒超时和连续过渡；收起复位并按代次拒绝迟到结果 |
+| `IslandVolumeFeedback.kt` | 音量反馈的悬停保持、拖动预览与请求合并、2 秒超时和连续过渡；收起时停止交互并平滑退出，按代次拒绝迟到结果 |
 | `PlaybackIcon.kt` | 与字体无关的上一首、播放、暂停和下一首矢量图标 |
 | `SyntheticSpectrum.kt` | 无需音频捕获的低成本模拟频谱 |
 
@@ -1001,7 +1002,7 @@ IslandWindow
 
 `scroll_volume` 默认为 `false`。`IslandVolumeFeedback` 仅在正常交互且控件展开时接收滚轮，按每格 2% 发送增量。音量条未完全消失时，悬停或拖动会保持显示，移开后重新计时 2 秒。点击 / 拖动使用绝对音量，立即预览并按窗口帧时钟合并宿主请求，松手时提交最终值；拖动捕获由现有 GPU / Swing 输入路径保留，拖动期间保持词岛展开。低性能模式沿用 `PerformanceProfile` 的低帧率降低请求频率，并通过 `animateLayout` 直接切换样式。
 
-进度填充、时间 / 音量标签在 GPU 与 Java2D 路径共用呈现数据；收起或隐藏时立即取消音量手势并复位，拒绝该次展开中尚未返回的结果。Linux 使用 `volume` / `set_volume` 命令分别传递增量 / 绝对值，通过 `IslandVolumeResult` 返回实际音量；复用现有发送线程，不增加后台轮询。
+进度填充、时间 / 音量标签在 GPU 与 Java2D 路径共用呈现数据；收起时立即取消音量手势并拒绝该次展开中尚未返回的结果，保留当前呈现状态，平滑过渡回播放进度。窗口完全隐藏时复位音量反馈。Linux 使用 `volume` / `set_volume` 命令分别传递增量 / 绝对值，通过 `IslandVolumeResult` 返回实际音量；复用现有发送线程，不增加后台轮询。
 
 ### 修改设置
 
