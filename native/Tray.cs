@@ -45,7 +45,7 @@ namespace SpwIsland.Tray
                                 {
                                     AllowSetForegroundWindow(parentId);
                                     output.WriteLine("MENU\t{0}\t{1}", cursor.X, cursor.Y);
-                                }))
+                                }, message => output.WriteLine(message)))
                             {
                                 var input = new Thread(() =>
                                 {

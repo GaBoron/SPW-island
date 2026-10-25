@@ -18,6 +18,7 @@ namespace SpwIsland.Tray
         private readonly Icon icon;
         private readonly Action toggle;
         private readonly Action<Point> menu;
+        private readonly Action<string> status;
         private bool registered;
         private bool disposed;
 
@@ -48,17 +49,23 @@ namespace SpwIsland.Tray
         [DllImport("user32.dll", EntryPoint = "RegisterWindowMessageW", CharSet = CharSet.Unicode, ExactSpelling = true)]
         private static extern uint RegisterWindowMessage(string message);
 
-        public NotificationIcon(Icon icon, Action toggle, Action<Point> menu)
+        public NotificationIcon(Icon icon, Action toggle, Action<Point> menu, Action<string> status)
         {
             this.icon = icon;
             this.toggle = toggle;
             this.menu = menu;
+            this.status = status;
             taskbarCreated = unchecked((int)RegisterWindowMessage("TaskbarCreated"));
             if (taskbarCreated == 0) throw new InvalidOperationException("无法监听 Windows 托盘恢复事件");
             // TaskbarCreated is broadcast to top-level windows, not message-only windows.
             CreateHandle(new CreateParams { Caption = "SPW Island notification icon", ExStyle = 0x80 });
-            try { RegisterIcon(); }
-            catch { DestroyHandle(); throw; }
+            try { RegisterIcon("startup"); }
+            catch
+            {
+                try { RemoveIcon(); }
+                finally { DestroyHandle(); }
+                throw;
+            }
         }
 
         private IconData Data()
@@ -79,7 +86,7 @@ namespace SpwIsland.Tray
             };
         }
 
-        private void RegisterIcon()
+        private void RegisterIcon(string reason)
         {
             IconData data = Data();
             if (!ShellNotifyIcon(Add, ref data)) throw new InvalidOperationException("Windows 托盘图标注册失败");
@@ -89,6 +96,8 @@ namespace SpwIsland.Tray
                 RemoveIcon();
                 throw new InvalidOperationException("Windows 托盘图标版本设置失败");
             }
+            // Event-driven diagnostics only; Windows owns taskbar/overflow placement.
+            status("REGISTERED\t" + reason + "\t" + IconGuid.ToString("D"));
         }
 
         private void RemoveIcon()
@@ -104,8 +113,13 @@ namespace SpwIsland.Tray
             if (!disposed && message.Msg == taskbarCreated)
             {
                 registered = false;
-                try { RegisterIcon(); }
-                catch (Exception error) { Console.Error.WriteLine(error); Application.ExitThread(); }
+                try { RegisterIcon("explorer_restart"); }
+                catch (Exception error)
+                {
+                    Console.Error.WriteLine(error);
+                    status("ERROR\t" + error.Message.Replace('\n', ' ').Replace('\r', ' '));
+                    Application.ExitThread();
+                }
                 return;
             }
             if (!disposed && message.Msg == CallbackMessage)
