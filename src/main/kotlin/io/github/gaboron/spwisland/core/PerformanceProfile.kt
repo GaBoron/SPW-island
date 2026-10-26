@@ -12,11 +12,25 @@ enum class PerformanceProfile(
     val spectrumMode: SpectrumMode,
     val screenCheckIntervalNs: Long,
     val topmostCheckIntervalNs: Long,
+    val topmostRefreshIntervalNs: Long,
+    val topmostRetryIntervalNs: Long,
     val diagnosticSampleIntervalNs: Long,
     val diagnosticStallTimeoutNs: Long
 ) {
-    STANDARD(120, true, true, true, SpectrumMode.LIVE, 400_000_000L, 100_000_000L, 1_000_000_000L, 5_000_000_000L),
-    LOW(15, false, false, false, SpectrumMode.SYNTHETIC, 1_500_000_000L, 500_000_000L, 5_000_000_000L, 15_000_000_000L)
+    STANDARD(120, true, true, true, SpectrumMode.LIVE,
+        screenCheckIntervalNs = 400_000_000L,
+        topmostCheckIntervalNs = 100_000_000L,
+        topmostRefreshIntervalNs = 1_000_000_000L,
+        topmostRetryIntervalNs = 1_000_000_000L,
+        diagnosticSampleIntervalNs = 1_000_000_000L,
+        diagnosticStallTimeoutNs = 5_000_000_000L),
+    LOW(15, false, false, false, SpectrumMode.SYNTHETIC,
+        screenCheckIntervalNs = 1_500_000_000L,
+        topmostCheckIntervalNs = 500_000_000L,
+        topmostRefreshIntervalNs = 5_000_000_000L,
+        topmostRetryIntervalNs = 5_000_000_000L,
+        diagnosticSampleIntervalNs = 5_000_000_000L,
+        diagnosticStallTimeoutNs = 15_000_000_000L)
 }
 
 val IslandSettings.performance: PerformanceProfile
