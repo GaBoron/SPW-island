@@ -27,6 +27,7 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
     private var nativeInput: WindowsGpuInput? = null
     private var backdrop: WindowsDesktopBackdrop? = null
     private var textureImport: WindowsGpuTextureImport? = null
+    private val requiredRenderApi = if (Platform.isWindows()) GraphicsApi.DIRECT3D else GraphicsApi.OPENGL
     private var failed = System.getProperty("spw.island.renderer") == "software"
     @Volatile var frames = 0L
         private set
@@ -51,7 +52,7 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
             val painter = IslandGpuScene().also { scene = it }
             val created = SkiaLayer(isVsyncEnabled = true, isVsyncFramelimitFallbackEnabled = true,
                 frameBuffering = FrameBuffering.DOUBLE,
-                renderApi = if (Platform.isWindows()) GraphicsApi.DIRECT3D else GraphicsApi.OPENGL)
+                renderApi = requiredRenderApi)
             layer = created
             val gpu = if (Platform.isWindows()) WindowsGpuTextureImport(created).also { textureImport = it } else null
             created.transparency = true
@@ -61,9 +62,7 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
                     try {
                         val paint = {
                             IslandLog.guard("IslandGpuRenderer", "SkikoRenderDelegate.callback_failed") {
-                                check(created.renderApi == GraphicsApi.DIRECT3D || created.renderApi == GraphicsApi.OPENGL) {
-                                    "GPU 后端不可用：${created.renderApi}"
-                                }
+                                checkRenderApi(created)
                                 canvas.clear(0)
                                 val scale = owner.graphicsConfiguration.defaultTransform
                                 canvas.scoped {
@@ -81,18 +80,32 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
                         if (gpu != null) gpu.locked(paint) else paint()
                     } catch (error: Throwable) {
                         IslandLog.failure("IslandGpuRenderer", "caught.error", error);
-                        SwingUtilities.invokeLater { IslandLog.guard("IslandGpuRenderer", "invokeLater.callback_failed") { fallback(error) } }
+                        SwingUtilities.invokeLater {
+                            IslandLog.guard("IslandGpuRenderer", "invokeLater.callback_failed") {
+                                if (layer === created) fallback(error)
+                            }
+                        }
                     }
                 }
             }
             surface.island.releaseBuffers(); surface.island.gpuDrawing = true
             surface.gpuRedraw = ::draw
             surface.add(created); surface.setComponentZOrder(created, 0)
+            // Adding the native peer may silently select a different backend.
+            checkRenderApi(created)
             resize()
             if (Platform.isWindows()) nativeInput = WindowsGpuInput(owner)
             input = IslandGpuInput(nativeInput?.component ?: created.canvas, surface, ::draw)
         } catch (error: Throwable) {
             IslandLog.failure("IslandGpuRenderer", "caught.error", error); fallback(error) }
+    }
+
+    private fun checkRenderApi(current: SkiaLayer) {
+        // Skiko's Windows OpenGL transparency requires a different native window setup.
+        // This AWT per-pixel alpha window and its input peer require Direct3D composition.
+        check(current.renderApi == requiredRenderApi) {
+            "词岛透明窗口需要 $requiredRenderApi，实际 GPU 后端为 ${current.renderApi}"
+        }
     }
 
     private fun resize() {
@@ -105,6 +118,8 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
     fun draw() {
         val current = layer ?: return
         try {
+            // Catch runtime backend changes even when no render delegate is invoked.
+            checkRenderApi(current)
             resize()
             if (owner.isDisplayable && current.isDisplayable) {
                 val settings = surface.island.settings
@@ -145,9 +160,15 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
     private fun fallback(error: Throwable) {
         if (failed) return
         failed = true
+        IslandLog.event("rendering", "compatibility.enabled", mapOf(
+            "requestedBackend" to requiredRenderApi,
+            "actualBackend" to layer?.renderApi
+        ))
         release()
-        report(IllegalStateException("词岛 GPU 绘制不可用，已切换兼容绘制", error))
+        surface.island.prepareBuffers(owner.graphicsConfiguration.defaultTransform)
+        surface.revalidate()
         surface.repaint()
+        report(IllegalStateException("词岛 GPU 绘制不可用，已切换兼容绘制", error))
     }
 
     fun release() {
