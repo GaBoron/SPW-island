@@ -75,6 +75,8 @@ internal object IslandLog {
     fun operation(module: String, name: String): DiagnosticOperation = DiagnosticOperation(module, name)
     fun cadence(intervalNs: Long) { writer?.idleIntervalNs = intervalNs; watchdog?.intervalNs = intervalNs }
     fun flush(timeoutMs: Long = 2_000): Boolean = writer?.flush(timeoutMs) ?: false
+    fun snapshot(): Map<String, Any?> = writer?.snapshot() ?: mapOf(
+        "available" to false, "scope" to "current_process", "capturedAt" to Instant.now().toString())
     fun stop() {
         val previous = synchronized(this) {
             watchdog?.close(); watchdog = null

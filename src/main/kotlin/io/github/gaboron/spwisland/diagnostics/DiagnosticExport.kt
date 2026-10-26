@@ -34,6 +34,7 @@ internal object DiagnosticExport {
         val operation = IslandLog.operation("diagnostics", "export")
         try {
             val flushed = IslandLog.flush()
+            val snapshot = IslandLog.snapshot()
             val directory = IslandLog.directory
             Files.createDirectories(directory)
             val destination = directory.parent.resolve("diagnostics-${java.time.LocalDateTime.now()
@@ -44,6 +45,11 @@ internal object DiagnosticExport {
                 zip.write(GsonBuilder().setPrettyPrinting().create().toJson(IslandLog.environment() +
                     mapOf("session" to IslandLog.session, "hostLogFlushed" to flushed,
                         "notice" to "Inspect exception stacks before sharing; no automatic upload.")).toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+                zip.putNextEntry(ZipEntry("latest-state.json"))
+                zip.write(GsonBuilder().setPrettyPrinting().create().toJson(snapshot + mapOf(
+                    "notice" to "Latest recorded observations with age; no fresh UI query. Frame production and OS visibility do not verify compositor output."
+                )).toByteArray(Charsets.UTF_8))
                 zip.closeEntry()
                 val deadline = java.time.Instant.now().minus(10, java.time.temporal.ChronoUnit.DAYS)
                 for (file in DiagnosticStorage(directory).files()) {

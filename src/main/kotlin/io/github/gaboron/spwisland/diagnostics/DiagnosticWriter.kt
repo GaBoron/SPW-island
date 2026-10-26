@@ -6,6 +6,7 @@ import java.io.BufferedWriter
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption.*
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.concurrent.CountDownLatch
@@ -18,6 +19,9 @@ import java.util.concurrent.atomic.AtomicReference
 internal class DiagnosticWriter(val directory: Path, val session: String, private val role: String) : AutoCloseable {
     private data class Barrier(val latch: CountDownLatch, @Volatile var successful: Boolean = false)
     private data class Repeated(val first: DiagnosticEvent, var count: Long, var last: String, var reported: Long)
+    private data class State(val module: String, val key: String, val value: String,
+                             val context: Map<String, Any?>, val observedAt: Instant,
+                             val changedAt: Instant, val monotonicNs: Long)
     private val queue = LinkedBlockingDeque<Any>(4096)
     private val lost = AtomicLong()
     private val overflow = AtomicReference<DiagnosticEvent?>()
@@ -25,8 +29,8 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
     private val pid = ProcessHandle.current().pid()
     private val storage = DiagnosticStorage(directory)
     private val retention = DiagnosticRetention(storage)
-    private val states = object : LinkedHashMap<String, String>(64, .75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>) = size > 256
+    private val states = object : LinkedHashMap<String, State>(64, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, State>) = size > 256
     }
     private val repeated = LinkedHashMap<String, Repeated>()
     @Volatile private var closed = false
@@ -52,8 +56,33 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
     }
 
     fun state(module: String, key: String, value: String, context: Map<String, Any?>) {
-        val changed = synchronized(states) { states.put("$module/$key", value) != value }
-        if (changed) IslandLog.event(module, "$key.changed", context + ("state" to value))
+        if (closed) return
+        val observedAt = Instant.now()
+        val now = System.nanoTime()
+        val changed = synchronized(states) {
+            val previous = states["$module/$key"]
+            val changed = previous?.value != value
+            // Refresh sampled details without turning every sample or frame counter into a log event.
+            states["$module/$key"] = State(module, key, value, context.toMap(), observedAt,
+                if (changed) observedAt else checkNotNull(previous).changedAt, now)
+            changed
+        }
+        if (changed) offer(DiagnosticEvent(observedAt.toString(), now, "INFO", module, "$key.changed",
+            Thread.currentThread().name, context + ("state" to value)))
+    }
+
+    /** Latest observations only; never query UI/host objects or wait for their threads during export. */
+    fun snapshot(): Map<String, Any?> {
+        val recorded = synchronized(states) { states.values.toList() }
+        val now = System.nanoTime()
+        return mapOf("available" to true, "scope" to "current_process", "session" to session,
+            "process" to pid, "role" to role, "capturedAt" to Instant.now().toString(),
+            "states" to recorded.map { state ->
+                mapOf("module" to state.module, "key" to state.key, "state" to DiagnosticPrivacy.text(state.value),
+                    "lastObservedAt" to state.observedAt.toString(), "stateChangedAt" to state.changedAt.toString(),
+                    "ageMs" to (now - state.monotonicNs).coerceAtLeast(0) / 1_000_000,
+                    "context" to state.context.entries.take(40).associate { it.key to DiagnosticPrivacy.text(it.value) })
+            })
     }
 
     fun flush(timeoutMs: Long): Boolean {
@@ -73,13 +102,10 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
                         retention.request()
                         nextMaintenance = now + 3_600_000_000_000L
                     }
-                    when (value) {
-                        is DiagnosticEvent -> accept(value)
-                        is Barrier -> { output?.flush(); value.successful = output != null; value.latch.countDown() }
-                    }
+                    if (value is DiagnosticEvent) accept(value)
                     overflow.getAndSet(null)?.let(::accept)
                     repeated.values.forEach { repeat ->
-                        if (repeat.count > 1 && now - repeat.reported >= 60_000_000_000L) {
+                        if (repeat.count > 1 && (value is Barrier || now - repeat.reported >= 60_000_000_000L)) {
                             summary(repeat); repeat.count = 1; repeat.reported = now
                         }
                     }
@@ -87,6 +113,11 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
                     if (dropped > 0) write(DiagnosticEvent(java.time.Instant.now().toString(), now, "WARN",
                         "diagnostics", "queue.entries_lost", worker.name, mapOf("count" to dropped)))
                     output?.flush()
+                    if (value is Barrier) {
+                        // Include pending repeat summaries, overflow evidence and loss counts in the export barrier.
+                        value.successful = output != null
+                        value.latch.countDown()
+                    }
                 } catch (error: Throwable) {
                     if (value is Barrier) value.latch.countDown()
                     lost.incrementAndGet()

@@ -3,6 +3,7 @@ package io.github.gaboron.spwisland.ui
 
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.core.SettingsStore
+import io.github.gaboron.spwisland.diagnostics.IslandLog
 /** Owns the shared menu model and translates native selections into plugin settings operations. */
 internal class IslandMenuCommands(
     private val store: SettingsStore,
@@ -26,6 +27,14 @@ internal class IslandMenuCommands(
     }
 
     fun execute(command: Int) {
+        when (command) {
+            RECOVER -> recordSettingsAction("recover") { executeCommand(command) }
+            RESET_POSITION -> recordSettingsAction("reset_position") { executeCommand(command) }
+            else -> executeCommand(command)
+        }
+    }
+
+    private fun executeCommand(command: Int) {
         val value = store.read()
         when (command) {
             LOW_PERFORMANCE -> store.set("reduced_motion", !value.lowPerformance)
@@ -36,9 +45,25 @@ internal class IslandMenuCommands(
             }
             AUTO_HIDE -> store.set("auto_hide_on_hover", !value.autoHideOnHover)
             ENABLED -> store.set("enabled", !value.enabled)
-            RECOVER -> { store.set("auto_hide_on_hover", false); store.set("click_through", false); store.set("enabled", true) }
+            RECOVER -> {
+                store.set("auto_hide_on_hover", false)
+                store.set("click_through", false)
+                store.set("enabled", true)
+            }
             RESET_POSITION -> store.resetPosition()
             ABOUT -> showAbout()
+        }
+    }
+
+    private fun recordSettingsAction(name: String, action: () -> Unit) {
+        val operation = IslandLog.operation("menu", name)
+        try {
+            action()
+            IslandLog.event("menu", "$name.settings_submitted", mapOf("presentationVerified" to false))
+            operation.close()
+        } catch (error: Throwable) {
+            operation.failed(error)
+            throw error
         }
     }
 

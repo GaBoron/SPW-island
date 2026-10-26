@@ -368,7 +368,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | 文件 | 职责 |
 | --- | --- |
 | `diagnostics/IslandLog.kt` | 显式日志生命周期、统一事件接口、状态变化、异常尝试和插件自有线程工厂 |
-| `diagnostics/DiagnosticWriter.kt` | 有界异步队列、异常汇总、落盘、轮换与丢失条数记录 |
+| `diagnostics/DiagnosticWriter.kt` | 有界异步队列、最新观察状态缓存、异常汇总、落盘、轮换与丢失条数记录 |
 | `diagnostics/DiagnosticWatchdog.kt` | 独立于文件写入的进展与超时采样，按性能配置调度 |
 | `diagnostics/DiagnosticRetention.kt` | 合并历史清理请求，在独立工作线程使用系统回收站 |
 | `diagnostics/DiagnosticStorage.kt` | 日志目录、10 天保留与 64 MiB 容量预算；历史文件仅移入回收站，失败时保留并记录 |
@@ -378,7 +378,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `diagnostics/DiagnosticPulse.kt` | 不依赖 EDT 的进展停滞与恢复监测 |
 | `diagnostics/DiagnosticExecutors.kt` | 收集插件自有 executor 和 scheduled future 中捕获的异常 |
 | `diagnostics/DiagnosticProcesses.kt` | 启动辅助进程、传递运行编号、独立收集 stderr 和退出状态 |
-| `diagnostics/DiagnosticExport.kt` | 仅导出日志与允许的运行环境信息，不复制设置、媒体或宿主日志 |
+| `diagnostics/DiagnosticExport.kt` | 导出日志、允许的运行环境信息与当前进程的最新观察状态，不复制设置、媒体或宿主日志 |
 | `host/HostDiagnosticActions.kt` | SPW 设置页的日志目录与诊断包入口，不依赖词岛创建成功 |
 | `host/SettingsDiagnostics.kt` | 只记录插件设置模型中实际变化的字段、来源和保存尝试次数 |
 | `ui/WindowDiagnostics.kt` | 帧调度与绘制进展、显示策略及窗口状态采样 |
@@ -389,6 +389,10 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 调用方只提供必要的结构化字段，不传递曲目对象、歌词、配置全文或命令行。已有异常回调仍负责界面反馈，日志不依赖这些界面；新模块沿用同一接口。插件自有的界面、定时器和原生回调用 `IslandLog.guard` 局部记录异常后保留原有传播方式。仅设置插件自有线程的异常处理器，不替换 SPW JVM 的默认处理器或全局输出。
 
 窗口、帧进展和 IPC 监测通过 `PerformanceProfile` 取得采样与停滞阈值：标准模式每秒采样，5 秒无进展时记录；低性能模式每 5 秒采样，阈值为 15 秒。策略隐藏期间暂停绘制进展判断。窗口系统报告的状态、绘制完成和用户实际看到的合成结果须分别解释。
+
+状态未变化时也刷新有界缓存中的观察时间和上下文，不重复写入事件。诊断包的 `latest-state.json` 包含导出进程最近观察的状态、状态标签最后变化时间及观察距导出的间隔；它不发起新的界面查询，也不等待 EDT。Linux 独立界面的观察记录仍在同一运行编号的 UI 日志中。
+
+窗口采样包含隐藏策略、内容位置、缩放和生产帧数；Windows 另记原生矩形、透明样式及前台窗口类名与矩形，不记录窗口标题。渲染信息的周期读取遵循同一采样预算，另在图层创建时记录一次请求后端、实际后端和图层状态。找回与重置位置操作记录提交、完成或失败；设置操作完成不表示用户已看到词岛。导出刷新屏障在返回成功前写出待汇总的重复异常、溢出事件和丢失条数。
 
 首次停滞和操作超时时仅抓取相关操作线程或最近推进该监测点的线程栈，不转储整个 JVM。异步工作开始时通过 `runningHere()` 更新操作所属线程，避免把调度线程误认为执行线程。
 

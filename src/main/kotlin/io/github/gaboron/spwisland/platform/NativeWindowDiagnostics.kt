@@ -19,9 +19,11 @@ internal object NativeWindowDiagnostics {
         val exists = user.IsWindow(hwnd)
         val placement = WINDOWPLACEMENT()
         val placementKnown = exists && user.GetWindowPlacement(hwnd, placement).booleanValue()
+        val extendedStyle = if (exists) user.GetWindowLong(hwnd, -20) else 0
         val ownBounds = RECT()
+        val boundsKnown = exists && user.GetWindowRect(hwnd, ownBounds)
         val aboveClasses = mutableListOf<String>()
-        if (exists && user.GetWindowRect(hwnd, ownBounds)) {
+        if (boundsKnown) {
             var above = user.GetWindow(hwnd, DWORD(3)) // GW_HWNDPREV: preceding windows in Z order.
             var inspected = 0
             while (above != null && inspected++ < 64) {
@@ -36,9 +38,23 @@ internal object NativeWindowDiagnostics {
                 above = user.GetWindow(above, DWORD(3))
             }
         }
+        val foreground = user.GetForegroundWindow()
+        val foregroundClass = foreground?.let {
+            val name = CharArray(128)
+            user.GetClassName(it, name, name.size)
+            Native.toString(name)
+        }
+        val foregroundBounds = RECT()
+        val foregroundBoundsKnown = foreground != null && user.GetWindowRect(foreground, foregroundBounds)
         return mapOf("nativeExists" to exists, "nativeVisible" to (exists && user.IsWindowVisible(hwnd)),
             "minimized" to if (placementKnown) placement.showCmd == 2 else "unknown",
-            "nativeTopmost" to (exists && user.GetWindowLong(hwnd, -20) and 8 != 0),
+            "nativeTopmost" to (exists && extendedStyle and 8 != 0),
+            "nativeStyle" to mapOf("layered" to (extendedStyle and 0x80000 != 0),
+                "clickThrough" to (extendedStyle and 0x20 != 0)),
+            "nativeBounds" to if (boundsKnown) listOf(ownBounds.left, ownBounds.top, ownBounds.right, ownBounds.bottom) else null,
+            "foregroundClass" to foregroundClass,
+            "foregroundBounds" to if (foregroundBoundsKnown)
+                listOf(foregroundBounds.left, foregroundBounds.top, foregroundBounds.right, foregroundBounds.bottom) else null,
             "overlappingTopmostAbove" to aboveClasses,
             "compositorVisibility" to "unknown")
     }

@@ -34,6 +34,13 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
     val active get() = layer != null
     val fallbackRendering get() = failed
     val rendererInfo get() = layer?.renderInfo ?: "Java2D 兼容绘制"
+    fun diagnosticState(): Map<String, Any?> = mapOf(
+        "requestedBackend" to requiredRenderApi,
+        "actualBackend" to (layer?.renderApi?.name ?: "Java2D"),
+        "gpuActive" to active, "compatibilityMode" to failed,
+        "layerDisplayable" to layer?.isDisplayable, "layerShowing" to layer?.isShowing,
+        "renderer" to rendererInfo
+    )
     val glassStatus get() = scene?.glassFailure?.let { GlassStatus("使用经典背景", it, warning = true) } ?: when {
         scene?.glassWaitingForCrop == true -> GlassStatus("等待桌面图像", "等待完整的单屏后景，暂用经典背景。")
         else -> backdrop?.status ?: GlassStatus("等待桌面捕获")
@@ -91,6 +98,8 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
             surface.island.releaseBuffers(); surface.island.gpuDrawing = true
             surface.gpuRedraw = ::draw
             surface.add(created); surface.setComponentZOrder(created, 0)
+            IslandLog.attempt("rendering", "layer_sample.failed", ::diagnosticState)
+                .onSuccess { IslandLog.event("rendering", "gpu_layer.created", it) }
             // Adding the native peer may silently select a different backend.
             checkRenderApi(created)
             resize()

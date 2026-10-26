@@ -77,6 +77,8 @@ class IslandRuntime : AutoCloseable {
     fun recover() = safely("window.recover") {
         settings.set("auto_hide_on_hover", false); settings.set("click_through", false)
         settings.set("enabled", true); settings.resetPosition()
+        IslandLog.event("window", "recovery.settings_applied", mapOf(
+            "source" to "spw_settings", "presentationVerified" to false))
     }
     fun installGnomePointer() {
         if (!Platform.isLinux() || closed) return

@@ -240,7 +240,9 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 !settings.enabled -> "disabled"
                 settings.hidePaused && !snap.playing -> "paused"
                 else -> "fullscreen"
-            }, performance, presentedFrames, renderer.rendererInfo)
+            }, performance, presentedFrames, renderer::diagnosticState,
+                nativeAvailable && native.supportsClickThrough || inputRegion != null, topmostAvailable,
+                details = { diagnosticState(snap) })
             return
         }
         buffersReleased = false
@@ -380,9 +382,10 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             settings.autoHideOnHover && surface.hoverPose.reveal < .01 -> "hover_hidden"
             else -> "visible"
         },
-            performance, presentedFrames, renderer.rendererInfo,
+            performance, presentedFrames, renderer::diagnosticState,
             nativeAvailable && native.supportsClickThrough || inputRegion != null, topmostAvailable,
-            if (settings.autoHideOnHover && clickThrough) mouse != null else null)
+            if (settings.autoHideOnHover && clickThrough) mouse != null else null,
+            details = { diagnosticState(snap) })
         val displayInterval = frameClock.interval(device, performance)
         frameInterval = when {
             press != null || !performance.animateLayout -> displayInterval
@@ -391,6 +394,21 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 maxOf(displayInterval, 50_000_000L)
             else -> displayInterval
         }
+    }
+
+    /** Sample only display inputs and geometry; never include lyrics or track metadata. */
+    private fun diagnosticState(snapshot: PlaybackSnapshot): Map<String, Any?> {
+        val scale = window.graphicsConfiguration.defaultTransform
+        return mapOf(
+            "policy" to mapOf("enabled" to settings.enabled, "playing" to snapshot.playing,
+                "hidePaused" to settings.hidePaused, "hideFullscreen" to settings.hideFullscreen,
+                "fullscreenDetected" to fullscreen, "clickThrough" to settings.clickThrough,
+                "autoHideOnHover" to settings.autoHideOnHover, "lowPerformance" to settings.lowPerformance),
+            "contentBounds" to listOf(panel.x, panel.y, panel.width, panel.height),
+            "hoverReveal" to surface.hoverPose.reveal,
+            "screen" to window.graphicsConfiguration.device.iDstring,
+            "screenScale" to listOf(scale.scaleX, scale.scaleY)
+        )
     }
 
     /** Keep one outstanding frame and avoid adding rendering time to the target interval. */
