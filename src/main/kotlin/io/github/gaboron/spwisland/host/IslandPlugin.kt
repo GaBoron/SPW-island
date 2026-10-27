@@ -27,6 +27,7 @@ class IslandPlugin(context: PluginContext) : SpwPlugin(context) {
             created?.let(playback::detach)
             runtime = null
             IslandLog.attempt("lifecycle", "plugin.start_cleanup_failed") { created?.close() }
+            IslandLog.attempt("lifecycle", "diagnostics.start_cleanup_failed") { IslandLog.stop() }
             throw error
         }
     }

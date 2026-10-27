@@ -9,6 +9,7 @@ import java.nio.file.Path
 import org.jetbrains.skiko.SkiaLayer
 import kotlinx.coroutines.Job
 import java.net.JarURLConnection
+import java.net.URL
 import io.github.gaboron.spwisland.diagnostics.DiagnosticProcesses
 
 /** Python desktop bridges use system libraries directly, without extra Python packages. */
@@ -54,7 +55,7 @@ internal object LinuxHelper {
     internal fun uiClasspath(): String {
         val classes = listOf(LinuxHelper::class.java, kotlin.Unit::class.java, Native::class.java, X11::class.java,
             SkiaLayer::class.java, Job::class.java)
-        val own = Path.of(LinuxHelper::class.java.protectionDomain.codeSource.location.toURI())
+        val own = classpathEntry(LinuxHelper::class.java)
         val paths = mutableListOf(own.toString())
         // Prefer the plugin's bundled versions to similarly named libraries already loaded by SPW.
         val libraries = own.parent.resolve("lib")
@@ -62,7 +63,7 @@ internal object LinuxHelper {
             jars.filter { it.fileName.toString().endsWith(".jar") }.sorted().forEach { paths += it.toString() }
         }
         // JNA / JNA Platform come from SPW, including in this independent UI JVM.
-        paths += classes.map { Path.of(it.protectionDomain.codeSource.location.toURI()).toString() }
+        paths += classes.map { classpathEntry(it).toString() }
         // Gradle keeps classes/resources separate; an installed plugin contains both in classes/.
         LinuxHelper::class.java.getResource("/native/island-linux.py")?.takeIf { it.protocol == "file" }?.let {
             paths += Path.of(it.toURI()).parent.parent.toString()
@@ -72,6 +73,32 @@ internal object LinuxHelper {
             paths += Path.of((it.openConnection() as JarURLConnection).jarFileURL.toURI()).toString()
         }
         return paths.distinct().joinToString(java.io.File.pathSeparator)
+    }
+
+    private fun classpathEntry(type: Class<*>): Path {
+        val location = type.protectionDomain?.codeSource?.location
+        if (location?.protocol == "file") return Path.of(location.toURI())
+
+        // Host class loaders may omit CodeSource locations while still exposing class resources.
+        val name = type.name.replace('.', '/') + ".class"
+        val resource = type.getResource("/$name")
+        return resourceClasspath(resource, name) ?: error(
+            "Cannot locate Linux UI dependency ${type.name} " +
+                "(source=${location?.protocol ?: "none"}, resource=${resource?.protocol ?: "none"})"
+        )
+    }
+
+    private fun resourceClasspath(resource: URL?, name: String): Path? {
+        return when (resource?.protocol) {
+            "jar" -> (resource.openConnection() as JarURLConnection).jarFileURL
+                .takeIf { it.protocol == "file" }?.let { Path.of(it.toURI()) }
+            "file" -> {
+                var root = Path.of(resource.toURI())
+                repeat(name.count { it == '/' } + 1) { root = root.parent ?: return null }
+                root
+            }
+            else -> null
+        }
     }
 
     fun startUi(javaHome: String = System.getProperty("java.home")): Process {

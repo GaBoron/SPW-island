@@ -26,12 +26,15 @@ internal object IslandLog {
         val path = if (role == "ui") System.getenv("SPW_ISLAND_LOG_DIRECTORY")?.let(Path::of)
             ?: DiagnosticStorage.defaultDirectory() else DiagnosticStorage.defaultDirectory()
         try { writer = DiagnosticWriter(path, id, role) }
-        catch (error: Exception) {
-            System.err.println("[SPW Island] Cannot start diagnostics: ${DiagnosticPrivacy.text(error)}")
+        catch (error: Throwable) {
+            try {
+                val detail = try { DiagnosticPrivacy.text(error) } catch (_: Throwable) { error.javaClass.name }
+                System.err.println("[SPW Island] Cannot start diagnostics: $detail")
+            } catch (_: Throwable) { }
             return
         }
         try { watchdog = DiagnosticWatchdog() }
-        catch (error: Exception) { failure("diagnostics", "watchdog.start_failed", error) }
+        catch (error: Throwable) { failure("diagnostics", "watchdog.start_failed", error) }
         event("lifecycle", "diagnostics.started", environment() + context)
     }
 

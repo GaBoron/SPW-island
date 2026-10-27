@@ -26,6 +26,8 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
     private val lost = AtomicLong()
     private val overflow = AtomicReference<DiagnosticEvent?>()
     private val gson = Gson()
+    // Resolve the sanitizer before the worker can outlive a failed plugin start or class-loader close.
+    private val privacy = DiagnosticPrivacy
     private val pid = ProcessHandle.current().pid()
     private val storage = DiagnosticStorage(directory)
     private val retention = DiagnosticRetention(storage)
@@ -78,10 +80,10 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
         return mapOf("available" to true, "scope" to "current_process", "session" to session,
             "process" to pid, "role" to role, "capturedAt" to Instant.now().toString(),
             "states" to recorded.map { state ->
-                mapOf("module" to state.module, "key" to state.key, "state" to DiagnosticPrivacy.text(state.value),
+                mapOf("module" to state.module, "key" to state.key, "state" to privacy.text(state.value),
                     "lastObservedAt" to state.observedAt.toString(), "stateChangedAt" to state.changedAt.toString(),
                     "ageMs" to (now - state.monotonicNs).coerceAtLeast(0) / 1_000_000,
-                    "context" to state.context.entries.take(40).associate { it.key to DiagnosticPrivacy.text(it.value) })
+                    "context" to state.context.entries.take(40).associate { it.key to privacy.text(it.value) })
             })
     }
 
@@ -124,22 +126,30 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
                     try { closeOutput() } catch (_: Throwable) { }
                     if (System.nanoTime() - lastFallback > 60_000_000_000L || lastFallback == 0L) {
                         lastFallback = System.nanoTime()
-                        System.err.println("[SPW Island] Persistent diagnostics unavailable: ${DiagnosticPrivacy.text(error)}")
+                        reportFailure("Persistent diagnostics unavailable", error)
                     }
                 }
             }
             repeated.values.filter { it.count > 1 }.forEach(::summary)
         } catch (error: Throwable) {
-            System.err.println("[SPW Island] Diagnostic writer stopped: ${DiagnosticPrivacy.text(error)}")
+            reportFailure("Diagnostic writer stopped", error)
         } finally {
             try { closeOutput() } catch (_: Throwable) { }
             while (true) { val pending = queue.poll() ?: break; if (pending is Barrier) pending.latch.countDown() }
         }
     }
 
+    private fun reportFailure(message: String, error: Throwable) {
+        // A logging/class-loading failure must not escape through the host's uncaught handler.
+        try {
+            val detail = try { privacy.text(error) } catch (_: Throwable) { error.javaClass.name }
+            System.err.println("[SPW Island] $message: $detail")
+        } catch (_: Throwable) { }
+    }
+
     private fun accept(event: DiagnosticEvent) {
         if (event.level == "INFO") { write(event); return }
-        val signature = "${event.module}/${event.event}/${event.error?.javaClass?.name}/${DiagnosticPrivacy.text(event.error?.message ?: event.context)}"
+        val signature = "${event.module}/${event.event}/${event.error?.javaClass?.name}/${privacy.text(event.error?.message ?: event.context)}"
         val previous = repeated[signature]
         if (previous != null) {
             if (previous.count == 1L && System.nanoTime() - previous.reported >= 60_000_000_000L) {
@@ -177,10 +187,10 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
             day = currentDay; size = 0
         }
         val record = linkedMapOf<String, Any?>("time" to event.time, "monotonicNs" to event.monotonicNs,
-            "session" to session, "process" to pid, "role" to role, "thread" to DiagnosticPrivacy.text(event.thread),
+            "session" to session, "process" to pid, "role" to role, "thread" to privacy.text(event.thread),
             "level" to event.level, "module" to event.module, "event" to event.event,
-            "context" to event.context.entries.take(40).associate { it.key to DiagnosticPrivacy.text(it.value) })
-        event.error?.let { record["exception"] = it.javaClass.name; record["stack"] = DiagnosticPrivacy.stack(it) }
+            "context" to event.context.entries.take(40).associate { it.key to privacy.text(it.value) })
+        event.error?.let { record["exception"] = it.javaClass.name; record["stack"] = privacy.stack(it) }
         val line = gson.toJson(record)
         output!!.write(line); output!!.newLine()
         size += line.toByteArray(Charsets.UTF_8).size + 1
