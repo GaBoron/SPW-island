@@ -383,6 +383,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `host/SettingsDiagnostics.kt` | 只记录插件设置模型中实际变化的字段、来源和保存尝试次数 |
 | `ui/WindowDiagnostics.kt` | 帧调度与绘制进展、显示策略及窗口状态采样 |
 | `platform/NativeWindowDiagnostics.kt` | Windows 原生窗口存在、可见、最小化与置顶状态；系统合成结果保持未知 |
+| `platform/AwtGraphicsDiagnostics.kt` | 窗口与 Skiko Canvas 的 AWT 配置、颜色模型和通道掩码；不推断 GLX 缓冲区格式或最终合成结果 |
 | `src/linux/resources/native/island-diagnostics.py` | Python 辅助进程内的异常、线程和回调诊断，重复异常汇总后交给 JVM 收集 |
 | `native/glass/CaptureDiagnostics.h` | 每个桌面捕获实例的有界原生诊断队列，保留阶段、HRESULT、线程和原生栈地址 |
 
@@ -393,6 +394,8 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 状态未变化时也刷新有界缓存中的观察时间和上下文，不重复写入事件。诊断包的 `latest-state.json` 包含导出进程最近观察的状态、状态标签最后变化时间及观察距导出的间隔；它不发起新的界面查询，也不等待 EDT。Linux 独立界面的观察记录仍在同一运行编号的 UI 日志中。
 
 窗口采样包含隐藏策略、内容位置、缩放和生产帧数；Windows 另记原生矩形、透明样式及前台窗口类名与矩形，不记录窗口标题。渲染信息的周期读取遵循同一采样预算，另在图层创建时记录一次请求后端、实际后端和图层状态。找回与重置位置操作记录提交、完成或失败；设置操作完成不表示用户已看到词岛。导出刷新屏障在返回成功前写出待汇总的重复异常、溢出事件和丢失条数。
+
+`awtGraphics` 与 `awtCanvasGraphics` 记录各自的 `GraphicsConfiguration`、默认和透明颜色模型、位深、通道位数与掩码。X11 配置的字符串表示包含 visual ID，无需访问 JDK 内部接口。请求透明颜色模型可能返回通用 ARGB，不能用它代替默认 visual 或 GLX 格式；这些字段同样遵循标准 / 低性能模式的采样预算。
 
 首次停滞和操作超时时仅抓取相关操作线程或最近推进该监测点的线程栈，不转储整个 JVM。异步工作开始时通过 `runningHere()` 更新操作所属线程，避免把调度线程误认为执行线程。
 
@@ -718,6 +721,8 @@ IslandLeadingContent / IslandTrailingContent
 通过标准 JNI Invocation API 加载宿主自带的 `libjvm.so`，启动独立的 `LinuxIslandMain`。
 
 这允许插件在 jpackage 运行环境没有独立 `bin/java` 时仍使用宿主 JVM。
+
+`SPW_ISLAND_RENDERER` 默认为 `auto`；设为 `software` 时，`jvm_options()` 仅向独立界面 JVM 传入 `-Dspw.island.renderer=software`，使用现有 Java2D 兼容路径。其他值会报告明确错误。该开关不修改宿主 JVM 或托盘参数，也不新增线程、轮询或独立刷新预算。
 
 #### `tray`
 

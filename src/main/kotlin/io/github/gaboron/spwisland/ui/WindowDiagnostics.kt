@@ -4,6 +4,7 @@ package io.github.gaboron.spwisland.ui
 import io.github.gaboron.spwisland.core.PerformanceProfile
 import io.github.gaboron.spwisland.diagnostics.DiagnosticPulse
 import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.platform.AwtGraphicsDiagnostics
 import io.github.gaboron.spwisland.platform.NativeWindowDiagnostics
 import java.awt.GraphicsEnvironment
 import java.awt.Window
@@ -50,11 +51,15 @@ internal class WindowDiagnostics : AutoCloseable {
         val onscreen = GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
             .any { it.defaultConfiguration.bounds.intersects(window.bounds) }
         val native = IslandLog.attempt("window", "native_state.failed") { NativeWindowDiagnostics.read(window) }.getOrDefault(emptyMap())
+        val graphics = IslandLog.attempt("window", "graphics_configuration.failed") {
+            AwtGraphicsDiagnostics.read(window.graphicsConfiguration)
+        }.getOrDefault(emptyMap())
         val context = mapOf("awtVisible" to window.isVisible, "displayable" to window.isDisplayable,
             "onScreen" to onscreen, "width" to window.width, "height" to window.height,
             "x" to window.x, "y" to window.y, "renderer" to rendering["renderer"],
             "inputAvailable" to inputAvailable, "topmostAvailable" to topmostAvailable,
-            "frameProgress" to frameProgress) + native +
+            "frameProgress" to frameProgress, "awtGraphics" to graphics,
+            "backgroundAlpha" to window.background?.alpha, "opacity" to window.opacity) + native +
             IslandLog.attempt("window", "sample_details.failed", details).getOrDefault(emptyMap())
         val status = when {
             reason != "visible" -> "hidden_by_policy"

@@ -61,6 +61,20 @@ def tray_libraries():
                        "\n" + "\n".join(failures))
 
 
+def jvm_options(home, classpath, application_name):
+    """Renderer overrides belong to the independent UI JVM, not the SPW host."""
+    renderer = os.environ.get("SPW_ISLAND_RENDERER", "auto").strip().lower()
+    if renderer not in ("auto", "software"):
+        raise ValueError("SPW_ISLAND_RENDERER 必须为 auto 或 software")
+    options = ["-Djava.class.path=" + classpath, "-Djava.home=" + home,
+               "-Dsun.java.command=" + application_name,
+               "--enable-native-access=ALL-UNNAMED", "-Dsun.java2d.opengl=false",
+               "-Dsun.java2d.xrender=true", "-Xms16m", "-Xmx192m"]
+    if renderer == "software":
+        options.append("-Dspw.island.renderer=software")
+    return options
+
+
 def launch_jvm(home, classpath, main_class, application_name="灵动词岛 for SPW"):
     # Standard JNI Invocation API, with a fresh OS thread and its own JVM/EDT/Java2D queue.
     class Option(C.Structure):
@@ -69,9 +83,7 @@ def launch_jvm(home, classpath, main_class, application_name="灵动词岛 for S
     class InitArgs(C.Structure):
         _fields_ = [("version", I), ("count", I), ("options", C.POINTER(Option)), ("ignore", C.c_ubyte)]
 
-    options = ["-Djava.class.path=" + classpath, "-Djava.home=" + home,
-               "-Dsun.java.command=" + application_name,
-               "--enable-native-access=ALL-UNNAMED", "-Dsun.java2d.opengl=false", "-Dsun.java2d.xrender=true", "-Xms16m", "-Xmx192m"]
+    options = jvm_options(home, classpath, application_name)
     encoded = [v.encode("utf-8") for v in options]
     values = (Option * len(encoded))(*(Option(v, None) for v in encoded))
     init = InitArgs(0x00010008, len(values), values, 0)  # JNI_VERSION_1_8 (stable invocation ABI)

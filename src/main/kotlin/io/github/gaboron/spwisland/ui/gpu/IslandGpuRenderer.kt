@@ -4,6 +4,7 @@ package io.github.gaboron.spwisland.ui.gpu
 import io.github.gaboron.spwisland.diagnostics.IslandLog
 
 import com.sun.jna.Platform
+import io.github.gaboron.spwisland.platform.AwtGraphicsDiagnostics
 import io.github.gaboron.spwisland.platform.SkikoRuntime
 import io.github.gaboron.spwisland.platform.WindowsGpuInput
 import io.github.gaboron.spwisland.platform.WindowsDesktopBackdrop
@@ -28,7 +29,8 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
     private var backdrop: WindowsDesktopBackdrop? = null
     private var textureImport: WindowsGpuTextureImport? = null
     private val requiredRenderApi = if (Platform.isWindows()) GraphicsApi.DIRECT3D else GraphicsApi.OPENGL
-    private var failed = System.getProperty("spw.island.renderer") == "software"
+    private val requestedMode = System.getProperty("spw.island.renderer", "auto")
+    private var failed = requestedMode == "software"
     @Volatile var frames = 0L
         private set
     val active get() = layer != null
@@ -36,10 +38,12 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
     val rendererInfo get() = layer?.renderInfo ?: "Java2D 兼容绘制"
     fun diagnosticState(): Map<String, Any?> = mapOf(
         "requestedBackend" to requiredRenderApi,
+        "requestedMode" to requestedMode,
         "actualBackend" to (layer?.renderApi?.name ?: "Java2D"),
         "gpuActive" to active, "compatibilityMode" to failed,
         "layerDisplayable" to layer?.isDisplayable, "layerShowing" to layer?.isShowing,
-        "renderer" to rendererInfo
+        "renderer" to rendererInfo,
+        "awtCanvasGraphics" to AwtGraphicsDiagnostics.read(layer?.canvas?.graphicsConfiguration)
     )
     val glassStatus get() = scene?.glassFailure?.let { GlassStatus("使用经典背景", it, warning = true) } ?: when {
         scene?.glassWaitingForCrop == true -> GlassStatus("等待桌面图像", "等待完整的单屏后景，暂用经典背景。")
