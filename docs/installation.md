@@ -37,7 +37,7 @@ Linux x64 目前仍是实验性支持，需要：
 
 可选的实时频谱还需要 PipeWire，以及 `pw-record` / `pw-dump`（发行版通常放在 `pipewire-bin` 或 `pipewire` 包中）。悬停隐藏支持 X11 与 KDE Wayland。GNOME Wayland 45–50 需点击插件配置的“安装 GNOME 悬停隐藏支持”，首次安装或更新后保存工作并重新登录。
 
-GNOME 50 的实验性液态玻璃在插件设置的“背景与进度”中点击“安装 / 修复 GNOME 液态玻璃支持（Linux）”即可安装，无需终端。首次安装或更新后需重新登录，具体操作见 [液态玻璃设置](usage.md#gnome-配套扩展)。
+GNOME 50 的实验性液态玻璃在插件设置的“背景与进度”中点击“安装 / 修复 GNOME 液态玻璃支持（Linux）”即可安装，同时打开用户扩展总开关并安排启用配套扩展，无需终端或扩展管理应用。首次安装或更新后需重新登录，具体操作见 [液态玻璃设置](usage.md#gnome-配套扩展)。
 
 安装方式与 Windows 相同：导入 `.spmod` 并启用“灵动词岛 for SPW”。Linux 的快捷设置入口在系统托盘；设置页中标为 Windows 的功能仅在 Windows 生效，Linux 字体与 GNOME 支持使用对应的 Linux 设置项。具体差异见 [兼容性与限制](compatibility.md#linux-实验性支持)。
 

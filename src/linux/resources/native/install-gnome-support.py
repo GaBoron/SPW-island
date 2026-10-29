@@ -111,14 +111,16 @@ def deploy(directory, root, backup_root, files):
 
 
 def enable(uuid):
-    # Change only this companion's entries, and keep the user's global extension switch.
+    # The install action opens the global gate; individual entries still change only for this companion.
     enabled, disabled = extensions('enabled-extensions'), extensions('disabled-extensions')
     if uuid not in enabled:
         command('gsettings', 'set', 'org.gnome.shell', 'enabled-extensions', repr(enabled + [uuid]))
     if uuid in disabled:
         command('gsettings', 'set', 'org.gnome.shell', 'disabled-extensions', repr([item for item in disabled if item != uuid]))
     if command('gsettings', 'get', 'org.gnome.shell', 'disable-user-extensions') == 'true':
-        return False
+        command('gsettings', 'set', 'org.gnome.shell', 'disable-user-extensions', 'false')
+        if command('gsettings', 'get', 'org.gnome.shell', 'disable-user-extensions') != 'false':
+            raise RuntimeError('GNOME 用户扩展总开关未能开启，请重试或检查系统策略。')
     try:
         # Existing companions can be re-enabled immediately. New ones are discovered at login.
         if uuid in command('gnome-extensions', 'list').splitlines():
@@ -143,6 +145,9 @@ def install(kind, archive):
         if command('gsettings', 'writable', 'org.gnome.shell', key) != 'true':
             raise RuntimeError('系统策略禁止修改 GNOME 扩展设置，请联系系统管理员。')
         extensions(key)
+    if (command('gsettings', 'get', 'org.gnome.shell', 'disable-user-extensions') == 'true' and
+            command('gsettings', 'writable', 'org.gnome.shell', 'disable-user-extensions') != 'true'):
+        raise RuntimeError('系统策略禁止开启 GNOME 用户扩展，请联系系统管理员。')
     data_home = Path(os.environ.get('XDG_DATA_HOME') or str(Path.home() / '.local/share'))
     if not data_home.is_absolute():
         raise RuntimeError('GNOME 用户数据目录必须是绝对路径')
@@ -153,14 +158,12 @@ def install(kind, archive):
     try:
         active = enable(support['uuid'])
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
-        raise RuntimeError(support['label'] + '已安装，但自动启用失败。请在“扩展”应用中启用 SPW Island 扩展。' +
+        raise RuntimeError(support['label'] + '已安装，但自动启用失败。请重试“安装 / 修复”，或保存工作后重新登录。' +
                            '\n' + str(error)) from error
     if changed or not active:
-        print(support['label'] + '已安装并安排启用。请保存工作，注销后重新登录。')
+        print(support['label'] + '已安装，用户扩展总开关已开启。请保存工作，注销后重新登录。')
     else:
         print(support['label'] + '已就绪，无需重新安装。')
-    if command('gsettings', 'get', 'org.gnome.shell', 'disable-user-extensions') == 'true':
-        print('用户扩展的总开关已关闭，请先在“扩展”应用中打开总开关。')
 
 
 if __name__ == '__main__':
