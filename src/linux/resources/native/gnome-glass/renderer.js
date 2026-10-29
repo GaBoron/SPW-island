@@ -3,7 +3,10 @@ import Clutter from 'gi://Clutter';
 import Cogl from 'gi://Cogl';
 import GObject from 'gi://GObject';
 import GLib from 'gi://GLib';
+import Graphene from 'gi://Graphene';
 import Mtk from 'gi://Mtk';
+
+const SAMPLE_PADDING = 120;
 
 function context() {
     return global.stage.context.get_backend().get_cogl_context();
@@ -80,6 +83,16 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
         this.queue_redraw();
     }
 
+    vfunc_get_paint_volume(volume) {
+        if (!volume.set_from_allocation(this))
+            return false;
+        // Refraction and blur sample outside the silhouette. Damage must include those pixels.
+        volume.set_origin(new Graphene.Point3D({x: -SAMPLE_PADDING, y: -SAMPLE_PADDING, z: 0}));
+        volume.set_width(this.width + SAMPLE_PADDING * 2);
+        volume.set_height(this.height + SAMPLE_PADDING * 2);
+        return true;
+    }
+
     _prepareField(root) {
         const payload = this._payload;
         const signature = JSON.stringify([payload.points, this.width, this.height, this.get_resource_scale()]);
@@ -124,7 +137,7 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
             return cached?.initialized ? cached : this._lastCopy ?? null;
         // Follow the existing stable canvas rather than reallocating for every lyric morph.
         const rect = [0, 0, this.width, this.height];
-        const padding = 120;
+        const padding = SAMPLE_PADDING;
         const layout = view.layout;
         const scale = view.get_scale();
         const source = view.get_framebuffer();
@@ -194,22 +207,21 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
         }
         const damage = clip ? clip.copy() : Mtk.Region.create_rectangle(stageRect);
         damage.intersect_rectangle(stageRect);
-        const copyRoot = Clutter.RootNode.new(copy.framebuffer, view.color_state, new Cogl.Color(), 0);
-        const blit = Clutter.BlitNode.new(source);
-        // Outside the damage, the stage can still contain last frame's foreground.
-        // Update only freshly painted pixels; keep the previous GPU background elsewhere.
-        for (let i = 0; i < damage.num_rectangles(); i++) {
-            const dirty = damage.get_rectangle(i);
-            const left = Math.max(x0, Math.floor((dirty.x - layout.x) * scale));
-            const top = Math.max(y0, Math.floor((dirty.y - layout.y) * scale));
-            const right = Math.min(x1, Math.ceil((dirty.x + dirty.width - layout.x) * scale));
-            const bottom = Math.min(y1, Math.ceil((dirty.y + dirty.height - layout.y) * scale));
-            if (right > left && bottom > top)
-                blit.add_blit_rectangle(left, top, left - x0, top - y0, right - left, bottom - top);
+        // Mtk's rectangle getter returns a struct by value, which is unsafe through this GI binding.
+        // Only copy an entirely fresh sampling area; retain the GPU cache during partial damage.
+        if (damage.contains_rectangle(stageRect) === Mtk.RegionOverlap.IN) {
+            const copyRoot = Clutter.RootNode.new(copy.framebuffer, view.color_state, new Cogl.Color(), 0);
+            const blit = Clutter.BlitNode.new(source);
+            blit.add_blit_rectangle(x0, y0, 0, 0, x1 - x0, y1 - y0);
+            copyRoot.add_child(blit);
+            root.add_child(copyRoot);
+            copy.valid.union_rectangle(stageRect);
+            copy.requested = null;
+        } else if (copy.requested !== origin) {
+            // One bounded repaint refreshes the sample without copying stale foreground pixels.
+            global.stage.queue_redraw_with_clip(stageRect);
+            copy.requested = origin;
         }
-        copyRoot.add_child(blit);
-        root.add_child(copyRoot);
-        copy.valid.union(damage);
         copy.sample = sample;
         copy.x = x;
         copy.y = y;
@@ -222,15 +234,8 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
         const neededBottom = Math.min(stageRect.y + stageRect.height, Math.ceil(y + field[1] + field[3] + 88));
         const needed = new Mtk.Rectangle({x: neededLeft, y: neededTop,
             width: Math.max(0, neededRight - neededLeft), height: Math.max(0, neededBottom - neededTop)});
-        if (copy.valid.contains_rectangle(needed) !== Mtk.RegionOverlap.IN) {
-            if (copy.requested !== origin) {
-                // One bounded repaint of the sampling area initializes the cache; no full-stage redraw.
-                global.stage.queue_redraw_with_clip(stageRect);
-                copy.requested = origin;
-            }
+        if (copy.valid.contains_rectangle(needed) !== Mtk.RegionOverlap.IN)
             return null;
-        }
-        copy.requested = null;
         copy.initialized = true;
         return copy;
     }

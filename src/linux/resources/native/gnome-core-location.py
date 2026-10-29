@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Locate the faulting instruction using bounded ELF notes, without exporting process memory."""
 import base64
+import itertools
 import os
 from pathlib import Path
 import shutil
 import struct
 import subprocess
 import time
+import zlib
 
 
 PREFIX_LIMIT = 4 * 1024 * 1024
@@ -31,6 +33,33 @@ def compressed_blocks(stream, deadline):
                 raise ValueError('core note collection deadline reached')
             yield block[start:start + 32]
     raise ValueError('compressed core prefix budget exceeded')
+
+
+def decoded_blocks(stream, deadline):
+    source = iter(compressed_blocks(stream, deadline))
+    first = next(source, b'')
+    if first.startswith(b'\x28\xb5\x2f\xfd'):
+        try:
+            from compression import zstd
+        except ImportError as error:
+            raise ValueError('this system Python has no standard-library zstd decoder') from error
+        decoder = zstd.ZstdDecompressor()
+        for chunk in itertools.chain((first,), source):
+            output = decoder.decompress(chunk, max_length=65_536)
+            yield output
+            while not decoder.needs_input and not decoder.eof:
+                if time.monotonic() >= deadline:
+                    raise ValueError('core note collection deadline reached')
+                yield decoder.decompress(b'', max_length=65_536)
+    else:
+        # The streaming zlib API accepts both gzip and legacy zlib-wrapped Apport cores.
+        decoder = zlib.decompressobj(zlib.MAX_WBITS | 32)
+        for chunk in itertools.chain((first,), source):
+            yield decoder.decompress(chunk, max_length=65_536)
+            while decoder.unconsumed_tail:
+                if time.monotonic() >= deadline:
+                    raise ValueError('core note collection deadline reached')
+                yield decoder.decompress(decoder.unconsumed_tail, max_length=65_536)
 
 
 def note_ranges(data):
@@ -156,13 +185,8 @@ def parse_location(data, ranges, deadline):
 
 def locate(stream, deadline):
     try:
-        # The optional OS module understands the compression used by that Ubuntu's Apport.
-        import problem_report
-        decoder = getattr(problem_report, '_decode_compressed_stream', None)
-        if not callable(decoder):
-            raise ValueError('system Apport streaming decoder is unavailable')
         data = bytearray()
-        decoded = decoder(compressed_blocks(stream, deadline))
+        decoded = decoded_blocks(stream, deadline)
         try:
             for block in decoded:
                 if time.monotonic() >= deadline:

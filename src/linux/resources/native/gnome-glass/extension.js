@@ -5,7 +5,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import {GlassActor} from './renderer.js';
 
 const INTERFACE = `<node><interface name="io.github.gaboron.SpwIsland.Glass">
-    <method name="Update"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
+    <method name="UpdateV2"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
     <method name="Release"/>
 </interface></node>`;
 
@@ -23,7 +23,7 @@ export default class SpwIslandGlass extends Extension {
             this._sources[name] = new TextDecoder().decode(contents);
         }
         this._service = Gio.DBusExportedObject.wrapJSObject(INTERFACE, {
-            UpdateAsync: ([text], invocation) => this._update(text, invocation),
+            UpdateV2Async: ([text], invocation) => this._update(text, invocation),
             ReleaseAsync: (_params, invocation) => {
                 if (this._state?.sender === invocation.get_sender()) this._release();
                 invocation.return_value(new GLib.Variant('()', []));
