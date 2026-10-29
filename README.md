@@ -70,7 +70,7 @@ Linux 实时频谱需要 PipeWire 与 `pw-record` / `pw-dump`；悬停隐藏支�
 
 遇到问题或有功能想法，可以直接开 [Issue](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/issues)。
 
-较大的功能、UI 行为或平台改动建议先在 Issue 里把目标和范围说清楚，再开始完整实现；小型修复和文档修改可以直接提交 PR。项目的代码边界和贡献习惯写在 [开发指南](docs/development.md) 中。
+较大的功能、UI 行为或平台改动建议先在 Issue 里把目标和范围说清楚，再开始完整实现；小型修复和文档修改可以直接提交 PR。贡献说明见 [CONTRIBUTING.md](CONTRIBUTING.md)，项目架构见 [开发指南](docs/development.md)。
 
 ## 许可与致谢
 
