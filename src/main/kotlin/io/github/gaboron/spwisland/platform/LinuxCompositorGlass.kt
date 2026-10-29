@@ -17,6 +17,8 @@ import java.util.concurrent.TimeUnit
 
 /** Sends geometry, never desktop pixels. All process and D-Bus work stays off the EDT. */
 internal class LinuxCompositorGlass : AutoCloseable {
+    // Keep native Shell rendering quarantined while its session failure is being diagnosed.
+    private val renderingAvailable = false
     private val gnome = System.getenv("XDG_CURRENT_DESKTOP").orEmpty().split(':').any { it.equals("GNOME", true) }
     private val gson = Gson()
     private val worker = DiagnosticExecutors.single {
@@ -36,17 +38,17 @@ internal class LinuxCompositorGlass : AutoCloseable {
     private var input: BufferedReader? = null
     private var output: BufferedWriter? = null
     @Volatile private var readyAt = 0L
-    @Volatile private var detail = if (gnome) "请在插件设置点击“安装 / 修复 GNOME 液态玻璃支持”，首次安装后重新登录。" else
+    @Volatile private var detail = if (gnome) "GNOME 液态玻璃已暂停，避免会话异常。请从插件设置导出诊断包，无需再次安装或注销。" else
         "当前仅提供 GNOME 合成器适配。"
 
-    val supported: Boolean get() = gnome
+    val supported: Boolean get() = gnome && renderingAvailable
     val active: Boolean get() = enabled && System.nanoTime() - readyAt < 1_500_000_000L && readyAt != 0L
     val status: GlassStatus get() = if (active) GlassStatus("GNOME 合成器", "后景、模糊、折射、色散和高光在 Shell 内处理。")
         else GlassStatus("经典背景", detail)
 
     @Synchronized fun update(window: Window, settings: IslandSettings, shape: Shape, key: Any, opacity: Double) {
         if (closed) return
-        val use = gnome && settings.enabled && settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
+        val use = supported && settings.enabled && settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
             settings.performance.renderLiquidGlass && window.isDisplayable
         if (!use) { deactivate(); return }
         enabled = true

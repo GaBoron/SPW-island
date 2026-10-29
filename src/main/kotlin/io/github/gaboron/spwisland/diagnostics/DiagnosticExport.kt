@@ -2,6 +2,7 @@
 package io.github.gaboron.spwisland.diagnostics
 
 import com.google.gson.GsonBuilder
+import io.github.gaboron.spwisland.platform.LinuxHelper
 import java.awt.Desktop
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
@@ -10,7 +11,7 @@ import java.nio.file.StandardOpenOption.CREATE_NEW
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-/** Export only diagnostic files; never copy configuration, media, host logs or the process environment. */
+/** Export diagnostics and bounded GNOME failure evidence; never copy media, host logs or the environment. */
 internal object DiagnosticExport {
     fun openDirectory() {
         val directory = IslandLog.directory
@@ -33,6 +34,11 @@ internal object DiagnosticExport {
     fun create(): Path {
         val operation = IslandLog.operation("diagnostics", "export")
         try {
+            val gnome = IslandLog.attempt("diagnostics", "gnome.collect_failed") {
+                LinuxHelper.gnomeDiagnostics()
+            }.getOrElse { error ->
+                GsonBuilder().create().toJson(mapOf("available" to false, "error" to DiagnosticPrivacy.text(error)))
+            }
             val flushed = IslandLog.flush()
             val snapshot = IslandLog.snapshot()
             val directory = IslandLog.directory
@@ -41,6 +47,11 @@ internal object DiagnosticExport {
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))}-${java.util.UUID.randomUUID().toString().take(8)}.zip")
             val partial = destination.resolveSibling("${destination.fileName}.partial")
             ZipOutputStream(Files.newOutputStream(partial, CREATE_NEW)).use { zip ->
+                if (gnome != null) {
+                    zip.putNextEntry(ZipEntry("gnome-shell.json"))
+                    zip.write(gnome.toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
                 zip.putNextEntry(ZipEntry("environment.json"))
                 zip.write(GsonBuilder().setPrettyPrinting().create().toJson(IslandLog.environment() +
                     mapOf("session" to IslandLog.session, "hostLogFlushed" to flushed,

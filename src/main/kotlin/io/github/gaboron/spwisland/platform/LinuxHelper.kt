@@ -11,6 +11,9 @@ import kotlinx.coroutines.Job
 import java.net.JarURLConnection
 import java.net.URL
 import io.github.gaboron.spwisland.diagnostics.DiagnosticProcesses
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 
 /** Python desktop bridges use system libraries directly, without extra Python packages. */
 internal object LinuxHelper {
@@ -32,6 +35,25 @@ internal object LinuxHelper {
             width.toString(), height.toString(), pixels)
 
     fun startGlass(): Process = startScript("island-glass.py", extract("island-pointer.py").toString())
+
+    /** Read-only and bounded; run only when the user exports diagnostics, never in a render loop. */
+    fun gnomeDiagnostics(): String? {
+        if (!System.getProperty("os.name").startsWith("Linux") ||
+            System.getenv("XDG_CURRENT_DESKTOP").orEmpty().split(':').none { it.equals("GNOME", true) }) return null
+        val process = startScript("gnome-diagnostics.py")
+        val result = FutureTask { process.inputStream.readNBytes(65_537) }
+        IslandLog.thread("SPW Island GNOME diagnostic output") { result.run() }.start()
+        try {
+            check(process.waitFor(18, TimeUnit.SECONDS)) { "GNOME 诊断采集超时" }
+            val bytes = result.get(2, TimeUnit.SECONDS)
+            check(process.exitValue() == 0 && bytes.size <= 65_536) { "GNOME 诊断采集未完成" }
+            return bytes.toString(Charsets.UTF_8)
+        } finally {
+            if (process.isAlive) process.destroyForcibly()
+            process.inputStream.close()
+            result.cancel(true)
+        }
+    }
 
     fun installGnomeSupport(kind: String): String {
         require(kind == "pointer" || kind == "glass")

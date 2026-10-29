@@ -131,6 +131,19 @@ def enable(uuid):
     return False
 
 
+def suspend_glass(uuid):
+    # Do not re-enable an in-memory Shell module when repairing its files on disk.
+    disabled = extensions('disabled-extensions')
+    if uuid not in disabled:
+        command('gsettings', 'set', 'org.gnome.shell', 'disabled-extensions', repr(disabled + [uuid]))
+    enabled = extensions('enabled-extensions')
+    if uuid in enabled:
+        command('gsettings', 'set', 'org.gnome.shell', 'enabled-extensions', repr([item for item in enabled if item != uuid]))
+    if uuid in extensions('enabled-extensions') or uuid not in extensions('disabled-extensions'):
+        raise RuntimeError('无法安全停用 GNOME 液态玻璃扩展，请保持经典背景并导出诊断包。')
+    diagnostics.emit('extension.suspended', {'uuid': uuid})
+
+
 def install(kind, archive):
     support = SUPPORTS[kind]
     desktop = os.environ.get('XDG_CURRENT_DESKTOP', '').lower().split(':')
@@ -145,7 +158,7 @@ def install(kind, archive):
         if command('gsettings', 'writable', 'org.gnome.shell', key) != 'true':
             raise RuntimeError('系统策略禁止修改 GNOME 扩展设置，请联系系统管理员。')
         extensions(key)
-    if (command('gsettings', 'get', 'org.gnome.shell', 'disable-user-extensions') == 'true' and
+    if (kind != 'glass' and command('gsettings', 'get', 'org.gnome.shell', 'disable-user-extensions') == 'true' and
             command('gsettings', 'writable', 'org.gnome.shell', 'disable-user-extensions') != 'true'):
         raise RuntimeError('系统策略禁止开启 GNOME 用户扩展，请联系系统管理员。')
     data_home = Path(os.environ.get('XDG_DATA_HOME') or str(Path.home() / '.local/share'))
@@ -154,7 +167,12 @@ def install(kind, archive):
     data_home = data_home.resolve()
     root = (data_home / 'gnome-shell/extensions').resolve()
     root.mkdir(parents=True, exist_ok=True)
+    if kind == 'glass':
+        suspend_glass(support['uuid'])
     changed = deploy(root / support['uuid'], root, data_home / 'spw-island-backups', files)
+    if kind == 'glass':
+        print('GNOME 液态玻璃已安全停用，文件已修复。请直接导出诊断包；无需注销或重新开启扩展。')
+        return
     try:
         active = enable(support['uuid'])
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
