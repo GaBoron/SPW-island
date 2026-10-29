@@ -69,7 +69,7 @@ Windows 需要 Windows 11、SDR 显示器和 GPU 绘制；GNOME 50 使用下述�
 
 #### GNOME 配套扩展
 
-`SPW Island Glass` 适用于 GNOME Shell 50，仍需实机验收。安装方式：
+`SPW Island Glass` 实验性支持 GNOME Shell 50。安装方式：
 
 1. 在 SPW 插件设置的“背景与进度”点击 **安装 / 修复 GNOME 液态玻璃支持（Linux）**。
 2. 等待提示；首次安装后，保存工作并手动注销后重新登录一次，以加载扩展入口。

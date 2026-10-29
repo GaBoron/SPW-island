@@ -464,7 +464,8 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `LinuxCompositorGlass.kt` | 合并发送现有动态轮廓，管理 GNOME 材质桥接、首帧确认、失联回退和低性能停用 |
 | `src/linux/resources/native/island-glass.py` | 复用指针桥的 GIO 连接，将几何消息转发给 Shell；不传输桌面像素 |
 | `src/linux/resources/native/install-gnome-support.py` | 共用的指针 / 玻璃扩展安装器，校验内置包、备份替换、合并启用设置；失败暂存目录移入回收站 |
-| `src/linux/resources/native/gnome-glass/extension.js` | GNOME 50 配套服务、词岛窗口绑定、调用进程校验及租约回收 |
+| `src/linux/resources/native/gnome-glass/extension.js` | GNOME 50 配套服务、词岛窗口绑定、调用进程校验、租约回收及渲染模块加载 |
+| `src/linux/resources/native/gnome-glass/surface.js` | 稳定的 Clutter Actor、渲染模块首帧切换及失败保留 |
 | `src/linux/resources/native/gnome-glass/renderer.js` | Cogl 后景复制、轮廓距离缓存、分离模糊及光学合成；不接管输入 |
 | `src/linux/resources/native/gnome-glass/*.glsl` | 轮廓距离与法线、中心模糊、边缘折射、色散和高光 |
 
@@ -544,7 +545,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 
 背景优先使用同适配器的 D3D11/D3D12 共享纹理。适配器遵循 Skiko 的 GPU 优先级、DXGI 枚举顺序和 D3D12 支持条件，同名设备按这一顺序选择。裁片只写一次，复制完成后交给 Skia GPU Image；共享不可用时使用 staging 读回。`WindowsGpuTextureImport` 绑定 Skiko 0.150.1，通过反射访问实际 `DirectContext`、`drawLock` 与 GPU 优先级；上下文操作、录制和释放共用绘制锁。共享路径保留 GPU 裁切和快照复制，不回读像素；资源创建和 Present 等待仍有开销。
 
-材质顺序为 Backdrop Vibrancy → Blur → Lens → 中性基底与进度 → 原内容 → 独立 Highlight。中心模糊 sigma 为 6 逻辑像素，折射边缘使用 sigma 2 的较清晰采样，两者平滑混合；折射集中在内侧 14 逻辑像素，最大位移 36。七采样色散的最大单向偏移为 0.2 逻辑像素。词岛、菜单和关于页共用这些光学参数。高光使用轮廓内侧的模糊细边，独立 PLUS 合成；光源固定左上，背光侧强度为 15%。词岛基准遮罩为 50% 黑色，由背景不透明度缩放；辅助窗口使用随主题变化的 82% 中性基底保证小字对比度。
+材质顺序为 Backdrop Vibrancy → Blur → Lens → 中性基底与进度 → 原内容 → 独立 Highlight。中心、过渡与边缘模糊 sigma 分别为 10、4、0.8 逻辑像素，在内侧 28 逻辑像素内平滑混合；折射集中在内侧 20 逻辑像素，最大位移 52。RGB 采样沿轮廓法线分离，红蓝最大间距为 3.6 逻辑像素，向内部平滑衰减。三层模糊共享折射坐标，避免过渡边界出现双影。词岛、菜单和关于页共用这些光学参数。高光使用轮廓内侧的模糊细边，独立 PLUS 合成；光源固定左上，背光侧强度为 15%。词岛基准遮罩为 50% 黑色，由背景不透明度缩放；辅助窗口使用随主题变化的 82% 中性基底保证小字对比度。
 
 距离场和覆盖 mask 来自同一动态 Shape，法线由距离差分计算，最终轮廓使用原 Path 裁剪。Shader 复用；几何按轮廓与 DPI 缓存，背景滤镜按捕获版本缓存。歌词对比度在 GPU 上以 5×3 个位置采样最终材质，再归约到 1×1 纹理；低于 4.5:1 时整行使用经典黑色描边，字形动画共用判断结果。
 
@@ -554,7 +555,9 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 
 GNOME 实验路径复用 `IslandHoverGeometry` 的当前 Shape，展平后通过独立线程和 Python / GIO 桥发送归一化几何。后台只保留最新消息；静止时按 `PerformanceProfile.diagnosticSampleIntervalNs` 续约。`renderLiquidGlass` 为 false、窗口隐藏或关闭时停止桥接。界面不等待 D-Bus，首帧确认前和连接过期后使用经典背景。
 
-`SPW Island Glass` 在词岛 WindowActor 的原表面下插入不接收输入的 Clutter Actor。距离场仅在几何或缩放变化时重算，后景在当前 stage view 的绘制阶段通过 GPU blit 获取，随后执行分离模糊和光学合成。局部重绘仅更新缓存中的有效区域，移动时通过双 GPU 目标平移已有像素；最终覆盖范围受当前客户端表面 alpha 约束，避免迟到几何画到当前轮廓之外。没有屏幕录制、CPU 像素回读或桌面图像 IPC。后台 Actor 不改变原窗口边界、输入 Shape、歌词排版或动画时钟。GNOME 50 的绘制接口依据 [Mutter](https://github.com/GNOME/mutter/tree/50.0) 与 [GNOME Liquid Glass](https://github.com/ryohsuke1231/liquid-glass) 核查；KWin 的参考实现为 [kwin-effects-glass](https://github.com/4v3ngR/kwin-effects-glass)。配套 ZIP 由 `gnomeGlass` 任务生成并随插件资源打包，真实桌面的视觉、性能与几何同步仍待验收。
+`SPW Island Glass` 在词岛 WindowActor 的原表面下插入不接收输入的 Clutter Actor。距离场仅在几何或缩放变化时重算，后景在当前 stage view 的绘制阶段通过 GPU blit 获取，再通过逐级预过滤缩小、分离高斯模糊和光学合成完成材质。局部重绘未覆盖整个采样范围时保留上一个完整目标，并请求带移动留边的重绘；新背景完整就绪后交换双 GPU 目标，避免拖动期间丢弃有效材质。最终覆盖范围受当前客户端表面 alpha 约束，避免迟到几何画到当前轮廓之外。没有屏幕录制、CPU 像素回读或桌面图像 IPC。后台 Actor 不改变原窗口边界、输入 Shape、歌词排版或动画时钟。GNOME 50 的绘制接口依据 [Mutter](https://github.com/GNOME/mutter/tree/50.0) 与 [GNOME Liquid Glass](https://github.com/ryohsuke1231/liquid-glass) 核查；KWin 的参考实现为 [kwin-effects-glass](https://github.com/4v3ngR/kwin-effects-glass)。配套 ZIP 由 `gnomeGlass` 任务生成并随插件资源打包。
+
+`extension.js` 与 `surface.js` 是稳定入口，`renderer.js` 不注册 GObject 类型。安装器按内容标识将渲染器及着色器部署到独立修订目录，通过 `backend.json` 选择当前和上一版模块；Shell 使用不可变文件 URI 动态导入，绕开旧模块缓存。`surface.js` 在候选模块绘制出首帧后切换，失败时保留当前模块。宿主每次加载后只在玻璃启用且性能配置允许时自动同步一次，不改写 GNOME 扩展开关。
 
 Windows 的 DirectComposition 画面不进入 AWT 的逐像素输入映射，因此使用仅承担命中的独立输入窗口。它采用最低非零的整体透明度和正常轮廓，不获取键盘焦点；鼠标穿透、悬停隐藏及窗口临时隐藏时撤下该输入窗口。输入区域变化不影响可见动画的裁剪。
 
@@ -754,7 +757,7 @@ KWin 桥接通过会话 D-Bus 加载临时脚本，每 50 ms 更新指针。关�
 
 GNOME Wayland 使用 `SPW Island Pointer` 扩展，支持 GNOME 45–50。扩展按需调用 `global.get_pointer()`，通过只读 D-Bus 方法返回坐标。扩展源码位于 `src/linux/resources/native/gnome-pointer/`，由 `gnomePointer` 任务生成 ZIP 并装入 Linux 插件资源。
 
-指针和玻璃支持均从 SPW 设置页按需调用 `install-gnome-support.py`，不要求用户运行命令。宿主后台线程串行安装，重复点击不会启动并发操作；不新增常驻轮询。安装器只接受相应扩展的固定文件清单和兼容版本，按用户数据目录部署；旧目录移至 `spw-island-backups/<扩展 UUID>/<时间戳>`，替换失败时恢复。安装动作会把 `disable-user-extensions` 设为 false，界面说明其他已启用扩展也可能恢复；启用 / 禁用列表仅合并当前配套扩展的条目。总开关关闭且被策略锁定时，在部署前报错。相同文件无需重复替换；首次安装或更新后提示重新登录。失败的暂存目录通过 GIO 移入回收站，无法回收时保留并记录路径。
+指针和玻璃支持均从 SPW 设置页按需调用 `install-gnome-support.py`，不要求用户运行命令。宿主后台线程与安装文件锁串行安装，重复点击不会启动并发操作；不新增常驻轮询。安装器只接受相应扩展的固定文件清单和兼容版本，按用户数据目录部署；旧目录移至 `spw-island-backups/<扩展 UUID>/<时间戳>`，替换失败时恢复。手动安装动作会把 `disable-user-extensions` 设为 false，界面说明其他已启用扩展也可能恢复；启用 / 禁用列表仅合并当前配套扩展的条目。总开关关闭且被策略锁定时，在手动部署前报错。相同文件无需重复替换；指针扩展安装或更新后、玻璃入口首次加载前提示重新登录，玻璃渲染模块后续自动热加载。失败的暂存目录通过 GIO 移入回收站，无法回收时保留并记录路径。
 
 #### PipeWire 频谱
 
