@@ -40,7 +40,8 @@ internal object LinuxHelper {
     fun gnomeDiagnostics(): String? {
         if (!System.getProperty("os.name").startsWith("Linux") ||
             System.getenv("XDG_CURRENT_DESKTOP").orEmpty().split(':').none { it.equals("GNOME", true) }) return null
-        val process = startScript("gnome-diagnostics.py", extract("gnome-crash-reports.py").toString())
+        val process = startScript("gnome-diagnostics.py", extract("gnome-crash-reports.py").toString(),
+            extract("gnome-core-location.py").toString())
         val result = FutureTask { process.inputStream.readNBytes(196_609) }
         IslandLog.thread("SPW Island GNOME diagnostic output") { result.run() }.start()
         try {
