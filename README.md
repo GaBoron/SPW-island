@@ -47,7 +47,7 @@
 
 | 安装方式 | 操作 |
 | --- | --- |
-| <img src="https://cdn.simpleicons.org/steam/66C0F4" width="16" alt=""> **Steam 创意工坊** | [订阅灵动词岛](https://steamcommunity.com/sharedfiles/filedetails/?id=3821553308) |
+| 🎮 **Steam 创意工坊** | [订阅灵动词岛](https://steamcommunity.com/sharedfiles/filedetails/?id=3821553308) |
 | 📥 **手动安装** | 从 [Releases](https://github.com/GaBoron/SPW-island/releases/latest) 下载 `spw-island-<版本>.spmod`，在 SPW 插件管理中导入并启用 |
 
 需要支持 Workshop API dev23 的 **SPW 1.19.0+**，以及宿主提供的 **Java 25+**。Windows 和 Linux 使用同一个插件包。
