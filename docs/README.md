@@ -10,7 +10,8 @@
 | 词岛怎么操作、设置项有什么用 | [使用与设置](usage.md) |
 | Windows / Linux 分别支持哪些功能 | [兼容性与限制](compatibility.md) |
 | 词岛不显示、歌词异常、频谱不动等问题 | [故障排查](troubleshooting.md) |
-| 架构、代码地图、构建和贡献 | [开发指南](development.md) |
+| 架构、代码地图与构建 | [开发指南](development.md) |
+| 提交 Issue 或 PR | [贡献指南](../CONTRIBUTING.md) |
 
 ## 常用入口
 

@@ -1,81 +1,74 @@
 <p align="center">
-  <img src="docs/assets/README-hero.png" width="320" alt="灵动词岛">
+  <img src="docs/assets/README-hero.png" width="320" alt="灵动词岛预览">
 </p>
 
 <h1 align="center">灵动词岛 for SPW</h1>
 
-<p align="center">为 Salt Player for Windows 制作的桌面歌词词岛。</p>
+<p align="center">让 Salt Player 的歌词成为桌面的一部分。<br>逐字高亮、流畅动效、液态玻璃与便捷的播放控制。</p>
 
 <p align="center">
-  <a href="https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest"><img src="https://img.shields.io/github/v/release/GaBoron/Dynamic-Lyrics-Island-for-SPW?label=Release" alt="Release"></a>
-  <a href="docs/compatibility.md"><img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows" alt="Windows 10 / 11"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0%20%2B%20AGPL--3.0-blue" alt="License"></a>
+  <a href="https://github.com/GaBoron/SPW-island/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/GaBoron/SPW-island?style=flat-square&logo=github&label=Release"></a>
+  <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3821553308"><img alt="Steam 创意工坊" src="https://img.shields.io/badge/Steam-创意工坊-1B2838?style=flat-square&logo=steam&logoColor=white"></a>
+  <a href="docs/compatibility.md"><img alt="Windows 10 / 11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square&logo=windows&logoColor=white"></a>
+  <a href="docs/compatibility.md"><img alt="Linux x64" src="https://img.shields.io/badge/Linux-x64-FCC624?style=flat-square&logo=linux&logoColor=black"></a>
+  <a href="docs/installation.md"><img alt="SPW 1.19.0+" src="https://img.shields.io/badge/SPW-1.19.0%2B-6750A4?style=flat-square"></a>
+  <a href="LICENSE"><img alt="GPL-3.0 与 AGPL-3.0" src="https://img.shields.io/badge/License-GPL--3.0%20%2B%20AGPL--3.0-blue?style=flat-square"></a>
 </p>
 
-把 SPW 当前播放的歌词放到桌面上方，支持逐字歌词、翻译、AMLL 风格动效、专辑封面与取色、播放控制、实时频谱、鼠标穿透和自动隐藏。
+<p align="center">
+  <a href="https://github.com/GaBoron/SPW-island/releases/latest">下载插件</a>
+  &nbsp;·&nbsp;
+  <a href="docs/README.md">使用文档</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/GaBoron/SPW-island/issues">问题反馈</a>
+</p>
 
-QQ 交流群：`1054809039`
+## ✨ 功能亮点
 
-## 功能
-
-- 逐字高亮、普通 LRC 强制逐字显示、翻译、长音强调、辉光和歌词切换动效；
-- 胶囊 / 刘海外观，支持圆角、宽度、透明度、字体和多种封面取色；
-- Windows 11 SDR 桌面可选实验性液态玻璃，词岛、右键菜单和关于页统一使用实时模糊、折射、轻微色散和方向高光；
-- 悬停展开上一首、播放 / 暂停、下一首和可拖动进度条；
-- 九宫格拖动吸附，顶部和底部会自动调整展开方向；
-- Windows 和 Linux 均支持 SPW 进程的四频段实时频谱、频谱取色和鼠标穿透；
-- 悬停隐藏支持 Windows、X11、KDE Wayland 与安装配套扩展的 GNOME Wayland；全屏隐藏目前仅支持 Windows。
-
-详细设置见 [使用与设置](docs/usage.md)，平台差异见 [兼容性与限制](docs/compatibility.md)。
-
-## 安装
-
-需要支持 Workshop API dev23 的 SPW 1.19.0 或更高版本，宿主运行环境为 Java 25 或更高版本。
-
-可前往 [Steam 创意工坊](https://steamcommunity.com/sharedfiles/filedetails/?id=3821553308) 订阅“灵动词岛 for SPW”。手动安装步骤如下：
-
-1. 前往 [Releases](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest) 下载 `spw-island-<版本>.spmod`；
-2. 在 SPW 的创意工坊 / 插件管理中导入；
-3. 启用插件并播放一首已经有歌词的歌曲。
-
-Windows x64 和 Linux x64 使用同一个插件包，启用后自动选择对应平台组件。不要导入带 `-source` 后缀的源码包。
-
-权限说明和 Linux 运行环境见 [安装与更新](docs/installation.md)。
-
-本插件只显示 SPW 已经加载的歌词，不负责联网搜索。需要自动获取逐字歌词时，可以搭配 [SPW-Lyrics](https://github.com/GaBoron/SPW-Lyrics)。
-
-## 平台
-
-| 平台 | 状态 |
+| 主要功能 | 说明 |
 | --- | --- |
-| Windows 10 / 11 x64 | 主要支持平台 |
+| **逐字歌词与动效** | 逐字高亮、翻译、长音强调、AMLL 风格动效，普通 LRC 也可以估算逐字进度。 |
+| **液态玻璃** | 实时模糊、折射、色散与高光；实验性支持 Windows 11 SDR 和 GNOME 50。 |
+| **自由外观** | 胶囊 / 顶部刘海、圆角、字体、封面取色和背景播放进度。 |
+| **播放控制** | 悬停展开上一首、播放 / 暂停、下一首、进度条与音量控制。 |
+| **实时频谱** | 四频段音乐可视化与频谱取色，Windows 和 Linux 均可使用。 |
+| **桌面交互** | 九宫格吸附、鼠标穿透、悬停自动隐藏与低性能模式。 |
+
+具体设置见 [使用与设置](docs/usage.md)，平台差异见 [兼容性与限制](docs/compatibility.md)。
+
+## 🧩 平台支持
+
+| 平台 | 支持情况 |
+| --- | --- |
+| Windows 10 / 11 x64 | 主要支持 |
 | Linux x64 | 实验性支持 |
-| macOS | 暂无计划 |
+| macOS | 暂不支持 |
 
-Windows 是主要开发环境，提供完整功能；Linux 保留实验性支持，平台差异见兼容性说明。
+## 📦 安装
 
-Linux 实时频谱需要 PipeWire 与 `pw-record` / `pw-dump`；悬停隐藏支持 X11、KDE Wayland 与安装配套扩展的 GNOME Wayland，前台全屏检测仍仅支持 Windows。具体差异见 [兼容性与限制](docs/compatibility.md)。
+推荐通过 [Steam 创意工坊](https://steamcommunity.com/sharedfiles/filedetails/?id=3821553308) 直接订阅。也可以从 [GitHub Releases](https://github.com/GaBoron/SPW-island/releases/latest) 下载 `spw-island-<版本>.spmod`，在 SPW 插件管理中导入并启用。
 
-## 文档
+需要支持 Workshop API dev23 的 **SPW 1.19.0+** 和宿主提供的 **Java 25+**。Windows 与 Linux 使用同一个插件包。首次使用时，播放一首 SPW 已经加载歌词的歌曲即可。
+
+详细步骤与 Linux 环境要求见 [安装与更新](docs/installation.md)。
+
+## 📚 文档
 
 - [安装与更新](docs/installation.md)
 - [使用与设置](docs/usage.md)
-- [故障排查](docs/troubleshooting.md)
 - [兼容性与限制](docs/compatibility.md)
+- [故障排查](docs/troubleshooting.md)
 - [开发指南](docs/development.md)
+- [贡献指南](CONTRIBUTING.md)
 
-完整文档入口在 [`docs/README.md`](docs/README.md)。
+## 🔗 相关项目与交流
 
-## 反馈与贡献
+[SPW-Lyrics](https://github.com/GaBoron/SPW-Lyrics) 可为 SPW 获取和管理歌词，与灵动词岛搭配使用；灵动词岛自身不负责联网搜索歌词。
 
-遇到问题或有功能想法，可以直接开 [Issue](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/issues)。
+QQ 交流群：`1054809039`。问题反馈和功能建议可直接提交 [Issue](https://github.com/GaBoron/SPW-island/issues)。
 
-较大的功能、UI 行为或平台改动建议先在 Issue 里把目标和范围说清楚，再开始完整实现；小型修复和文档修改可以直接提交 PR。项目的代码边界和贡献习惯写在 [开发指南](docs/development.md) 中。
+## 📜 许可与致谢
 
-## 许可与致谢
+灵动词岛的原创视觉概念来自 [Lyricify / WXRIW（XY Wang）](https://github.com/WXRIW/Lyricify-App#lyricify-原创)，本项目依据 CC BY-SA 4.0 独立实现，并非 Lyricify 官方产品。
 
-灵动词岛原创：Lyricify / WXRIW（XY Wang）。本项目依据 [CC BY-SA 4.0](https://github.com/WXRIW/Lyricify-App#lyricify-原创) 独立实现，并非 Lyricify 官方产品。
-
-AMLL 动画移植模块采用 AGPL-3.0-only，其他程序采用 GPL-3.0-only；视觉、交互改编及文档采用 CC BY-SA 4.0。
-
-详见 [NOTICE](NOTICE)、[第三方许可说明](THIRD_PARTY_NOTICES.md) 和 [LICENSE](LICENSE)。
+AMLL 动画移植模块采用 AGPL-3.0-only，其他程序采用 GPL-3.0-only；视觉、交互改编及文档采用 CC BY-SA 4.0。详见 [NOTICE](NOTICE)、[第三方许可说明](THIRD_PARTY_NOTICES.md) 和 [LICENSE](LICENSE)。
