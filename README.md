@@ -2,7 +2,7 @@
   <img src="docs/assets/README-hero.png" width="320" alt="灵动词岛预览">
 </p>
 
-<h1 align="center">🎵 灵动词岛 for SPW</h1>
+<h1 align="center">灵动词岛 for SPW</h1>
 
 <p align="center">让 Salt Player 的歌词成为桌面的一部分。<br>逐字高亮、流畅动效、液态玻璃与便捷的播放控制。</p>
 
