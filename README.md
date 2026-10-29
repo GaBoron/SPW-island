@@ -10,7 +10,7 @@
   <a href="https://github.com/GaBoron/SPW-island/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/GaBoron/SPW-island?style=flat-square&logo=github&label=Release"></a>
   <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3821553308"><img alt="Steam 创意工坊" src="https://img.shields.io/badge/Steam-创意工坊-1B2838?style=flat-square&logo=steam&logoColor=white"></a>
   <a href="docs/compatibility.md"><img alt="Windows 10 / 11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square&logo=windows&logoColor=white"></a>
-  <a href="docs/compatibility.md"><img alt="Linux 实验性支持" src="https://img.shields.io/badge/Linux-实验性支持-FCC624?style=flat-square&logo=linux&logoColor=black"></a>
+  <a href="docs/compatibility.md"><img alt="Linux x64" src="https://img.shields.io/badge/Linux-x64-FCC624?style=flat-square&logo=linux&logoColor=black"></a>
   <a href="docs/installation.md"><img alt="SPW 1.19.0+" src="https://img.shields.io/badge/SPW-1.19.0%2B-6750A4?style=flat-square"></a>
   <a href="LICENSE"><img alt="GPL-3.0 与 AGPL-3.0" src="https://img.shields.io/badge/License-GPL--3.0%20%2B%20AGPL--3.0-blue?style=flat-square"></a>
 </p>
@@ -40,8 +40,8 @@
 
 | 平台 | 支持情况 |
 | --- | --- |
-| Windows 10 / 11 x64 | ✅ 主要支持 |
-| Linux x64 | 🧪 实验性支持 |
+| Windows 10 / 11 x64 | 主要支持 |
+| Linux x64 | 实验性支持 |
 | macOS | 暂不支持 |
 
 ## 📦 安装
