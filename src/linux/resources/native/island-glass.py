@@ -15,13 +15,13 @@ try:
             # Validate framing before forwarding; the Shell validates the bounded contour.
             json.loads(line)
             # A distinct method prevents GNOME's cached older module from receiving a render request.
-            reply = bus.first(bus.call("org.gnome.Shell", path, interface, "UpdateV3",
+            reply = bus.first(bus.call("org.gnome.Shell", path, interface, "UpdateManaged",
                                        (line.strip(),), "(s)"), lambda value: bus.get_string(value, None))
             print(reply.decode("utf-8", "replace"), flush=True)
         except (OSError, RuntimeError, ValueError) as error:
             message = str(error).replace("\n", " ")
             if any(kind in message for kind in ('UnknownMethod', 'UnknownObject', 'UnknownInterface')):
-                message = '请在插件设置安装 / 修复 GNOME 液态玻璃支持；首次或更新后保存工作并注销后重新登录。'
+                message = '请从插件设置安装 / 修复 GNOME 液态玻璃支持；首次安装或旧入口迁移后重新登录一次，此后渲染更新自动同步。'
             print("WAIT " + message, flush=True)
 finally:
     try:

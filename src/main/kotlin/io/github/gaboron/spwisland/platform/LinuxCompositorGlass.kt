@@ -37,12 +37,12 @@ internal class LinuxCompositorGlass : AutoCloseable {
     private var input: BufferedReader? = null
     private var output: BufferedWriter? = null
     @Volatile private var readyAt = 0L
-    @Volatile private var detail = if (gnome) "请在插件设置安装 / 修复 GNOME 液态玻璃支持；首次或更新后保存工作并注销后重新登录。" else
+    @Volatile private var detail = if (gnome) "首次安装或旧入口迁移后需重新登录一次；此后渲染模块随插件自动更新。" else
         "当前仅提供 GNOME 合成器适配。"
 
     val supported: Boolean get() = gnome
     val active: Boolean get() = enabled && System.nanoTime() - readyAt < 1_500_000_000L && readyAt != 0L
-    val status: GlassStatus get() = if (active) GlassStatus("GNOME 合成器", "后景、模糊、折射、色散和高光在 Shell 内处理。")
+    val status: GlassStatus get() = if (active) GlassStatus("GNOME 合成器", detail)
         else GlassStatus("经典背景", detail)
 
     @Synchronized fun update(window: Window, settings: IslandSettings, shape: Shape, key: Any, opacity: Double) {
@@ -104,8 +104,10 @@ internal class LinuxCompositorGlass : AutoCloseable {
                         }
                         synchronized(this) {
                             if (enabled && !closed) {
-                                readyAt = if (reply == "READY") System.nanoTime() else 0L
-                                detail = if (reply == "READY") "GNOME 配套扩展已连接，等待显示。" else reply.removePrefix("WAIT ")
+                                val ready = reply == "READY" || reply.startsWith("READY ")
+                                readyAt = if (ready) System.nanoTime() else 0L
+                                detail = if (reply == "READY") "后景、模糊、折射、色散和高光在 Shell 内处理。"
+                                    else reply.removePrefix(if (ready) "READY " else "WAIT ")
                             }
                         }
                     } catch (error: Exception) {

@@ -133,7 +133,7 @@ def collect():
         'capturedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'notice': 'Read-only. Focused crash windows, bounded ELF fault metadata and recent logs; no core memory or desktop images.',
         'renderingPolicy': 'compatible-companion-required',
-        'glassProtocol': 'UpdateV3',
+        'glassProtocol': 'UpdateManaged',
         'pythonVersion': sys.version.split()[0],
         'shellVersion': query('gnome-shell', '--version'),
         'extension': query('gnome-extensions', 'info', UUID),

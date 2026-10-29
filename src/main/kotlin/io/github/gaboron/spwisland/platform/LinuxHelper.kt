@@ -14,6 +14,7 @@ import io.github.gaboron.spwisland.diagnostics.DiagnosticProcesses
 import io.github.gaboron.spwisland.diagnostics.IslandLog
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
+import com.google.gson.JsonParser
 
 /** Python desktop bridges use system libraries directly, without extra Python packages. */
 internal object LinuxHelper {
@@ -56,16 +57,34 @@ internal object LinuxHelper {
         }
     }
 
-    fun installGnomeSupport(kind: String): String {
+    fun installGnomeSupport(kind: String): String = runGnomeSetup(kind, false)
+
+    fun refreshGnomeGlass(): String? {
+        val result = JsonParser.parseString(runGnomeSetup("glass", true)).asJsonObject
+        IslandLog.event("linux.glass", "renderer.synced", mapOf(
+            "installed" to result["installed"]?.asBoolean, "ready" to result["ready"]?.asBoolean,
+            "changed" to result["changed"]?.asBoolean))
+        return result["message"]?.asString?.takeIf {
+            it.isNotBlank() && result["installed"]?.asBoolean == true && result["ready"]?.asBoolean != true &&
+                result["changed"]?.asBoolean == true
+        }
+    }
+
+    private fun runGnomeSetup(kind: String, refresh: Boolean): String {
         require(kind == "pointer" || kind == "glass")
         val archive = extract("spw-island-$kind@gaboron.github.io.shell-extension.zip")
-        val process = startScript("install-gnome-support.py", kind, archive.toString())
+        val arguments = listOf(kind, archive.toString()) + if (refresh) listOf("--refresh-existing") else emptyList()
+        val process = startScript("install-gnome-support.py", *arguments.toTypedArray())
         if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
             process.destroyForcibly()
             error("GNOME 支持安装超时，请重试。")
         }
         val message = process.inputStream.bufferedReader().readText().trim()
-        check(process.exitValue() == 0) { message.ifBlank { "GNOME 支持安装失败" } }
+        check(process.exitValue() == 0) {
+            if (refresh) runCatching { JsonParser.parseString(message).asJsonObject["error"]?.asString }
+                .getOrNull() ?: "GNOME 支持自动同步失败"
+            else message.ifBlank { "GNOME 支持安装失败" }
+        }
         return message
     }
 

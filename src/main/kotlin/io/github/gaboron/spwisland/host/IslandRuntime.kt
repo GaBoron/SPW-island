@@ -5,6 +5,7 @@ package io.github.gaboron.spwisland.host
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import io.github.gaboron.spwisland.core.PlaybackTimeline
 import io.github.gaboron.spwisland.core.SpectrumMode
+import io.github.gaboron.spwisland.core.IslandBackgroundStyle
 import io.github.gaboron.spwisland.core.performance
 import io.github.gaboron.spwisland.ui.*
 import io.github.gaboron.spwisland.platform.ProcessSpectrum
@@ -36,6 +37,7 @@ class IslandRuntime : AutoCloseable {
         else ProcessSpectrum(::notifySpectrumFallback)
     @Volatile private var closed = false
     private val gnomeSetupRunning = AtomicBoolean()
+    private val gnomeRefreshStarted = AtomicBoolean()
     private val settings = HostSettings(WorkshopApi.manager.createConfigManager()) {
         updateSpectrumMode()
         if (!closed) ui?.reload()
@@ -76,6 +78,25 @@ class IslandRuntime : AutoCloseable {
         IslandLog.cadence(current.performance.diagnosticSampleIntervalNs)
         spectrum.setEnabled(current.enabled && current.performance.spectrumMode == SpectrumMode.LIVE &&
             current.sideContent.showsSpectrum && (!Platform.isLinux() || timeline.snapshot().playing))
+        // Startup-only synchronization follows the same disabled/low-performance gate as rendering.
+        if (!closed && Platform.isLinux() && current.enabled && current.performance.renderLiquidGlass &&
+            current.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
+            System.getenv("XDG_CURRENT_DESKTOP").orEmpty().split(':').any { it.equals("GNOME", true) } &&
+            gnomeRefreshStarted.compareAndSet(false, true)) {
+            if (gnomeSetupRunning.compareAndSet(false, true)) {
+                IslandLog.thread("SPW Island GNOME renderer sync") {
+                    try {
+                        if (!closed) safely("gnome.renderer.sync") {
+                            val message = LinuxHelper.refreshGnomeGlass()
+                            if (!closed && message != null)
+                                WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning)
+                        }
+                    } finally { gnomeSetupRunning.set(false) }
+                }.start()
+            } else {
+                gnomeRefreshStarted.set(false)
+            }
+        }
     }
     fun recover() = safely("window.recover") {
         settings.set("auto_hide_on_hover", false); settings.set("click_through", false)
@@ -104,7 +125,10 @@ class IslandRuntime : AutoCloseable {
                     val message = LinuxHelper.installGnomeSupport(kind)
                     if (!closed) WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning)
                 }
-            } finally { gnomeSetupRunning.set(false) }
+            } finally {
+                gnomeSetupRunning.set(false)
+                if (!closed) updateSpectrumMode()
+            }
         }.start()
     }
     fun resetSettings() = safely { settings.resetAll() }

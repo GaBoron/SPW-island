@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Install bundled GNOME companions on demand, preserving unrelated Shell settings."""
 import ast
+from contextlib import contextmanager
+import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -26,10 +30,81 @@ SUPPORTS = {
         'uuid': 'spw-island-glass@gaboron.github.io',
         'label': 'GNOME 液态玻璃支持',
         'versions': (50,),
-        'files': {'extension.js', 'renderer.js', 'metadata.json', 'contour.glsl', 'blur.glsl',
+        'files': {'extension.js', 'surface.js', 'renderer.js', 'metadata.json', 'contour.glsl', 'blur.glsl',
                   'glass.glsl', 'LICENSE', 'NOTICE', 'licenses/Apache-2.0.txt'},
     },
 }
+
+RENDERER_FILES = ('renderer.js', 'contour.glsl', 'blur.glsl', 'glass.glsl')
+
+
+def renderer_revision(files):
+    # Product content IDs give ESM imports immutable URLs; they are not public plugin versions.
+    digest = hashlib.sha256()
+    for name in RENDERER_FILES:
+        content = files[name]
+        digest.update(name.encode() + b'\0' + len(content).to_bytes(8, 'big') + content)
+    return digest.hexdigest()[:32]
+
+
+def renderer_layout(files, directory):
+    revision = renderer_revision(files)
+    deployed = {name: content for name, content in files.items() if name not in RENDERER_FILES}
+    for name in RENDERER_FILES:
+        deployed[f'revisions/{revision}/{name}'] = files[name]
+    manifest = {'schema': 1, 'revision': revision}
+    try:
+        pointer = directory / 'backend.json'
+        if pointer.is_symlink() or pointer.stat().st_size > 4096:
+            raise ValueError('invalid renderer pointer')
+        old = json.loads(pointer.read_bytes())
+        if not isinstance(old, dict):
+            raise ValueError('invalid renderer pointer')
+        previous = old.get('previous') if old.get('revision') == revision else old.get('revision')
+        if old.get('schema') != 1 or not isinstance(previous, str) or not re.fullmatch('[a-f0-9]{32}', previous):
+            raise ValueError('no previous renderer')
+        base = directory / 'revisions' / previous
+        if (directory / 'revisions').is_symlink() or base.is_symlink():
+            raise ValueError('invalid previous renderer directory')
+        saved = {}
+        for name in RENDERER_FILES:
+            path = base / name
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > 262144:
+                raise ValueError('invalid previous renderer file')
+            saved[name] = path.read_bytes()
+        if renderer_revision(saved) != previous:
+            raise ValueError('previous renderer content changed')
+        manifest['previous'] = previous
+        for name, content in saved.items():
+            deployed[f'revisions/{previous}/{name}'] = content
+    except (OSError, ValueError):
+        pass  # A legacy install or absent fallback does not prevent installing the current bundle.
+    deployed['backend.json'] = json.dumps(manifest, sort_keys=True).encode()
+    return deployed, revision
+
+
+@contextmanager
+def setup_lock(data_home):
+    root = data_home / 'spw-island-support'
+    if root.is_symlink():
+        raise RuntimeError('GNOME 支持锁目录不是普通目录')
+    root.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(root / 'setup.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise RuntimeError('GNOME 支持锁文件类型不正确')
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('GNOME 支持正在由另一进程更新，请稍后重试。')
+                time.sleep(.05)
+        yield
+    finally:
+        os.close(descriptor)
 
 
 def command(*args):
@@ -131,18 +206,28 @@ def enable(uuid):
     return False
 
 
-def glass_ready():
+def reload_glass(revision):
     try:
-        # Introspection is read-only. Never probe readiness by issuing a render request.
-        return 'UpdateV3' in command('gdbus', 'introspect', '--session', '--dest', 'org.gnome.Shell',
-                                     '--object-path', '/io/github/gaboron/SpwIsland/Glass')
-    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
-        diagnostics.failure('extension.glass_pending_login', error)
+        interface = command('gdbus', 'introspect', '--session', '--dest', 'org.gnome.Shell',
+                            '--object-path', '/io/github/gaboron/SpwIsland/Glass')
+        if 'UpdateManaged' not in interface or 'Reload' not in interface:
+            return False
+        response = command('gdbus', 'call', '--session', '--dest', 'org.gnome.Shell',
+                           '--object-path', '/io/github/gaboron/SpwIsland/Glass',
+                           '--method', 'io.github.gaboron.SpwIsland.Glass.Reload', revision)
+        values = ast.literal_eval(response)
+        if not isinstance(values, tuple) or not values or values[0] != 'LOADED':
+            raise RuntimeError(str(values[0]) if values else '渲染模块未加载')
+        return True
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
+        diagnostics.failure('extension.glass_reload_pending', error)
         return False
 
 
-def install(kind, archive):
+def install(kind, archive, refresh_existing=False):
     support = SUPPORTS[kind]
+    if refresh_existing and kind != 'glass':
+        raise RuntimeError('自动同步仅用于液态玻璃支持')
     desktop = os.environ.get('XDG_CURRENT_DESKTOP', '').lower().split(':')
     if 'gnome' not in desktop:
         raise RuntimeError('此配套扩展仅用于 GNOME 桌面')
@@ -151,38 +236,62 @@ def install(kind, archive):
         supported = '50' if kind == 'glass' else '45–50'
         raise RuntimeError(support['label'] + '适用于 GNOME ' + supported + '，当前桌面版本不支持。')
     files = package_files(archive, support, int(match.group(1)))
-    for key in ('enabled-extensions', 'disabled-extensions'):
-        if command('gsettings', 'writable', 'org.gnome.shell', key) != 'true':
-            raise RuntimeError('系统策略禁止修改 GNOME 扩展设置，请联系系统管理员。')
-        extensions(key)
-    if (command('gsettings', 'get', 'org.gnome.shell', 'disable-user-extensions') == 'true' and
-            command('gsettings', 'writable', 'org.gnome.shell', 'disable-user-extensions') != 'true'):
-        raise RuntimeError('系统策略禁止开启 GNOME 用户扩展，请联系系统管理员。')
     data_home = Path(os.environ.get('XDG_DATA_HOME') or str(Path.home() / '.local/share'))
     if not data_home.is_absolute():
         raise RuntimeError('GNOME 用户数据目录必须是绝对路径')
     data_home = data_home.resolve()
     root = (data_home / 'gnome-shell/extensions').resolve()
+    directory = root / support['uuid']
+    if refresh_existing and not directory.is_dir():
+        return {'installed': False, 'ready': False, 'changed': False, 'message': ''}
+    if not refresh_existing:
+        for key in ('enabled-extensions', 'disabled-extensions'):
+            if command('gsettings', 'writable', 'org.gnome.shell', key) != 'true':
+                raise RuntimeError('系统策略禁止修改 GNOME 扩展设置，请联系系统管理员。')
+            extensions(key)
+        if (command('gsettings', 'get', 'org.gnome.shell', 'disable-user-extensions') == 'true' and
+                command('gsettings', 'writable', 'org.gnome.shell', 'disable-user-extensions') != 'true'):
+            raise RuntimeError('系统策略禁止开启 GNOME 用户扩展，请联系系统管理员。')
     root.mkdir(parents=True, exist_ok=True)
-    changed = deploy(root / support['uuid'], root, data_home / 'spw-island-backups', files)
-    try:
-        active = enable(support['uuid'])
+    with setup_lock(data_home):
+        revision = None
         if kind == 'glass':
-            active = active and glass_ready()
-        diagnostics.emit('extension.setup_result', {'kind': kind, 'ready': active, 'filesChanged': changed})
-    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
-        raise RuntimeError(support['label'] + '已安装，但自动启用失败。请重试“安装 / 修复”，或保存工作后重新登录。' +
-                           '\n' + str(error)) from error
-    if changed or not active:
-        print(support['label'] + '已安装，用户扩展总开关已开启。请保存工作，注销后重新登录。')
+            files, revision = renderer_layout(files, directory)
+        changed = deploy(directory, root, data_home / 'spw-island-backups', files)
+        try:
+            if refresh_existing:
+                active = (command('gsettings', 'get', 'org.gnome.shell', 'disable-user-extensions') == 'false' and
+                          support['uuid'] in extensions('enabled-extensions') and
+                          support['uuid'] not in extensions('disabled-extensions'))
+            else:
+                active = enable(support['uuid'])
+            configured = active
+            if kind == 'glass':
+                active = active and reload_glass(revision)
+            diagnostics.emit('extension.setup_result', {'kind': kind, 'ready': active,
+                             'filesChanged': changed, 'automatic': refresh_existing})
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+            raise RuntimeError(support['label'] + '已安装，但自动启用失败。请重试安装 / 修复。\n' + str(error)) from error
+    if kind == 'glass':
+        if refresh_existing and not configured:
+            message = ''  # Explicitly disabled extensions stay disabled, without prompting to change settings.
+        elif active:
+            message = 'GNOME 液态玻璃渲染模块已加载，后续插件更新会自动同步，无需调整设置或重新登录。'
+        else:
+            message = 'GNOME 液态玻璃支持已同步。首次安装或旧入口迁移后，请保存工作并重新登录一次；后续渲染更新会自动生效。'
+    elif changed or not active:
+        message = support['label'] + '已安装，用户扩展总开关已开启。请保存工作，注销后重新登录。'
     else:
-        print(support['label'] + '已就绪，无需重新安装。')
+        message = support['label'] + '已就绪，无需重新安装。'
+    return {'installed': True, 'ready': active, 'changed': changed, 'message': message}
 
 
 if __name__ == '__main__':
+    automatic = '--refresh-existing' in sys.argv[3:]
     try:
-        install(sys.argv[1], sys.argv[2])
+        result = install(sys.argv[1], sys.argv[2], automatic)
+        print(json.dumps(result, ensure_ascii=False) if automatic else result['message'])
     except (OSError, RuntimeError, ValueError, KeyError, zipfile.BadZipFile, subprocess.TimeoutExpired) as error:
-        diagnostics.failure("caught.error", error)
-        print(str(error))
+        diagnostics.failure('caught.error', error)
+        print(json.dumps({'error': str(error)}, ensure_ascii=False) if automatic else str(error))
         sys.exit(1)

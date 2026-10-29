@@ -224,7 +224,7 @@
         {
           "type": "button",
           "title": "安装 / 修复 GNOME 液态玻璃支持（Linux）",
-          "summary": "适用于 GNOME 50。安装时会开启用户扩展总开关，其他已启用扩展也可能恢复。首次或更新后，按提示保存工作并手动注销后重新登录。无需终端。",
+          "summary": "适用于 GNOME 50。安装时会开启用户扩展总开关，其他已启用扩展也可能恢复。首次安装按提示重新登录一次，后续渲染更新随插件自动生效，无需改设置或终端。",
           "arrow_type": "none",
           "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.installGnomeGlass"
         },

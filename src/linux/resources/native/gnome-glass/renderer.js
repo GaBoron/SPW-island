@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Clutter from 'gi://Clutter';
 import Cogl from 'gi://Cogl';
-import GObject from 'gi://GObject';
 import GLib from 'gi://GLib';
-import Graphene from 'gi://Graphene';
 import Mtk from 'gi://Mtk';
 
 const SAMPLE_PADDING = 120;
 const BLUR_TEXEL_DIP = 4;
+export const API_VERSION = 1;
 
 function context() {
     return global.stage.context.get_backend().get_cogl_context();
@@ -82,10 +81,10 @@ function blurResources(width, height, scale, format, source) {
         horizontalProgram: program(source), verticalProgram: program(source)};
 }
 
-/** A non-interactive child below this one window's surface; all images stay in Cogl. */
-export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extends Clutter.Actor {
-    _init(owner, sources, currentView) {
-        super._init({reactive: false});
+/** Replaceable GPU engine; the stable Shell actor owns layout and lifecycle. */
+export class GlassRenderer {
+    constructor(owner, actor, sources, currentView) {
+        this._actor = actor;
         this._owner = owner;
         this._sources = sources;
         this._currentView = currentView;
@@ -97,27 +96,17 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
         this.failure = '';
     }
 
+    get width() { return this._actor.width; }
+    get height() { return this._actor.height; }
+    get padding() { return SAMPLE_PADDING; }
+
     update(payload) {
         this._payload = payload;
-        const [width, height] = this._owner.get_size();
-        if (this.width !== width || this.height !== height)
-            this.set_size(width, height);
-        this.queue_redraw();
-    }
-
-    vfunc_get_paint_volume(volume) {
-        if (!volume.set_from_allocation(this))
-            return false;
-        // Refraction and blur sample outside the silhouette. Damage must include those pixels.
-        volume.set_origin(new Graphene.Point3D({x: -SAMPLE_PADDING, y: -SAMPLE_PADDING, z: 0}));
-        volume.set_width(this.width + SAMPLE_PADDING * 2);
-        volume.set_height(this.height + SAMPLE_PADDING * 2);
-        return true;
     }
 
     _prepareField(root) {
         const payload = this._payload;
-        const signature = JSON.stringify([payload.points, this.width, this.height, this.get_resource_scale()]);
+        const signature = JSON.stringify([payload.points, this.width, this.height, this._actor.get_resource_scale()]);
         if (signature === this._geometry)
             return;
         const points = payload.points.map(([x, y]) => [x * this.width, y * this.height]);
@@ -128,7 +117,7 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
         const right = Math.ceil(Math.max(...xs)) + 1;
         const bottom = Math.ceil(Math.max(...ys)) + 1;
         const rect = [left, top, right - left, bottom - top];
-        const scale = this.get_resource_scale();
+        const scale = this._actor.get_resource_scale();
         const width = Math.max(1, Math.ceil(rect[2] * scale));
         const height = Math.max(1, Math.ceil(rect[3] * scale));
         if (width > 4096 || height > 2048)
@@ -150,8 +139,8 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
     }
 
     _copy(root, paintContext, view) {
-        const [x, y] = this.get_transformed_position();
-        const [width, height] = this.get_transformed_size();
+        const [x, y] = this._actor.get_transformed_position();
+        const [width, height] = this._actor.get_transformed_size();
         let cache = this._views.get(view);
         if (!cache) {
             cache = {complete: null, spare: null, requested: null};
@@ -159,7 +148,7 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
         }
         // Completed frames stay immutable while a new position or monitor is being prepared.
         const retained = () => cache.complete ?? this._lastCopy ?? null;
-        if (this.is_in_clone_paint() || paintContext.get_framebuffer() !== view.get_framebuffer() ||
+        if (this._actor.is_in_clone_paint() || paintContext.get_framebuffer() !== view.get_framebuffer() ||
             Math.abs(width - this.width) > .1 || Math.abs(height - this.height) > .1)
             return retained();
         const layout = view.layout;
@@ -216,14 +205,14 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
         return copy;
     }
 
-    vfunc_paint_node(root, paintContext) {
+    paint(root, paintContext) {
         if (!this._payload || this.failure)
-            return;
+            return false;
         try {
             this._prepareField(root);
             const view = this._currentView();
             const copy = view ? this._copy(root, paintContext, view) : this._lastCopy;
-            if (!copy) return;
+            if (!copy) return false;
             this._lastCopy = copy;
             let filtered = copy;
             for (const stage of copy.downsample) {
@@ -258,7 +247,7 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
             vector(glass, 'sampleRect', copy.sample);
             vector(glass, 'clientSize', [this.width, this.height]);
             scalar(glass, 'maskAlpha', this._payload.maskAlpha * this._payload.opacity);
-            scalar(glass, 'revealOpacity', this._payload.opacity * this.get_paint_opacity() / 255);
+            scalar(glass, 'revealOpacity', this._payload.opacity * this._actor.get_paint_opacity() / 255);
             scalar(glass, 'collapseScale', Math.min(1, Math.min(this._fieldRect[2], this._fieldRect[3]) / 58));
             const [fx, fy, fw, fh] = this._fieldRect;
             const [sx, sy, sw, sh] = copy.sample;
@@ -267,14 +256,16 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
             this.ready = true;
             this.lastPaint = GLib.get_monotonic_time();
             // Release per-view allocations after a window leaves a monitor.
-            const views = this.peek_stage_views();
+            const views = this._actor.peek_stage_views();
             for (const old of this._views.keys()) {
                 if (!views.includes(old)) this._views.delete(old);
             }
+            return true;
         } catch (error) {
             this.failure = error.message;
             this.ready = false;
             console.error(`SPW Island Glass: ${error.stack ?? error}`);
+            return false;
         }
     }
-});
+}
