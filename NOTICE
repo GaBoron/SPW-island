@@ -68,6 +68,11 @@ coverage replace the rounded-rect SDF/normal. Dispersion is limited, lighting
 is upper-left with a weaker back-lit side, and tiny collapsing contours cap
 the lens dimensions. No Compose components are incorporated.
 
+Modified 2026-10-29: adapted the island's bounded lens falloff, normal-aligned
+RGB separation and directional lighting to GNOME Cogl in
+src/linux/resources/native/gnome-glass/glass.glsl. The compositor retains its
+own background textures; the plugin transmits only animated contour geometry.
+
 Jaudiotagger 3.0.1, Copyright Paul Taylor and contributors.
 https://www.jthink.net/jaudiotagger/
 Unmodified library under LGPL-2.1-or-later (licenses/LGPL-2.1.txt).

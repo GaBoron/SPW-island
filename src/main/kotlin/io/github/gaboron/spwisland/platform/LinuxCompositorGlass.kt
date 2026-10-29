@@ -1,0 +1,158 @@
+// SPDX-License-Identifier: GPL-3.0-only
+package io.github.gaboron.spwisland.platform
+
+import com.google.gson.Gson
+import io.github.gaboron.spwisland.core.GlassStatus
+import io.github.gaboron.spwisland.core.IslandBackgroundStyle
+import io.github.gaboron.spwisland.core.IslandSettings
+import io.github.gaboron.spwisland.core.performance
+import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
+import io.github.gaboron.spwisland.diagnostics.IslandLog
+import java.awt.Shape
+import java.awt.Window
+import java.awt.geom.PathIterator
+import java.io.BufferedReader
+import java.io.BufferedWriter
+import java.util.concurrent.TimeUnit
+
+/** Sends geometry, never desktop pixels. All process and D-Bus work stays off the EDT. */
+internal class LinuxCompositorGlass : AutoCloseable {
+    private val gnome = System.getenv("XDG_CURRENT_DESKTOP").orEmpty().split(':').any { it.equals("GNOME", true) }
+    private val gson = Gson()
+    private val worker = DiagnosticExecutors.single {
+        Thread(it, "SPW Island compositor glass").apply {
+            isDaemon = true
+            uncaughtExceptionHandler = IslandLog.uncaught("LinuxCompositorGlass")
+        }
+    }
+    private var pending: String? = null
+    private var running = false
+    private var enabled = false
+    private var closed = false
+    private var geometryKey: Any? = null
+    private var geometry: List<DoubleArray> = emptyList()
+    private var nextUpdate = 0L
+    @Volatile private var helper: Process? = null
+    private var input: BufferedReader? = null
+    private var output: BufferedWriter? = null
+    @Volatile private var readyAt = 0L
+    @Volatile private var detail = if (gnome) "需要安装并启用 SPW Island Glass 配套扩展。" else
+        "当前仅提供 GNOME 合成器适配。"
+
+    val supported: Boolean get() = gnome
+    val active: Boolean get() = enabled && System.nanoTime() - readyAt < 1_500_000_000L && readyAt != 0L
+    val status: GlassStatus get() = if (active) GlassStatus("GNOME 合成器", "后景、模糊、折射、色散和高光在 Shell 内处理。")
+        else GlassStatus("经典背景", detail)
+
+    @Synchronized fun update(window: Window, settings: IslandSettings, shape: Shape, key: Any, opacity: Double) {
+        if (closed) return
+        val use = gnome && settings.enabled && settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
+            settings.performance.renderLiquidGlass && window.isDisplayable
+        if (!use) { deactivate(); return }
+        enabled = true
+        val now = System.nanoTime()
+        val nextKey = listOf(key, window.width, window.height)
+        if (geometryKey == nextKey && now < nextUpdate) return
+        nextUpdate = now + settings.performance.diagnosticSampleIntervalNs
+        if (geometryKey != nextKey) {
+            geometry = contour(shape, window.width, window.height)
+            geometryKey = nextKey
+        }
+        if (geometry.size !in 3..256) {
+            detail = "当前轮廓超出合成器适配范围。"
+            deactivate()
+            return
+        }
+        pending = gson.toJson(mapOf("pid" to ProcessHandle.current().pid(), "title" to window.name,
+            "points" to geometry, "opacity" to opacity,
+            "maskAlpha" to (maxOf(1, settings.opacity / 2) * 255 / 100) / 255.0))
+        dispatch()
+    }
+
+    /** Hidden and low-performance windows leave no compositor animation or helper running. */
+    @Synchronized fun deactivate() {
+        if (!enabled && (pending == "STOP" || pending == null && helper == null)) return
+        enabled = false
+        readyAt = 0L
+        geometryKey = null
+        pending = "STOP"
+        if (!closed) dispatch()
+    }
+
+    private fun dispatch() {
+        if (running) return
+        running = true
+        worker.execute {
+            try {
+                while (true) {
+                    val message = synchronized(this) { pending.also { pending = null } } ?: break
+                    if (message == "STOP") { disconnect(); continue }
+                    try {
+                        if (helper?.isAlive != true) {
+                            disconnect()
+                            val process = LinuxHelper.startGlass()
+                            helper = process
+                            input = process.inputStream.bufferedReader()
+                            output = process.outputStream.bufferedWriter()
+                        }
+                        output!!.apply { write(message); newLine(); flush() }
+                        val reply = input!!.readLine() ?: error("GNOME 玻璃桥接已断开")
+                        synchronized(this) {
+                            if (enabled && !closed) {
+                                readyAt = if (reply == "READY") System.nanoTime() else 0L
+                                detail = if (reply == "READY") "GNOME 配套扩展已连接，等待显示。" else reply.removePrefix("WAIT ")
+                            }
+                        }
+                    } catch (error: Exception) {
+                        IslandLog.failure("LinuxCompositorGlass", "bridge.failed", error)
+                        readyAt = 0L
+                        detail = "GNOME 配套扩展不可用：${error.message}"
+                        disconnect()
+                    }
+                }
+            } finally {
+                synchronized(this) {
+                    running = false
+                    if (!closed && pending != null) dispatch()
+                }
+            }
+        }
+    }
+
+    private fun disconnect() {
+        // EOF asks the bridge to remove its Shell actor; the Shell also expires abandoned leases.
+        runCatching { output?.close() }
+        helper?.let { process ->
+            if (!process.waitFor(1, TimeUnit.SECONDS)) process.destroy()
+        }
+        runCatching { input?.close() }
+        helper = null
+        input = null
+        output = null
+    }
+
+    private fun contour(shape: Shape, width: Int, height: Int): List<DoubleArray> {
+        if (width <= 0 || height <= 0) return emptyList()
+        val iterator = shape.getPathIterator(null, .2)
+        val point = DoubleArray(6)
+        val points = ArrayList<DoubleArray>()
+        while (!iterator.isDone && points.size <= 256) {
+            when (iterator.currentSegment(point)) {
+                PathIterator.SEG_MOVETO, PathIterator.SEG_LINETO ->
+                    points += doubleArrayOf(point[0] / width, point[1] / height)
+            }
+            iterator.next()
+        }
+        return points
+    }
+
+    @Synchronized override fun close() {
+        if (closed) return
+        enabled = false
+        readyAt = 0L
+        pending = null
+        closed = true
+        worker.execute { disconnect() }
+        worker.shutdown()
+    }
+}

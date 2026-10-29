@@ -1,0 +1,7 @@
+{
+  "uuid": "spw-island-glass@gaboron.github.io",
+  "name": "SPW Island Glass",
+  "description": "Compositor liquid glass for the SPW Island overlay",
+  "shell-version": ["50"],
+  "url": "https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW"
+}

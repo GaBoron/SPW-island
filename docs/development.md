@@ -461,6 +461,11 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `LinuxHelper.kt` | 提取并启动 Linux Python helper，并为独立界面 JVM 构造 classpath |
 | `src/linux/resources/native/island-dbus-tray.py` | GTK 缺失时通过 GIO 提供 StatusNotifierItem / DBusMenu；按管道和总线事件更新，图标以 ARGB 像素传输 |
 | `LinuxGlobalPointer.kt` | 提供 X11 指针查询，管理 KWin / GNOME 指针桥接及样本有效期 |
+| `LinuxCompositorGlass.kt` | 合并发送现有动态轮廓，管理 GNOME 材质桥接、首帧确认、失联回退和低性能停用 |
+| `src/linux/resources/native/island-glass.py` | 复用指针桥的 GIO 连接，将几何消息转发给 Shell；不传输桌面像素 |
+| `src/linux/resources/native/gnome-glass/extension.js` | GNOME 50 配套服务、词岛窗口绑定、调用进程校验及租约回收 |
+| `src/linux/resources/native/gnome-glass/renderer.js` | Cogl 后景复制、轮廓距离缓存、分离模糊及光学合成；不接管输入 |
+| `src/linux/resources/native/gnome-glass/*.glsl` | 轮廓距离与法线、中心模糊、边缘折射、色散和高光 |
 
 平台功能不要直接加入 `core/`。
 
@@ -545,6 +550,10 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 辅助窗口的固定圆角矩形使用解析距离场，词岛保留原动态 Shape。`SwingGlassMaterial` 与词岛共用 Direct3D、桌面共享纹理和显示时钟；背景直接由 GPU 合成，不逐帧回读成 Swing 位图。控件内容单独缓存，只有文字、焦点或交互状态变化时更新。
 
 平台条件、录屏排除和回退行为见[兼容性与限制](compatibility.md#液态玻璃)。关于窗口中的背景更新率和原生处理耗时仅反映接收与发布阶段，不代表最终屏显帧率或端到端延迟。原生捕获构建需要 MSVC x64 C++ 工具、CRT/STL 和带 C++/WinRT 的 Windows SDK。
+
+GNOME 实验路径复用 `IslandHoverGeometry` 的当前 Shape，展平后通过独立线程和 Python / GIO 桥发送归一化几何。后台只保留最新消息；静止时按 `PerformanceProfile.diagnosticSampleIntervalNs` 续约。`renderLiquidGlass` 为 false、窗口隐藏或关闭时停止桥接。界面不等待 D-Bus，首帧确认前和连接过期后使用经典背景。
+
+`SPW Island Glass` 在词岛 WindowActor 的原表面下插入不接收输入的 Clutter Actor。距离场仅在几何或缩放变化时重算，后景在当前 stage view 的绘制阶段通过 GPU blit 获取，随后执行分离模糊和光学合成。局部重绘仅更新缓存中的有效区域，移动时通过双 GPU 目标平移已有像素；最终覆盖范围受当前客户端表面 alpha 约束，避免迟到几何画到当前轮廓之外。没有屏幕录制、CPU 像素回读或桌面图像 IPC。后台 Actor 不改变原窗口边界、输入 Shape、歌词排版或动画时钟。GNOME 50 的绘制接口依据 [Mutter](https://github.com/GNOME/mutter/tree/50.0) 与 [GNOME Liquid Glass](https://github.com/ryohsuke1231/liquid-glass) 核查；KWin 的参考实现为 [kwin-effects-glass](https://github.com/4v3ngR/kwin-effects-glass)。配套 ZIP 由 `gnomeGlass` 任务生成并随插件资源打包，真实桌面的视觉、性能与几何同步仍待验收。
 
 Windows 的 DirectComposition 画面不进入 AWT 的逐像素输入映射，因此使用仅承担命中的独立输入窗口。它采用最低非零的整体透明度和正常轮廓，不获取键盘焦点；鼠标穿透、悬停隐藏及窗口临时隐藏时撤下该输入窗口。输入区域变化不影响可见动画的裁剪。
 

@@ -209,7 +209,7 @@
         {
           "type": "list",
           "key": "background_style",
-          "title": "背景样式（Windows）",
+          "title": "背景样式",
           "entries": [
             "经典背景",
             "液态玻璃（实验性）"
@@ -219,7 +219,7 @@
             "liquid_glass"
           ],
           "default_value": "classic",
-          "summary": "液态玻璃需要 Windows 11、SDR 显示器和 GPU 绘制；启用后词岛不出现在系统录屏中。低性能或捕获不可用时使用经典背景。"
+          "summary": "Windows 需要 Windows 11 SDR 与 GPU 绘制，玻璃窗口不出现在系统录屏中。GNOME 50 词岛可安装 SPW Island Glass 扩展进行实验性适配，尚待实机验收。低性能或后景不可用时使用经典背景。"
         },
         {
           "type": "seekbar",

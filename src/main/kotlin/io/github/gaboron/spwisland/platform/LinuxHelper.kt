@@ -31,6 +31,8 @@ internal object LinuxHelper {
         start("tray", name, icon.toString(), extract("island-dbus-tray.py").toString(),
             width.toString(), height.toString(), pixels)
 
+    fun startGlass(): Process = startScript("island-glass.py", extract("island-pointer.py").toString())
+
     fun installGnomePointer(): String {
         val archive = extract("spw-island-pointer@gaboron.github.io.shell-extension.zip")
         val process = startScript("install-gnome-pointer.py", archive.toString())

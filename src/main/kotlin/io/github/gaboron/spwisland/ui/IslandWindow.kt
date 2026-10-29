@@ -9,6 +9,7 @@ import io.github.gaboron.spwisland.core.*
 import io.github.gaboron.spwisland.platform.WindowsOverlay
 import io.github.gaboron.spwisland.platform.X11InputRegion
 import io.github.gaboron.spwisland.platform.LinuxGlobalPointer
+import io.github.gaboron.spwisland.platform.LinuxCompositorGlass
 import java.awt.*
 import java.awt.event.*
 import javax.swing.*
@@ -63,6 +64,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         IslandLog.attempt("IslandWindow", "overlayGraphicsConfiguration.attempt1") { X11InputRegion() }.onFailure(report).getOrNull() else null
     private val pointerPresence = if (Platform.isLinux()) IslandPointerPresence(window) else null
     private val globalPointer = if (Platform.isLinux()) LinuxGlobalPointer() else null
+    private val compositorGlass = if (Platform.isLinux()) LinuxCompositorGlass() else null
     private val stableTranslucentCanvas = Platform.isWindows() || window.graphicsConfiguration.isTranslucencyCapable
     private val menu = IslandMenu(store, report, window) {
         IslandRuntimeStatus.describe(store.read(), timeline.snapshot(), window.isVisible,
@@ -70,7 +72,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             if (globalPointer != null) globalPointer.location() != null else
                 IslandLog.attempt("IslandWindow", "overlayGraphicsConfiguration.attempt2") { MouseInfo.getPointerInfo() != null }.getOrDefault(false),
             globalPointer?.status.orEmpty(), spectrumFallback(), spectrumStatus(),
-            renderer.active, renderer.fallbackRendering, renderer.glassStatus)
+            renderer.active, renderer.fallbackRendering, compositorGlass?.status ?: renderer.glassStatus)
     }
     private var settings = store.read()
     private var nativeAvailable = true
@@ -217,6 +219,8 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             hoverVisibility.shouldRender(!paused, window.isVisible, performance.animateLayout)
         globalPointer?.setEnabled(clickThrough && settings.autoHideOnHover && visible && !paused)
         if (!visible) {
+            compositorGlass?.deactivate()
+            panel.compositorGlass = false
             panel.expanded = false
             panel.hoverSettled = false
             panel.cancelInteractions()
@@ -345,6 +349,17 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             clickThrough && settings.autoHideOnHover, mouse, hoverRegion, dt,
             !performance.animateLayout, settings.notch, show = !paused)
         panel.hoverSettled = surface.hoverPose.fullyShown
+        compositorGlass?.let { glass ->
+            if (glass.supported && settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
+                performance.renderLiquidGlass) {
+                val frame = IslandHoverGeometry.frame(panel.width, panel.height, settings.notch,
+                    settings.cornerRoundness, surface.hoverPose)
+                val shape = java.awt.geom.AffineTransform.getTranslateInstance(panel.x.toDouble(), panel.y.toDouble())
+                    .createTransformedShape(frame.shape)
+                glass.update(window, settings, shape, listOf(panel.bounds, frame.maskKey), frame.opacity)
+            } else glass.deactivate()
+            panel.compositorGlass = glass.active
+        }
         panel.updateProgressTransition(dt)
         panel.doLayout()
         val inputClickThrough = clickThrough || !surface.hoverPose.fullyShown
@@ -474,6 +489,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     override fun close() {
         if (closed) return
         closed = true; diagnostics.close(); frameScheduler.shutdownNow(); renderer.close(); panel.close(); menu.close()
+        compositorGlass?.close()
         pointerPresence?.close(); globalPointer?.close(); inputRegion?.close(); window.releaseFrame(); window.dispose()
     }
 }

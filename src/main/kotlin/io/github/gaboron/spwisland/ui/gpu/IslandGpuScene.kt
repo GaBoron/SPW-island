@@ -23,8 +23,13 @@ internal class IslandGpuScene : AutoCloseable {
         resources.layer(canvas, Rect.makeLTRB(bounds.minX.toFloat() - 1, bounds.minY.toFloat() - 1,
             bounds.maxX.toFloat() + 1, bounds.maxY.toFloat() + 1), hover.opacity.toFloat()) {
             canvas.clipPath(resources.path(hover.shape), ClipMode.INTERSECT, true)
-            val palette = IslandPalette.from(frame.settings, frame.snapshot.metadata.coverRgb)
-            val liquid = background.draw(canvas, frame, hover, palette, backdrop)
+            val palette = IslandPalette.from(frame.settings, frame.snapshot.metadata.coverRgb).let {
+                if (frame.compositorGlass) it.copy(lyricOutline = true) else it
+            }
+            val materialFrame = if (frame.compositorGlass)
+                frame.copy(settings = frame.settings.copy(opacity = maxOf(1, frame.settings.opacity / 2))) else frame
+            val materialPalette = if (frame.compositorGlass) palette.copy(background = java.awt.Color.BLACK) else palette
+            val liquid = background.draw(canvas, materialFrame, hover, materialPalette, backdrop)
             lyrics.adaptiveContrast.begin(if (liquid) background.materialShader else null,
                 canvas.localToDeviceAsMatrix33, context)
             resources.layer(canvas, Rect.makeXYWH(0f, hover.contentOffsetY.toFloat(), frame.width.toFloat(), frame.height.toFloat()),

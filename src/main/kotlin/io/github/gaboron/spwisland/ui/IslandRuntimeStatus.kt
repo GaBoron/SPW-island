@@ -65,8 +65,9 @@ internal object IslandRuntimeStatus {
     private fun material(settings: IslandSettings, fallback: Boolean, glass: GlassStatus): List<IslandStatusEntry> {
         val (summary, detail) = when {
             settings.backgroundStyle != IslandBackgroundStyle.LIQUID_GLASS -> "经典背景" to ""
-            !Platform.isWindows() -> "经典背景" to "当前平台不支持液态玻璃。"
             settings.lowPerformance -> "经典背景" to "低性能模式停用液态玻璃。"
+            Platform.isLinux() -> glass.summary to glass.detail
+            !Platform.isWindows() -> "经典背景" to "当前平台不支持液态玻璃。"
             !settings.enabled -> "液态玻璃 · 待启用" to "显示词岛后开始桌面捕获。"
             fallback -> "经典背景" to "词岛液态玻璃需要 GPU 绘制。"
             else -> "液态玻璃 · ${glass.summary}" to glass.detail

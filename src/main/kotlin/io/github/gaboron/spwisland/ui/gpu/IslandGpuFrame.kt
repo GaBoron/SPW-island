@@ -14,7 +14,7 @@ internal data class IslandGpuFrame(
     val longTones: LongToneAnalysis, val bands: FloatArray, val expansion: Double, val transition: Double,
     val progressMode: BackgroundProgressMode, val progressOpacity: Double,
     val info: ShapedText?, val infoText: String?, val controls: List<Control>, val progress: PlaybackProgress.Presentation?,
-    val progressBounds: Rectangle?
+    val progressBounds: Rectangle?, val compositorGlass: Boolean = false
 ) {
     data class Control(val bounds: Rectangle, val icon: PlaybackIcon, val color: Int, val pressed: Boolean)
 }

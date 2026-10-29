@@ -21,6 +21,8 @@
 
 [AndroidLiquidGlass / Backdrop](https://github.com/Kyant0/AndroidLiquidGlass)，Copyright 2025 Kyant，采用 [Apache-2.0](licenses/Apache-2.0.txt)。参考提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`；2026-10-15 将 `internal/Shaders.kt` 的 Lens、七采样色散与 Default Highlight 移植到 `IslandGlassShaders.kt`，并在 Skia 中复现 `ColorFilter.kt`、`HighlightModifier.kt` 的 Vibrancy、滤镜顺序及独立 PLUS 高光合成。使用真实 Windows 桌面裁片；轮廓距离与法线适配原有动态 Path，限制色散并减弱背光侧，未引入 Compose 组件。原始声明与改动见 [NOTICE](NOTICE)。
 
+GNOME 配套扩展的 `gnome-glass/glass.glsl` 复用该岛内光学实现的有界折射衰减、沿法线的 RGB 色散与方向光照，改用 Cogl 后景纹理和轮廓距离场。扩展包同时保留 NOTICE 与 Apache-2.0 许可文本。
+
 | 项目 | 使用范围 | 许可与保留材料 |
 | --- | --- | --- |
 | [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api)，Moriafly | 编译使用 0.1.0-dev23；由 SPW 提供，不装入插件 | Apache-2.0；[完整文本](licenses/Apache-2.0.txt)，署名见 [NOTICE](NOTICE) |

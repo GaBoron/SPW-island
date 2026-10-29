@@ -41,6 +41,7 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
         )
     }
     internal var gpuDrawing = false
+    internal var compositorGlass = false
     var settings = IslandSettings()
     var anchor = IslandAnchor.TOP_CENTER
     var snapshot = PlaybackSnapshot(null, null, 0, false, PlaybackStatus.IDLE)
@@ -144,7 +145,7 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
             longTones, bands, reveal, animation, backgroundProgress.mode, backgroundProgress.opacity,
             info, if (info != null) infoLabel else null, controls,
             if (controls.isNotEmpty()) progress.presentation() else null,
-            if (controls.isNotEmpty()) progress.bounds else null)
+            if (controls.isNotEmpty()) progress.bounds else null, compositorGlass)
     }
 
     private fun trackInfo(): ShapedText {
@@ -187,11 +188,14 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
         if (play.toolTipText != tooltip) play.toolTipText = tooltip
     }
     private fun paintBackground(g: Graphics2D, shape: Shape) {
-        val palette = IslandPalette.from(settings, snapshot.metadata.coverRgb)
+        val materialSettings = if (compositorGlass) settings.copy(opacity = maxOf(1, settings.opacity / 2)) else settings
+        val palette = IslandPalette.from(materialSettings, snapshot.metadata.coverRgb).let {
+            if (compositorGlass) it.copy(background = Color.BLACK) else it
+        }
         val background = palette.background
-        g.color = Color(background.red, background.green, background.blue, settings.opacity * 255 / 100)
+        g.color = Color(background.red, background.green, background.blue, materialSettings.opacity * 255 / 100)
         g.fill(shape)
-        IslandBackgroundProgress.draw(g, shape, width, height, snapshot, settings, palette,
+        IslandBackgroundProgress.draw(g, shape, width, height, snapshot, materialSettings, palette,
             backgroundProgress.mode, backgroundProgress.opacity)
         g.color = Color(255, 255, 255, 19); g.draw(shape)
     }
@@ -200,7 +204,9 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
         val g = graphics.create() as Graphics2D
         try {
             val shape = IslandGeometry.silhouette(width, height, settings.notch, settings.cornerRoundness)
-            val palette = IslandPalette.from(settings, snapshot.metadata.coverRgb)
+            val palette = IslandPalette.from(settings, snapshot.metadata.coverRgb).let {
+                if (compositorGlass) it.copy(lyricOutline = true) else it
+            }
             val reveal = expansion ?: if (expanded) 1.0 else 0.0
             val (contentX, contentY, contentWidth, lyricAreaHeight) = IslandContentGeometry.from(
                 width, height, animatedWidth, animatedHeight, anchor, settings.notch, settings.cornerRoundness, reveal)

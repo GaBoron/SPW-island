@@ -45,12 +45,19 @@ val gnomePointer = tasks.register<Zip>("gnomePointer") {
     from("src/linux/resources/native/gnome-pointer")
     from("LICENSE")
 }
+val gnomeGlass = tasks.register<Zip>("gnomeGlass") {
+    archiveFileName.set("spw-island-glass@gaboron.github.io.shell-extension.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+    from("src/linux/resources/native/gnome-glass")
+    from("LICENSE", "NOTICE")
+    from("licenses/Apache-2.0.txt") { into("licenses") }
+}
 tasks.processResources {
     doFirst {
         check(currentOs.isWindows) { "Build the universal plugin on Windows with the native toolchains installed" }
     }
     from("native/shared-fonts/MiSansVF.ttf") { into("fonts") }
-    dependsOn("buildSpectrum", "buildWindowsTray", "buildWindowsGlass", gnomePointer)
+    dependsOn("buildSpectrum", "buildWindowsTray", "buildWindowsGlass", gnomePointer, gnomeGlass)
     from(layout.buildDirectory.file("native/spw-spectrum.exe")) { into("native") }
     from(layout.buildDirectory.file("native/spw-island-tray.exe")) { into("native") }
     from(layout.buildDirectory.file("native/spw-island-glass.dll")) { into("native") }
@@ -60,8 +67,9 @@ tasks.processResources {
         into("native/compose")
         include("skiko-windows-x64.dll", "icudtl.dat")
     }
-    from("src/linux/resources") { exclude("**/__pycache__/**", "**/*.pyc", "native/gnome-pointer/**") }
+    from("src/linux/resources") { exclude("**/__pycache__/**", "**/*.pyc", "native/gnome-pointer/**", "native/gnome-glass/**") }
     from(gnomePointer) { into("native") }
+    from(gnomeGlass) { into("native") }
     inputs.property("projectUrl", projectUrl)
     filesMatching("project.properties") { expand("projectUrl" to projectUrl.get()) }
 }
