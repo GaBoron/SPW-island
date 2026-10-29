@@ -40,13 +40,13 @@ internal object LinuxHelper {
     fun gnomeDiagnostics(): String? {
         if (!System.getProperty("os.name").startsWith("Linux") ||
             System.getenv("XDG_CURRENT_DESKTOP").orEmpty().split(':').none { it.equals("GNOME", true) }) return null
-        val process = startScript("gnome-diagnostics.py")
-        val result = FutureTask { process.inputStream.readNBytes(65_537) }
+        val process = startScript("gnome-diagnostics.py", extract("gnome-crash-reports.py").toString())
+        val result = FutureTask { process.inputStream.readNBytes(196_609) }
         IslandLog.thread("SPW Island GNOME diagnostic output") { result.run() }.start()
         try {
-            check(process.waitFor(18, TimeUnit.SECONDS)) { "GNOME 诊断采集超时" }
+            check(process.waitFor(24, TimeUnit.SECONDS)) { "GNOME 诊断采集超时" }
             val bytes = result.get(2, TimeUnit.SECONDS)
-            check(process.exitValue() == 0 && bytes.size <= 65_536) { "GNOME 诊断采集未完成" }
+            check(process.exitValue() == 0 && bytes.size <= 196_608) { "GNOME 诊断采集未完成" }
             return bytes.toString(Charsets.UTF_8)
         } finally {
             if (process.isAlive) process.destroyForcibly()
