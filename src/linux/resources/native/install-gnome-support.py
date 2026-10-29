@@ -134,7 +134,7 @@ def enable(uuid):
 def glass_ready():
     try:
         # Introspection is read-only. Never probe readiness by issuing a render request.
-        return 'UpdateV2' in command('gdbus', 'introspect', '--session', '--dest', 'org.gnome.Shell',
+        return 'UpdateV3' in command('gdbus', 'introspect', '--session', '--dest', 'org.gnome.Shell',
                                      '--object-path', '/io/github/gaboron/SpwIsland/Glass')
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
         diagnostics.failure('extension.glass_pending_login', error)

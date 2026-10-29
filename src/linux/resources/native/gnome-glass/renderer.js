@@ -7,6 +7,7 @@ import Graphene from 'gi://Graphene';
 import Mtk from 'gi://Mtk';
 
 const SAMPLE_PADDING = 120;
+const BLUR_TEXEL_DIP = 4;
 
 function context() {
     return global.stage.context.get_backend().get_cogl_context();
@@ -58,6 +59,27 @@ function pass(root, destination, pipeline) {
     const layer = Clutter.LayerNode.new_to_framebuffer(destination.framebuffer, pipeline);
     root.add_child(layer);
     rectangle(layer, pipeline, [0, 0, destination.width, destination.height]);
+}
+
+function blurResources(width, height, scale, format, source) {
+    const factor = Math.max(1, BLUR_TEXEL_DIP * scale);
+    const blurWidth = Math.max(1, Math.ceil(width / factor));
+    const blurHeight = Math.max(1, Math.ceil(height / factor));
+    const downsample = [];
+    let stageWidth = width;
+    let stageHeight = height;
+    // Limit each reduction to 2x so the prefilter covers the source without gaps.
+    while (stageWidth > blurWidth || stageHeight > blurHeight) {
+        stageWidth = Math.max(blurWidth, Math.ceil(stageWidth / 2));
+        stageHeight = Math.max(blurHeight, Math.ceil(stageHeight / 2));
+        const stage = target(stageWidth, stageHeight, format);
+        stage.pipeline = program(source);
+        downsample.push(stage);
+    }
+    return {blurScale: scale, downsample,
+        horizontal: target(blurWidth, blurHeight, format),
+        blurred: target(blurWidth, blurHeight, format),
+        horizontalProgram: program(source), verticalProgram: program(source)};
 }
 
 /** A non-interactive child below this one window's surface; all images stay in Cogl. */
@@ -154,14 +176,12 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
         const format = source instanceof Cogl.Offscreen ? source.get_texture().get_format() : null;
         let copy = this._views.get(view);
         let previous = copy;
-        if (!copy || copy.width !== x1 - x0 || copy.height !== y1 - y0 || copy.format !== format) {
+        if (!copy || copy.width !== x1 - x0 || copy.height !== y1 - y0 ||
+            copy.format !== format || copy.blurScale !== scale) {
             if (x1 - x0 > 4096 || y1 - y0 > 2048)
                 throw new Error('词岛后景超出合成器纹理预算');
             copy = target(x1 - x0, y1 - y0, format);
-            copy.horizontal = target(copy.width, copy.height, format);
-            copy.blurred = target(copy.width, copy.height, format);
-            copy.horizontalProgram = program(this._sources.blur);
-            copy.verticalProgram = program(this._sources.blur);
+            Object.assign(copy, blurResources(copy.width, copy.height, scale, format, this._sources.blur));
             copy.glassProgram = program(this._sources.glass);
             this._views.set(view, copy);
         }
@@ -249,14 +269,25 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
             const copy = view ? this._copy(root, paintContext, view) : this._lastCopy;
             if (!copy) return;
             this._lastCopy = copy;
-            const sigmaStep = 5;
+            let filtered = copy;
+            for (const stage of copy.downsample) {
+                sampler(stage.pipeline, 0, filtered.texture);
+                stage.pipeline.set_uniform_1i(stage.pipeline.get_uniform_location('prefilterMode'), 1);
+                vector(stage.pipeline, 'stepSize', [stage.width < filtered.width ? 1 / filtered.width : 0,
+                    stage.height < filtered.height ? 1 / filtered.height : 0]);
+                pass(root, stage, stage.pipeline);
+                filtered = stage;
+            }
+            // Unit-texel Gaussian taps on the filtered image give a continuous ~8 DIP blur.
             const horizontal = copy.horizontalProgram;
-            sampler(horizontal, 0, copy.texture);
-            vector(horizontal, 'stepSize', [sigmaStep / copy.sample[2], 0]);
+            sampler(horizontal, 0, filtered.texture);
+            horizontal.set_uniform_1i(horizontal.get_uniform_location('prefilterMode'), 0);
+            vector(horizontal, 'stepSize', [1 / filtered.width, 0]);
             pass(root, copy.horizontal, horizontal);
             const vertical = copy.verticalProgram;
             sampler(vertical, 0, copy.horizontal.texture);
-            vector(vertical, 'stepSize', [0, sigmaStep / copy.sample[3]]);
+            vertical.set_uniform_1i(vertical.get_uniform_location('prefilterMode'), 0);
+            vector(vertical, 'stepSize', [0, 1 / copy.horizontal.height]);
             pass(root, copy.blurred, vertical);
             const glass = copy.glassProgram;
             sampler(glass, 0, copy.texture);

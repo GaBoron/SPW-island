@@ -15,7 +15,7 @@ try:
             # Validate framing before forwarding; the Shell validates the bounded contour.
             json.loads(line)
             # A distinct method prevents GNOME's cached older module from receiving a render request.
-            reply = bus.first(bus.call("org.gnome.Shell", path, interface, "UpdateV2",
+            reply = bus.first(bus.call("org.gnome.Shell", path, interface, "UpdateV3",
                                        (line.strip(),), "(s)"), lambda value: bus.get_string(value, None))
             print(reply.decode("utf-8", "replace"), flush=True)
         except (OSError, RuntimeError, ValueError) as error:
