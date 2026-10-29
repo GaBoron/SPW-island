@@ -152,30 +152,49 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
     _copy(root, paintContext, view) {
         const [x, y] = this.get_transformed_position();
         const [width, height] = this.get_transformed_size();
-        const cached = this._views.get(view);
-        // During overview/ancestor offscreen rendering, the live framebuffer is not the backdrop.
+        let cache = this._views.get(view);
+        if (!cache) {
+            cache = {complete: null, spare: null, requested: null};
+            this._views.set(view, cache);
+        }
+        // Completed frames stay immutable while a new position or monitor is being prepared.
+        const retained = () => cache.complete ?? this._lastCopy ?? null;
         if (this.is_in_clone_paint() || paintContext.get_framebuffer() !== view.get_framebuffer() ||
             Math.abs(width - this.width) > .1 || Math.abs(height - this.height) > .1)
-            return cached?.initialized ? cached : this._lastCopy ?? null;
-        // Follow the existing stable canvas rather than reallocating for every lyric morph.
-        const rect = [0, 0, this.width, this.height];
-        const padding = SAMPLE_PADDING;
+            return retained();
         const layout = view.layout;
         const scale = view.get_scale();
         const source = view.get_framebuffer();
-        const x0 = Math.max(0, Math.floor((x + rect[0] - padding - layout.x) * scale));
-        const y0 = Math.max(0, Math.floor((y + rect[1] - padding - layout.y) * scale));
-        const x1 = Math.min(source.get_width(), Math.ceil((x + rect[0] + rect[2] + padding - layout.x) * scale));
-        const y1 = Math.min(source.get_height(), Math.ceil((y + rect[1] + rect[3] + padding - layout.y) * scale));
+        const x0 = Math.max(0, Math.floor((x - SAMPLE_PADDING - layout.x) * scale));
+        const y0 = Math.max(0, Math.floor((y - SAMPLE_PADDING - layout.y) * scale));
+        const x1 = Math.min(source.get_width(), Math.ceil((x + this.width + SAMPLE_PADDING - layout.x) * scale));
+        const y1 = Math.min(source.get_height(), Math.ceil((y + this.height + SAMPLE_PADDING - layout.y) * scale));
         if (x1 <= x0 || y1 <= y0)
-            return null;
-        const sample = [layout.x + x0 / scale - x, layout.y + y0 / scale - y,
-            (x1 - x0) / scale, (y1 - y0) / scale];
+            return retained();
+        const stageRect = new Mtk.Rectangle({
+            x: Math.floor(layout.x + x0 / scale), y: Math.floor(layout.y + y0 / scale),
+            width: Math.ceil(layout.x + x1 / scale) - Math.floor(layout.x + x0 / scale),
+            height: Math.ceil(layout.y + y1 / scale) - Math.floor(layout.y + y0 / scale),
+        });
+        const origin = JSON.stringify([stageRect.x, stageRect.y, stageRect.width, stageRect.height]);
         const clip = paintContext.get_redraw_clip();
-        // Match HDR/rotated-view formats, as a GPU blit requires matching storage classes.
+        // Never read stale foreground pixels, or discard a completed image for an incomplete one.
+        if (clip && clip.contains_rectangle(stageRect) !== Mtk.RegionOverlap.IN) {
+            if (cache.requested !== origin) {
+                // A bounded motion margin also covers the next small drag step.
+                const left = Math.max(layout.x, stageRect.x - 64);
+                const top = Math.max(layout.y, stageRect.y - 64);
+                const right = Math.min(layout.x + layout.width, stageRect.x + stageRect.width + 64);
+                const bottom = Math.min(layout.y + layout.height, stageRect.y + stageRect.height + 64);
+                global.stage.queue_redraw_with_clip(new Mtk.Rectangle({x: left, y: top,
+                    width: right - left, height: bottom - top}));
+                cache.requested = origin;
+            }
+            return retained();
+        }
+        cache.requested = null;
         const format = source instanceof Cogl.Offscreen ? source.get_texture().get_format() : null;
-        let copy = this._views.get(view);
-        let previous = copy;
+        let copy = cache.spare;
         if (!copy || copy.width !== x1 - x0 || copy.height !== y1 - y0 ||
             copy.format !== format || copy.blurScale !== scale) {
             if (x1 - x0 > 4096 || y1 - y0 > 2048)
@@ -183,80 +202,17 @@ export const GlassActor = GObject.registerClass(class SpwIslandGlassActor extend
             copy = target(x1 - x0, y1 - y0, format);
             Object.assign(copy, blurResources(copy.width, copy.height, scale, format, this._sources.blur));
             copy.glassProgram = program(this._sources.glass);
-            this._views.set(view, copy);
         }
-        const stageRect = new Mtk.Rectangle({
-            x: Math.floor(layout.x + x0 / scale), y: Math.floor(layout.y + y0 / scale),
-            width: Math.ceil(layout.x + x1 / scale) - Math.floor(layout.x + x0 / scale),
-            height: Math.ceil(layout.y + y1 / scale) - Math.floor(layout.y + y0 / scale),
-        });
-        const origin = JSON.stringify([stageRect.x, stageRect.y, stageRect.width, stageRect.height]);
-        if (copy.origin !== origin) {
-            if (copy === previous) {
-                // Shift retained pixels through a second GPU target; overlapping in-place blits are undefined.
-                copy.spare ??= target(copy.width, copy.height, format);
-                previous = {framebuffer: copy.framebuffer, texture: copy.texture, width: copy.width,
-                    height: copy.height, x0: copy.x0, y0: copy.y0, valid: copy.valid,
-                    coordinates: copy.coordinates, format: copy.format};
-                const replacement = copy.spare;
-                copy.spare = {framebuffer: copy.framebuffer, texture: copy.texture};
-                copy.framebuffer = replacement.framebuffer;
-                copy.texture = replacement.texture;
-            }
-            const coordinates = JSON.stringify([layout.x, layout.y, scale]);
-            const compatible = previous?.valid && previous.format === format && previous.coordinates === coordinates;
-            copy.valid = compatible ? previous.valid.copy() : Mtk.Region.create();
-            copy.valid.intersect_rectangle(stageRect);
-            if (compatible) {
-                const left = Math.max(x0, previous.x0);
-                const top = Math.max(y0, previous.y0);
-                const right = Math.min(x1, previous.x0 + previous.width);
-                const bottom = Math.min(y1, previous.y0 + previous.height);
-                if (right > left && bottom > top) {
-                    const shiftRoot = Clutter.RootNode.new(copy.framebuffer, view.color_state, new Cogl.Color(), 0);
-                    const shift = Clutter.BlitNode.new(previous.framebuffer);
-                    shift.add_blit_rectangle(left - previous.x0, top - previous.y0, left - x0, top - y0,
-                        right - left, bottom - top);
-                    shiftRoot.add_child(shift);
-                    root.add_child(shiftRoot);
-                }
-            }
-            copy.coordinates = coordinates;
-            copy.origin = origin;
-            copy.initialized = false;
-        }
-        const damage = clip ? clip.copy() : Mtk.Region.create_rectangle(stageRect);
-        damage.intersect_rectangle(stageRect);
-        // Mtk's rectangle getter returns a struct by value, which is unsafe through this GI binding.
-        // Only copy an entirely fresh sampling area; retain the GPU cache during partial damage.
-        if (damage.contains_rectangle(stageRect) === Mtk.RegionOverlap.IN) {
-            const copyRoot = Clutter.RootNode.new(copy.framebuffer, view.color_state, new Cogl.Color(), 0);
-            const blit = Clutter.BlitNode.new(source);
-            blit.add_blit_rectangle(x0, y0, 0, 0, x1 - x0, y1 - y0);
-            copyRoot.add_child(blit);
-            root.add_child(copyRoot);
-            copy.valid.union_rectangle(stageRect);
-            copy.requested = null;
-        } else if (copy.requested !== origin) {
-            // One bounded repaint refreshes the sample without copying stale foreground pixels.
-            global.stage.queue_redraw_with_clip(stageRect);
-            copy.requested = origin;
-        }
-        copy.sample = sample;
-        copy.x = x;
-        copy.y = y;
-        copy.x0 = x0;
-        copy.y0 = y0;
-        const field = this._fieldRect;
-        const neededLeft = Math.max(stageRect.x, Math.floor(x + field[0] - 88));
-        const neededTop = Math.max(stageRect.y, Math.floor(y + field[1] - 88));
-        const neededRight = Math.min(stageRect.x + stageRect.width, Math.ceil(x + field[0] + field[2] + 88));
-        const neededBottom = Math.min(stageRect.y + stageRect.height, Math.ceil(y + field[1] + field[3] + 88));
-        const needed = new Mtk.Rectangle({x: neededLeft, y: neededTop,
-            width: Math.max(0, neededRight - neededLeft), height: Math.max(0, neededBottom - neededTop)});
-        if (copy.valid.contains_rectangle(needed) !== Mtk.RegionOverlap.IN)
-            return null;
-        copy.initialized = true;
+        const copyRoot = Clutter.RootNode.new(copy.framebuffer, view.color_state, new Cogl.Color(), 0);
+        const blit = Clutter.BlitNode.new(source);
+        blit.add_blit_rectangle(x0, y0, 0, 0, x1 - x0, y1 - y0);
+        copyRoot.add_child(blit);
+        root.add_child(copyRoot);
+        copy.sample = [layout.x + x0 / scale - x, layout.y + y0 / scale - y,
+            (x1 - x0) / scale, (y1 - y0) / scale];
+        // Publish only after all fresh pixels have been queued into a separate target.
+        cache.spare = cache.complete;
+        cache.complete = copy;
         return copy;
     }
 
