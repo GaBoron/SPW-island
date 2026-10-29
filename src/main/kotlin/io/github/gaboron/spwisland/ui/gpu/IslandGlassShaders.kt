@@ -15,20 +15,23 @@
  *
  * Modified 2026-10-15 for SPW Island. Source: Kyant0/AndroidLiquidGlass,
  * 65ab177e90e5c1d8c62e70cf7755841982da65f6, internal/Shaders.kt.
- * Local changes include shape SDF/normal adapters, numeric guards and back-light
- * attenuation of the upstream Lens/dispersion/DefaultHighlight algorithms.
- * 2026-10-16: added auxiliary surface tint and center/edge blur blending.
+ * Local changes include shape SDF/normal adapters, layered blur, normal-aligned
+ * RGB dispersion, bounded lens falloff, auxiliary tint and back-light attenuation.
  */
 package io.github.gaboron.spwisland.ui.gpu
 
 /** Backdrop's optical programs; coordinates and fixed material values are logical pixels. */
 internal object IslandGlassShaders {
-    const val CENTER_BLUR_SIGMA = 6f
-    const val EDGE_BLUR_SIGMA = 2f
-    const val LENS_HEIGHT = 14f
-    const val LENS_AMOUNT = 36f
-    const val DISTANCE_RANGE = 16f
-    const val CAPTURE_PADDING = 32
+    const val CENTER_BLUR_SIGMA = 10f
+    const val TRANSITION_BLUR_SIGMA = 4f
+    const val EDGE_BLUR_SIGMA = .8f
+    const val BLUR_TRANSITION_HEIGHT = 28f
+    const val LENS_HEIGHT = 20f
+    const val LENS_AMOUNT = 52f
+    const val CHROMATIC_SPREAD = 3.6f // Total distance between the red and blue samples.
+    const val DISTANCE_RANGE = 32f
+    // Every blur layer follows the lens coordinates, so reserve the combined optical footprint.
+    const val CAPTURE_PADDING = LENS_AMOUNT + CHROMATIC_SPREAD / 2f + CENTER_BLUR_SIGMA * 3f + 2f
 
     // Geometry adapter only. Both textures come from the existing animated silhouette.
     private const val SHAPE = """
@@ -39,7 +42,7 @@ internal object IslandGlassShaders {
 
         float sdIsland(float2 coord) {
             float2 position = coord * fieldScale - fieldOrigin;
-            float distance = float(contour.eval(position).r) * 16.0;
+            float distance = float(contour.eval(position).r) * $DISTANCE_RANGE;
             return coverage.eval(position).a >= 0.5 ? -distance : distance;
         }
 
@@ -52,66 +55,45 @@ internal object IslandGlassShaders {
         }
     """
 
-    // Upstream refraction/dispersion with local geometry and center/edge blur blending.
+    // Separate the sharp refracted rim from the soft center; wavelengths follow the local normal.
     const val LENS = """
         uniform shader content;
+        uniform shader transitionContent;
         uniform shader edgeContent;
+        uniform float blurTransitionHeight;
         uniform float refractionHeight;
         uniform float refractionAmount;
-        uniform float depthEffect;
-        uniform float chromaticAberration;
-        uniform float2 center;
-        uniform float2 halfSize;
+        uniform float chromaticSpread;
         $SHAPE
 
-        float circleMap(float x) {
-            return 1.0 - sqrt(max(0.0, 1.0 - x * x));
-        }
-
         half4 main(float2 coord) {
-            float2 centeredCoord = coord - center;
-            float sd = sdIsland(coord);
-            if (-sd >= refractionHeight) {
+            float depth = max(-sdIsland(coord), 0.0);
+            float band = max(refractionHeight, 0.0001);
+            float transition = max(blurTransitionHeight, band);
+            if (depth >= transition) {
                 return content.eval(coord);
             }
-            sd = min(sd, 0.0);
-
-            float d = circleMap(1.0 - -sd / refractionHeight) * refractionAmount;
-            float2 radial = centeredCoord / max(length(centeredCoord), 0.0001);
-            float2 grad = normalize(gradSdIsland(coord) + depthEffect * radial);
+            float t = clamp(depth / band, 0.0, 1.0);
+            float rim = 1.0 - t;
+            // A finite slope at the outer rim avoids the circular profile's singular derivative.
+            float d = rim * rim * (0.5 + 0.5 * rim) * refractionAmount;
+            float2 grad = gradSdIsland(coord);
             float2 refractedCoord = coord + d * grad;
-            float dispersionIntensity = chromaticAberration * clamp(
-                centeredCoord.x * centeredCoord.y / (halfSize.x * halfSize.y), -1.0, 1.0);
-            float2 dispersedCoord = d * grad * dispersionIntensity;
-
-            half4 color = half4(0.0);
-            half4 red = edgeContent.eval(refractedCoord + dispersedCoord);
-            color.r += red.r / 3.5;
-            color.a += red.a / 7.0;
-            half4 orange = edgeContent.eval(refractedCoord + dispersedCoord * (2.0 / 3.0));
-            color.r += orange.r / 3.5;
-            color.g += orange.g / 7.0;
-            color.a += orange.a / 7.0;
-            half4 yellow = edgeContent.eval(refractedCoord + dispersedCoord * (1.0 / 3.0));
-            color.r += yellow.r / 3.5;
-            color.g += yellow.g / 3.5;
-            color.a += yellow.a / 7.0;
+            // Separation depends on rim depth, never x*y or the signed displacement.
+            // It stays present on both center axes and fades smoothly toward the interior.
+            float2 dispersedCoord = grad * (0.5 * chromaticSpread * (1.0 - smoothstep(0.0, 1.0, t)));
+            half4 red = edgeContent.eval(refractedCoord - dispersedCoord);
             half4 green = edgeContent.eval(refractedCoord);
-            color.g += green.g / 3.5;
-            color.a += green.a / 7.0;
-            half4 cyan = edgeContent.eval(refractedCoord - dispersedCoord * (1.0 / 3.0));
-            color.g += cyan.g / 3.5;
-            color.b += cyan.b / 3.0;
-            color.a += cyan.a / 7.0;
-            half4 blue = edgeContent.eval(refractedCoord - dispersedCoord * (2.0 / 3.0));
-            color.b += blue.b / 3.0;
-            color.a += blue.a / 7.0;
-            half4 purple = edgeContent.eval(refractedCoord - dispersedCoord);
-            color.r += purple.r / 7.0;
-            color.b += purple.b / 3.0;
-            color.a += purple.a / 7.0;
-            half centerBlend = half(smoothstep(0.0, refractionHeight, -sd));
-            return mix(color, content.eval(coord), centerBlend);
+            half4 blue = edgeContent.eval(refractedCoord + dispersedCoord);
+            half4 color = half4(red.r, green.g, blue.b, green.a);
+            // Overlapping blur ramps bridge the clear rim and soft center beyond the lens band.
+            // All layers share the same refraction coordinates to avoid a double-image boundary.
+            float blurT = clamp(depth / transition, 0.0, 1.0);
+            half middleBlend = half(smoothstep(0.0, 0.6, blurT));
+            half centerBlend = half(smoothstep(0.25, 1.0, blurT));
+            half4 middle = transitionContent.eval(refractedCoord);
+            half4 center = content.eval(refractedCoord);
+            return mix(mix(color, middle, middleBlend), center, centerBlend);
         }
     """
 
@@ -140,7 +122,7 @@ internal object IslandGlassShaders {
         half4 main(float2 coord) {
             float2 edge = end - start;
             float t = clamp(dot(coord - start, edge) / max(dot(edge, edge), 0.000001), 0.0, 1.0);
-            half distance = half(clamp(length(coord - start - t * edge) / 16.0, 0.0, 1.0));
+            half distance = half(clamp(length(coord - start - t * edge) / $DISTANCE_RANGE, 0.0, 1.0));
             return half4(distance, distance, distance, 1.0);
         }
     """
@@ -173,6 +155,8 @@ internal object IslandGlassShaders {
     // Auxiliary windows have a fixed circular-corner rectangle, so no sampled contour is needed.
     // The animated island keeps its original path-based distance field.
     private const val ROUND_RECT_SHAPE = """
+        uniform float2 center;
+        uniform float2 halfSize;
         uniform float cornerRadius;
         float sdIsland(float2 coord) {
             float2 q = abs(coord - center) - halfSize + cornerRadius;
@@ -188,6 +172,5 @@ internal object IslandGlassShaders {
         }
     """
     val ROUND_RECT_LENS = LENS.replace(SHAPE, ROUND_RECT_SHAPE)
-    val ROUND_RECT_HIGHLIGHT = "uniform float2 center; uniform float2 halfSize;\n" +
-        HIGHLIGHT.replace(SHAPE, ROUND_RECT_SHAPE)
+    val ROUND_RECT_HIGHLIGHT = HIGHLIGHT.replace(SHAPE, ROUND_RECT_SHAPE)
 }

@@ -4,12 +4,13 @@ package io.github.gaboron.spwisland.ui.gpu
 import io.github.gaboron.spwisland.platform.WindowsDesktopBackdrop
 import org.jetbrains.skia.*
 
-/** Backdrop's Vibrancy -> Blur chain, uploaded only for a new real desktop crop. */
+/** Clear-rim, transition and soft-center filters of the same crop, cached per desktop frame and DPI. */
 internal class IslandGlassImage : AutoCloseable {
     private var source: WindowsDesktopBackdrop.Pixels? = null
     private var scale = 0f to 0f
     private var image: Image? = null
     private var filtered: Shader? = null
+    private var filteredTransition: Shader? = null
     private var filteredEdge: Shader? = null
     private var effect: RuntimeEffect? = null
     private var builder: RuntimeShaderBuilder? = null
@@ -17,6 +18,8 @@ internal class IslandGlassImage : AutoCloseable {
     var shader: Shader? = null
         private set
     var edgeShader: Shader? = null
+        private set
+    var transitionShader: Shader? = null
         private set
     var generation = 0L
         private set
@@ -37,10 +40,15 @@ internal class IslandGlassImage : AutoCloseable {
         program.uniform("deviceScale", sample.scaleX, sample.scaleY)
         program.uniform("captureOffset", offsetX, offsetY)
         val next = program.makeShader()
+        val nextTransition = try {
+            program.child("image", checkNotNull(filteredTransition))
+            program.makeShader()
+        } catch (error: Throwable) { next.close(); throw error }
         val nextEdge = try {
             program.child("image", checkNotNull(filteredEdge))
             program.makeShader()
-        } catch (error: Throwable) { next.close(); throw error }
+        } catch (error: Throwable) { nextTransition.close(); next.close(); throw error }
+        transitionShader?.close(); transitionShader = nextTransition
         edgeShader?.close(); edgeShader = nextEdge
         shader?.close(); shader = next; mappingKey = nextKey; generation++
     }
@@ -54,10 +62,14 @@ internal class IslandGlassImage : AutoCloseable {
         val nextShader = try {
             filter(nextImage, sample, IslandGlassShaders.CENTER_BLUR_SIGMA)
         } catch (error: Throwable) { owned?.close(); throw error }
+        val nextTransition = try {
+            filter(nextImage, sample, IslandGlassShaders.TRANSITION_BLUR_SIGMA)
+        } catch (error: Throwable) { nextShader.close(); owned?.close(); throw error }
         val nextEdge = try {
             filter(nextImage, sample, IslandGlassShaders.EDGE_BLUR_SIGMA)
-        } catch (error: Throwable) { nextShader.close(); owned?.close(); throw error }
-        filtered?.close(); filteredEdge?.close(); image?.close()
+        } catch (error: Throwable) { nextTransition.close(); nextShader.close(); owned?.close(); throw error }
+        filtered?.close(); filteredTransition?.close(); filteredEdge?.close(); image?.close()
+        filteredTransition = nextTransition
         filtered = nextShader; filteredEdge = nextEdge; image = owned
         source = pixels; scale = nextScale; mappingKey = null
     }
@@ -91,7 +103,9 @@ internal class IslandGlassImage : AutoCloseable {
     override fun close() {
         shader?.close(); shader = null
         edgeShader?.close(); edgeShader = null
+        transitionShader?.close(); transitionShader = null
         filtered?.close(); filtered = null
+        filteredTransition?.close(); filteredTransition = null
         filteredEdge?.close(); filteredEdge = null
         image?.close(); image = null; source = null
         builder?.close(); builder = null

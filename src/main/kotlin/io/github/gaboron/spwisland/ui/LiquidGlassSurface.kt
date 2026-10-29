@@ -4,6 +4,7 @@ package io.github.gaboron.spwisland.ui
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.core.IslandBackgroundStyle
 import io.github.gaboron.spwisland.core.IslandSettings
+import io.github.gaboron.spwisland.core.performance
 import io.github.gaboron.spwisland.ui.gpu.SwingGlassMaterial
 import java.awt.Color
 import java.awt.AlphaComposite
@@ -66,7 +67,7 @@ internal open class LiquidGlassSurface(private val settings: () -> IslandSetting
     fun cancelShow() = release()
 
     private fun usesGlass() = settings().let {
-        Platform.isWindows() && it.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS && !it.lowPerformance
+        Platform.isWindows() && it.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS && it.performance.renderLiquidGlass
     }
 
     private fun request(): SwingGlassMaterial.Request? {

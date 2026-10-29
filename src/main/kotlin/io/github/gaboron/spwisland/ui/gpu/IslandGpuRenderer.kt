@@ -11,6 +11,7 @@ import io.github.gaboron.spwisland.platform.WindowsDesktopBackdrop
 import io.github.gaboron.spwisland.platform.WindowsGpuTextureImport
 import io.github.gaboron.spwisland.core.IslandBackgroundStyle
 import io.github.gaboron.spwisland.core.GlassStatus
+import io.github.gaboron.spwisland.core.performance
 import io.github.gaboron.spwisland.ui.IslandSurface
 import io.github.gaboron.spwisland.ui.IslandHoverGeometry
 import org.jetbrains.skiko.*
@@ -142,12 +143,12 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
                     settings.cornerRoundness, scale.scaleX, scale.scaleY),
                     settings.clickThrough || settings.autoHideOnHover || !surface.hoverPose.fullyShown, surface::inputRegion)
                 if (Platform.isWindows() && settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
-                    !settings.lowPerformance && owner.isVisible && scene?.glassFailure == null) {
+                    settings.performance.renderLiquidGlass && owner.isVisible && scene?.glassFailure == null) {
                     val source = backdrop ?: WindowsDesktopBackdrop(report, textureImport) {
                         try {
                             if (layer === current && owner.isVisible && scene?.glassFailure == null &&
                                 surface.island.settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
-                                !surface.island.settings.lowPerformance) current.needRender()
+                                surface.island.settings.performance.renderLiquidGlass) current.needRender()
                         } catch (error: Throwable) {
                             IslandLog.failure("IslandGpuRenderer", "caught.error", error); fallback(error) }
                     }.also { backdrop = it }

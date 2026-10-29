@@ -21,7 +21,7 @@ internal class IslandGpuBackground(private val resources: IslandGpuResources) : 
         val duration = frame.snapshot.metadata.durationMs
         val progress = if (duration > 0) (frame.snapshot.positionMs.toDouble() / duration).coerceIn(0.0, 1.0) else 0.0
         val attempted = frame.settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
-            !frame.settings.lowPerformance && backdrop != null
+            frame.settings.performance.renderLiquidGlass && backdrop != null
         val fill = frame.progressMode == BackgroundProgressMode.FILL && frame.snapshot.track != null &&
             frame.snapshot.status != PlaybackStatus.IDLE && frame.settings.performance.renderBackgroundProgress
         val liquid = attempted && glass.draw(canvas, path, shape.shape, shape.maskKey,

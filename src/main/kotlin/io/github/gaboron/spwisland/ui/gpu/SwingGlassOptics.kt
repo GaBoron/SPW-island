@@ -28,9 +28,11 @@ internal class SwingGlassOptics : AutoCloseable {
     init { edge.maskFilter = blur }
 
     fun draw(canvas: Canvas, path: Path, sample: WindowsDesktopBackdrop.Sample?, arc: Double, tint: Int): Boolean {
-        if (sample != null) { background.update(sample); scale = sample.scaleY }
-        if (background.shader == null) return false
         val bounds = path.bounds
+        if (sample == null || !sample.covers(bounds.left, bounds.top, bounds.right, bounds.bottom,
+                IslandGlassShaders.CAPTURE_PADDING)) return false
+        background.update(sample)
+        scale = sample.scaleY
         val nextKey = listOf(background.generation, bounds, arc, tint, scale)
         if (key != nextKey) {
             val cx = (bounds.left + bounds.right) / 2f
@@ -39,13 +41,14 @@ internal class SwingGlassOptics : AutoCloseable {
             val halfH = bounds.height / 2f
             val radius = minOf(arc.toFloat() / 2f, halfW, halfH)
             lens.child("content", checkNotNull(background.shader))
+            lens.child("transitionContent", checkNotNull(background.transitionShader))
             lens.child("edgeContent", checkNotNull(background.edgeShader))
             lens.uniform("center", cx, cy); lens.uniform("halfSize", halfW, halfH)
             lens.uniform("cornerRadius", radius)
             lens.uniform("refractionHeight", IslandGlassShaders.LENS_HEIGHT)
+            lens.uniform("blurTransitionHeight", IslandGlassShaders.BLUR_TRANSITION_HEIGHT)
             lens.uniform("refractionAmount", -IslandGlassShaders.LENS_AMOUNT)
-            lens.uniform("depthEffect", 0f)
-            lens.uniform("chromaticAberration", .2f / IslandGlassShaders.LENS_AMOUNT)
+            lens.uniform("chromaticSpread", IslandGlassShaders.CHROMATIC_SPREAD)
             val nextLens = lens.makeShader()
             lensShader?.close(); lensShader = nextLens
             material.child("lens", nextLens)
@@ -67,7 +70,7 @@ internal class SwingGlassOptics : AutoCloseable {
             edge.strokeWidth = ceil(.5f * scale) * 2f / scale
             key = nextKey
         }
-        // A crop crossing a monitor edge uses the image shader's CLAMP sampling while capture catches up.
+        // Only the real display boundary may use CLAMP; incomplete moving crops use the classic fill.
         canvas.drawPath(path, fill)
         canvas.scoped {
             canvas.clipPath(path, ClipMode.INTERSECT, true)

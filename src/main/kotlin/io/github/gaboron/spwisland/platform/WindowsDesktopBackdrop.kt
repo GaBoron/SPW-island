@@ -21,8 +21,26 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                                       private val dispatch: (() -> Unit) -> Unit = { SwingUtilities.invokeLater(it) },
                                       private val redraw: () -> Unit) : AutoCloseable {
     data class Pixels(val serial: Long, val data: Data?, val texture: Image?, val x: Int, val y: Int,
-                      val width: Int, val height: Int)
-    data class Sample(val pixels: Pixels, val islandX: Float, val islandY: Float, val scaleX: Float, val scaleY: Float)
+                      val width: Int, val height: Int, val displayLeft: Int, val displayTop: Int,
+                      val displayRight: Int, val displayBottom: Int)
+    data class Sample(val pixels: Pixels, val islandX: Float, val islandY: Float, val scaleX: Float, val scaleY: Float) {
+        /** Optical padding is logical; crop/display bounds and the tolerance are physical pixels. */
+        fun covers(left: Float, top: Float, right: Float, bottom: Float, padding: Float): Boolean {
+            val x1 = islandX + left * scaleX
+            val y1 = islandY + top * scaleY
+            val x2 = islandX + right * scaleX
+            val y2 = islandY + bottom * scaleY
+            val cropRight = pixels.x + pixels.width
+            val cropBottom = pixels.y + pixels.height
+            // Keep the visible shape on one captured display. Only padding may extend off-screen.
+            if (x1 < pixels.x - 1 || y1 < pixels.y - 1 || x2 > cropRight + 1 || y2 > cropBottom + 1)
+                return false
+            return maxOf(x1 - padding * scaleX, pixels.displayLeft.toFloat()) >= pixels.x - 1 &&
+                maxOf(y1 - padding * scaleY, pixels.displayTop.toFloat()) >= pixels.y - 1 &&
+                minOf(x2 + padding * scaleX, pixels.displayRight.toFloat()) <= cropRight + 1 &&
+                minOf(y2 + padding * scaleY, pixels.displayBottom.toFloat()) <= cropBottom + 1
+        }
+    }
 
     private interface Api : Library {
         fun GlassCreate(): Pointer?
@@ -47,7 +65,8 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
     private var image: Pixels? = null
     private var listener: Thread? = null
     private val redrawPending = AtomicBoolean(false)
-    private val metadata = LongArray(10)
+    // Native metadata includes the display bounds belonging to this exact published crop.
+    private val metadata = LongArray(14)
     private var rateStarted = System.nanoTime()
     private var receivedFrames = 0
     private var updateRate = 0
@@ -95,7 +114,8 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                     if (next != null) {
                         val previous = image
                         image = Pixels(metadata[0], null, next, metadata[1].toInt(), metadata[2].toInt(),
-                            metadata[3].toInt(), metadata[4].toInt())
+                            metadata[3].toInt(), metadata[4].toInt(), metadata[10].toInt(), metadata[11].toInt(),
+                            metadata[12].toInt(), metadata[13].toInt())
                         dispose(previous); receivedFrames++
                     }
                 } catch (error: Throwable) {
@@ -115,7 +135,8 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
                     if (result == 1) {
                         val previous = image
                         image = Pixels(metadata[0], next, null, metadata[1].toInt(), metadata[2].toInt(),
-                            metadata[3].toInt(), metadata[4].toInt())
+                            metadata[3].toInt(), metadata[4].toInt(), metadata[10].toInt(), metadata[11].toInt(),
+                            metadata[12].toInt(), metadata[13].toInt())
                         dispose(previous)
                         receivedFrames++
                     }

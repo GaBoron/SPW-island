@@ -25,6 +25,7 @@ import javax.swing.JLayeredPane
 import javax.swing.RootPaneContainer
 import javax.swing.SwingUtilities
 import kotlin.math.ceil
+import kotlin.math.floor
 
 /** Same Direct3D/shared-texture presentation and display cadence as the island; no glass readback to Swing. */
 internal class SwingGlassMaterial(private val owner: Window, private val surface: LiquidGlassSurface,
@@ -123,12 +124,12 @@ internal class SwingGlassMaterial(private val owner: Window, private val surface
             }
             val p = SwingUtilities.convertPoint(surface, Point(), owner)
             val padding = IslandGlassShaders.CAPTURE_PADDING
-            val px = ceil(padding * next.scaleX).toInt()
-            val py = ceil(padding * next.scaleY).toInt()
+            val left = floor((p.x - padding) * next.scaleX).toInt()
+            val top = floor((p.y - padding) * next.scaleY).toInt()
+            val right = ceil((p.x + next.width + padding) * next.scaleX).toInt()
+            val bottom = ceil((p.y + next.height + padding) * next.scaleY).toInt()
             backdrop?.request(owner, inputPeer?.captureWindow,
-                (p.x * next.scaleX).toInt() - px, (p.y * next.scaleY).toInt() - py,
-                ceil(next.width * next.scaleX).toInt() + px * 2,
-                ceil(next.height * next.scaleY).toInt() + py * 2, allowHidden = true)
+                left, top, right - left, bottom - top, allowHidden = true)
             if (owner.isVisible) current.needRender() else current.renderImmediately()
         } catch (error: Throwable) { failLater(error) }
     }
@@ -150,7 +151,7 @@ internal class SwingGlassMaterial(private val owner: Window, private val surface
         var glass = false
         canvas.scoped {
             canvas.scale(next.scaleX, next.scaleY)
-            // Retain the previous shader when the crop/monitor is changing.
+            // A missing or incomplete crop must not freeze the previous monitor's background.
             glass = checkNotNull(optics).draw(canvas, path, sample, next.arc, next.tint)
             if (!glass) canvas.drawPath(path, cache.fill(next.tint))
             canvas.drawPath(path, cache.stroke(surface.surfaceBorder.rgb, 1f))

@@ -31,12 +31,9 @@ internal class IslandLiquidGlass : AutoCloseable {
              sample: WindowsDesktopBackdrop.Sample, opacity: Int, progress: Float,
              progressOpacity: Float, width: Int, surfaceColor: Int = 0xff000000.toInt()): Boolean {
         if (failure != null) return false
-        val pixels = sample.pixels
         val bounds = path.bounds
-        if (sample.islandX + bounds.left * sample.scaleX < pixels.x - 1 ||
-            sample.islandY + bounds.top * sample.scaleY < pixels.y - 1 ||
-            sample.islandX + bounds.right * sample.scaleX > pixels.x + pixels.width + 1 ||
-            sample.islandY + bounds.bottom * sample.scaleY > pixels.y + pixels.height + 1) return false
+        if (!sample.covers(bounds.left, bounds.top, bounds.right, bounds.bottom,
+                IslandGlassShaders.CAPTURE_PADDING)) return false
         return try {
             val program = builder ?: run {
                 val compiled = RuntimeEffect.makeForShader(IslandGlassShaders.LENS)
@@ -53,18 +50,15 @@ internal class IslandLiquidGlass : AutoCloseable {
                 program.uniform("fieldScale", sample.scaleX, sample.scaleY)
                 program.uniform("fieldOrigin", contour.originX, contour.originY)
                 program.child("content", checkNotNull(background.shader))
+                program.child("transitionContent", checkNotNull(background.transitionShader))
                 program.child("edgeContent", checkNotNull(background.edgeShader))
-                program.uniform("center", (bounds.left + bounds.right) / 2f, (bounds.top + bounds.bottom) / 2f)
-                program.uniform("halfSize", (bounds.width / 2f).coerceAtLeast(.001f),
-                    (bounds.height / 2f).coerceAtLeast(.001f))
                 // Shared optics scale down only while the existing shape collapses.
                 val collapseScale = (minOf(bounds.width, bounds.height) / nominalSize.coerceAtLeast(.001f))
                     .coerceIn(.0001f, 1f)
                 program.uniform("refractionHeight", IslandGlassShaders.LENS_HEIGHT * collapseScale)
+                program.uniform("blurTransitionHeight", IslandGlassShaders.BLUR_TRANSITION_HEIGHT * collapseScale)
                 program.uniform("refractionAmount", -IslandGlassShaders.LENS_AMOUNT * collapseScale)
-                program.uniform("depthEffect", 0f)
-                // Keep upstream's seven samples, but respect the requested faint dispersion.
-                program.uniform("chromaticAberration", .2f / IslandGlassShaders.LENS_AMOUNT)
+                program.uniform("chromaticSpread", IslandGlassShaders.CHROMATIC_SPREAD * collapseScale)
                 val next = program.makeShader()
                 try { target.shader = next } catch (error: Throwable) {
                     IslandLog.failure("IslandLiquidGlass", "caught.error", error); next.close(); throw error }

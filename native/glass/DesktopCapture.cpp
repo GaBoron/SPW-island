@@ -121,6 +121,7 @@ class Capture {
     int adapterPriority = 0;
     std::atomic<bool> forceCpu = false;
     RECT publishedRect{};
+    RECT publishedDisplay{};
     uint64_t serial = 0;
     bool ready = false;
     int64_t transportUs = 0;
@@ -336,7 +337,9 @@ class Capture {
                         if (completed.shared || !ready || !EqualRect(&publishedRect, &completed.crop) || published != completed.pixels) {
                             std::lock_guard lock(mutex);
                             published.swap(completed.pixels); publishedGpu = std::move(completed.shared);
-                            publishedRect = completed.crop; ++serial;
+                            publishedRect = completed.crop;
+                            publishedDisplay = available;
+                            ++serial;
                             transportUs = std::max<int64_t>(0, (clock100ns() - completed.sourceTime) / 10);
                             ready = true;
                             publishedSignal->notify();
@@ -408,6 +411,8 @@ public:
         metadata[3] = publishedRect.right - publishedRect.left; metadata[4] = publishedRect.bottom - publishedRect.top;
         metadata[5] = origin.x; metadata[6] = origin.y; metadata[7] = transportUs;
         metadata[8] = 0; metadata[9] = publishedGpu ? 1 : 0;
+        metadata[10] = publishedDisplay.left; metadata[11] = publishedDisplay.top;
+        metadata[12] = publishedDisplay.right; metadata[13] = publishedDisplay.bottom;
     }
     void* acquireGpu(int64_t* metadata) {
         DpiScope dpi;
