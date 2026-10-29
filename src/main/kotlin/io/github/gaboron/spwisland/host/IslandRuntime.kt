@@ -15,6 +15,8 @@ import com.sun.jna.Platform
 import io.github.gaboron.spwisland.remote.LinuxIslandProcess
 import javax.swing.SwingUtilities
 import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.platform.LinuxHelper
+import java.util.concurrent.atomic.AtomicBoolean
 
 class IslandRuntime : AutoCloseable {
     val timeline = PlaybackTimeline()
@@ -33,6 +35,7 @@ class IslandRuntime : AutoCloseable {
     private val spectrum: SpectrumSource = if (Platform.isLinux()) LinuxProcessSpectrum()
         else ProcessSpectrum(::notifySpectrumFallback)
     @Volatile private var closed = false
+    private val gnomeSetupRunning = AtomicBoolean()
     private val settings = HostSettings(WorkshopApi.manager.createConfigManager()) {
         updateSpectrumMode()
         if (!closed) ui?.reload()
@@ -80,12 +83,29 @@ class IslandRuntime : AutoCloseable {
         IslandLog.event("window", "recovery.settings_applied", mapOf(
             "source" to "spw_settings", "presentationVerified" to false))
     }
-    fun installGnomePointer() {
-        if (!Platform.isLinux() || closed) return
-        Thread({ safely {
-            val message = io.github.gaboron.spwisland.platform.LinuxHelper.installGnomePointer()
-            if (!closed) WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning)
-        } }, "SPW Island GNOME setup").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("IslandRuntime") }.start()
+    fun installGnomePointer() = installGnomeSupport("pointer")
+    fun installGnomeGlass() = installGnomeSupport("glass")
+
+    private fun installGnomeSupport(kind: String) {
+        if (closed) return
+        if (!Platform.isLinux()) {
+            WorkshopApi.ui.toast("此安装入口仅用于 Linux 的 GNOME 桌面。", WorkshopApi.Ui.ToastType.Warning)
+            return
+        }
+        if (!gnomeSetupRunning.compareAndSet(false, true)) {
+            WorkshopApi.ui.toast("GNOME 支持正在安装，请稍候。", WorkshopApi.Ui.ToastType.Warning)
+            return
+        }
+        IslandLog.thread("SPW Island GNOME setup") {
+            try {
+                safely("gnome.install.$kind") {
+                    if (closed) return@safely
+                    WorkshopApi.ui.toast("正在安装 GNOME 支持，请稍候。", WorkshopApi.Ui.ToastType.Warning)
+                    val message = LinuxHelper.installGnomeSupport(kind)
+                    if (!closed) WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning)
+                }
+            } finally { gnomeSetupRunning.set(false) }
+        }.start()
     }
     fun resetSettings() = safely { settings.resetAll() }
     fun about() {

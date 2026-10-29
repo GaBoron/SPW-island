@@ -463,6 +463,7 @@ Windows 和 Linux 共用 `preference_config.json`，平台专属设置在名称�
 | `LinuxGlobalPointer.kt` | 提供 X11 指针查询，管理 KWin / GNOME 指针桥接及样本有效期 |
 | `LinuxCompositorGlass.kt` | 合并发送现有动态轮廓，管理 GNOME 材质桥接、首帧确认、失联回退和低性能停用 |
 | `src/linux/resources/native/island-glass.py` | 复用指针桥的 GIO 连接，将几何消息转发给 Shell；不传输桌面像素 |
+| `src/linux/resources/native/install-gnome-support.py` | 共用的指针 / 玻璃扩展安装器，校验内置包、备份替换、合并启用设置；失败暂存目录移入回收站 |
 | `src/linux/resources/native/gnome-glass/extension.js` | GNOME 50 配套服务、词岛窗口绑定、调用进程校验及租约回收 |
 | `src/linux/resources/native/gnome-glass/renderer.js` | Cogl 后景复制、轮廓距离缓存、分离模糊及光学合成；不接管输入 |
 | `src/linux/resources/native/gnome-glass/*.glsl` | 轮廓距离与法线、中心模糊、边缘折射、色散和高光 |
@@ -751,7 +752,9 @@ GTK 与 Swing/AWT 不在同一个 JVM 中初始化，以减少线程和桌面工
 
 KWin 桥接通过会话 D-Bus 加载临时脚本，每 50 ms 更新指针。关闭功能、退出或连接失效时卸载脚本，桥接进程消失时脚本也会自行卸载；连接断开后尝试重连。
 
-GNOME Wayland 使用 `SPW Island Pointer` 扩展，支持 GNOME 45–50。扩展按需调用 `global.get_pointer()`，通过只读 D-Bus 方法返回坐标。`install-gnome-pointer.py` 安装扩展，备份已有版本并保留其他扩展设置；首次安装或更新后需重新登录。扩展源码位于 `src/linux/resources/native/gnome-pointer/`，由 `gnomePointer` 任务生成 ZIP 并装入 Linux 插件资源。
+GNOME Wayland 使用 `SPW Island Pointer` 扩展，支持 GNOME 45–50。扩展按需调用 `global.get_pointer()`，通过只读 D-Bus 方法返回坐标。扩展源码位于 `src/linux/resources/native/gnome-pointer/`，由 `gnomePointer` 任务生成 ZIP 并装入 Linux 插件资源。
+
+指针和玻璃支持均从 SPW 设置页按需调用 `install-gnome-support.py`，不要求用户运行命令。宿主后台线程串行安装，重复点击不会启动并发操作；不新增常驻轮询。安装器只接受相应扩展的固定文件清单和兼容版本，按用户数据目录部署；旧目录移至 `spw-island-backups/<扩展 UUID>/<时间戳>`，替换失败时恢复。启用时只合并当前扩展的启用 / 禁用项，保留其他扩展与用户扩展总开关。相同文件无需重复替换；首次安装或更新后提示重新登录。失败的暂存目录通过 GIO 移入回收站，无法回收时保留并记录路径。
 
 #### PipeWire 频谱
 

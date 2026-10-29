@@ -33,15 +33,16 @@ internal object LinuxHelper {
 
     fun startGlass(): Process = startScript("island-glass.py", extract("island-pointer.py").toString())
 
-    fun installGnomePointer(): String {
-        val archive = extract("spw-island-pointer@gaboron.github.io.shell-extension.zip")
-        val process = startScript("install-gnome-pointer.py", archive.toString())
+    fun installGnomeSupport(kind: String): String {
+        require(kind == "pointer" || kind == "glass")
+        val archive = extract("spw-island-$kind@gaboron.github.io.shell-extension.zip")
+        val process = startScript("install-gnome-support.py", kind, archive.toString())
         if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
             process.destroyForcibly()
-            error("GNOME 指针扩展安装超时")
+            error("GNOME 支持安装超时，请重试。")
         }
         val message = process.inputStream.bufferedReader().readText().trim()
-        check(process.exitValue() == 0) { message.ifBlank { "GNOME 指针扩展安装失败" } }
+        check(process.exitValue() == 0) { message.ifBlank { "GNOME 支持安装失败" } }
         return message
     }
 

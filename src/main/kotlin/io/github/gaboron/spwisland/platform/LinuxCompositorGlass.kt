@@ -36,7 +36,7 @@ internal class LinuxCompositorGlass : AutoCloseable {
     private var input: BufferedReader? = null
     private var output: BufferedWriter? = null
     @Volatile private var readyAt = 0L
-    @Volatile private var detail = if (gnome) "需要安装并启用 SPW Island Glass 配套扩展。" else
+    @Volatile private var detail = if (gnome) "请在插件设置点击“安装 / 修复 GNOME 液态玻璃支持”，首次安装后重新登录。" else
         "当前仅提供 GNOME 合成器适配。"
 
     val supported: Boolean get() = gnome

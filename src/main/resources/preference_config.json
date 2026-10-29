@@ -219,7 +219,14 @@
             "liquid_glass"
           ],
           "default_value": "classic",
-          "summary": "Windows 需要 Windows 11 SDR 与 GPU 绘制，玻璃窗口不出现在系统录屏中。GNOME 50 词岛可安装 SPW Island Glass 扩展进行实验性适配，尚待实机验收。低性能或后景不可用时使用经典背景。"
+          "summary": "Windows 需要 Windows 11 SDR 与 GPU 绘制，玻璃窗口不出现在系统录屏中。GNOME 50 请先点击下方按钮安装液态玻璃支持；目前为实验性适配。低性能或后景不可用时使用经典背景。"
+        },
+        {
+          "type": "button",
+          "title": "安装 / 修复 GNOME 液态玻璃支持（Linux）",
+          "summary": "适用于 GNOME 50，自动安装并安排启用内置配套扩展，无需终端。首次安装或更新后，请保存工作并重新登录。",
+          "arrow_type": "none",
+          "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.installGnomeGlass"
         },
         {
           "type": "seekbar",
