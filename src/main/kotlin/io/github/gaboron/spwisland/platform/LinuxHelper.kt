@@ -81,7 +81,8 @@ internal object LinuxHelper {
         val result = runKwinSetup(true)
         IslandLog.event("linux.glass", "kwin.renderer.synced", mapOf(
             "installed" to result["installed"]?.asBoolean, "ready" to result["ready"]?.asBoolean,
-            "changed" to result["changed"]?.asBoolean))
+            "changed" to result["changed"]?.asBoolean, "needsRepair" to result["needsRepair"]?.asBoolean,
+            "message" to result["message"]?.asString))
         return result["message"]?.asString?.takeIf {
             it.isNotBlank() && result["ready"]?.asBoolean != true
         }
@@ -95,7 +96,7 @@ internal object LinuxHelper {
         val output = FutureTask { process.inputStream.readNBytes(65_537) }
         IslandLog.thread("SPW Island KWin setup output") { output.run() }.start()
         try {
-            check(process.waitFor(if (refresh) 30 else 630, TimeUnit.SECONDS)) { "KWin 配套组件安装超时。" }
+            check(process.waitFor(if (refresh) 330 else 630, TimeUnit.SECONDS)) { "KWin 配套组件安装超时。" }
             val bytes = output.get(2, TimeUnit.SECONDS)
             check(bytes.size <= 65_536) { "KWin 安装输出超出限制。" }
             val result = JsonParser.parseString(bytes.toString(Charsets.UTF_8)).asJsonObject

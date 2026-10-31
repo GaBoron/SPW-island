@@ -24,6 +24,7 @@ PATH = '/io/github/gaboron/SpwIsland/KWinGlass'
 INTERFACE = 'io.github.gaboron.SpwIsland.Glass'
 PLUGIN_DIRECTORY = Path('/usr/lib/qt6/plugins/kwin/effects/plugins')
 PLUGIN = re.compile(r'spw_island_glass_[a-f0-9]{32}')
+ENTRY = 'spw_island_glass_entry_' + str(os.getuid())
 _session = None
 
 
@@ -234,6 +235,57 @@ def load(plugin):
         raise RuntimeError('KWin 未能加载匹配的原生组件。')
 
 
+def plugin_directory(root):
+    return directory(root / 'modules')
+
+
+def discovery_installed(root):
+    link = PLUGIN_DIRECTORY / (ENTRY + '.so')
+    if not link.exists() and not link.is_symlink():
+        return False
+    if not link.is_symlink() or link.lstat().st_uid != 0 or os.readlink(link) != str(root / 'entry.so'):
+        raise RuntimeError('KWin 固定入口已被其他文件占用，未覆盖：' + str(link))
+    return True
+
+
+def register_discovery(root):
+    if not discovery_installed(root):
+        # Qt resolves this link to the immutable library's canonical filename;
+        # KPluginMetaData derives its ID from that name, not the fixed entry name.
+        command('pkexec', '/usr/bin/ln', '-s', '--', str(root / 'entry.so'),
+                str(PLUGIN_DIRECTORY / (ENTRY + '.so')), timeout=60)
+        if not discovery_installed(root):
+            raise RuntimeError('KWin 固定入口注册未完成。')
+
+
+def select_entry(root, library):
+    plugins = plugin_directory(root)
+    if library.parent != plugins or not PLUGIN.fullmatch(library.stem) or library.is_symlink() or not library.is_file():
+        raise RuntimeError('KWin 用户组件路径无效。')
+    entry = root / 'entry.so'
+    previous = None
+    if entry.is_symlink():
+        previous = Path(os.readlink(entry))
+        if previous.parent != plugins or not PLUGIN.fullmatch(previous.stem):
+            raise RuntimeError('KWin 用户入口指向了非托管组件。')
+    elif entry.exists():
+        raise RuntimeError('KWin 用户入口不是符号链接。')
+    if previous == library:
+        return previous
+    pending = root / ('entry-' + uuid.uuid4().hex + '.so')
+    pending.symlink_to(library)
+    backup = root / ('entry-backup-' + uuid.uuid4().hex + '.so')
+    if previous is not None:
+        entry.rename(backup)
+    try:
+        pending.rename(entry)
+    except OSError:
+        if previous is not None:
+            backup.rename(entry)
+        raise
+    return previous
+
+
 def verify_native_compatibility(running):
     installed = command('pacman', '-Q', 'kwin').split()[1]
     match = re.search(r'(6\.\d+\.\d+)', installed)
@@ -255,7 +307,7 @@ def verify_native_compatibility(running):
     return installed, compositor_pid
 
 
-def build_native(files, root, running, native_revision):
+def build_native(files, root, running, native_revision, automatic):
     release = Path('/etc/os-release').read_text()
     if not re.search(r'^ID=\s*"?arch"?\s*$', release, re.MULTILINE):
         raise RuntimeError('当前 KWin 原生组件自动安装支持 Arch Linux。')
@@ -264,6 +316,9 @@ def build_native(files, root, running, native_revision):
     missing = [name for name in tools if subprocess.run(
         ['pacman', '-Q', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode]
     if missing:
+        if automatic:
+            raise RuntimeError('KWin 自动更新缺少编译依赖：' + '、'.join(missing) +
+                               '。请从原有安装 / 修复入口补齐依赖；自动更新不会请求系统授权。')
         # Explicit setup may request the desktop's PolicyKit authentication dialog; automatic refresh never does.
         # Never terminate a package-manager transaction on a launcher timeout.
         try:
@@ -289,10 +344,8 @@ def build_native(files, root, running, native_revision):
         header = stream.read(20)
     if header[:6] != b'\x7fELF\x02\x01' or int.from_bytes(header[18:20], 'little') != 62:
         raise RuntimeError('KWin 原生组件不是 Linux x64 动态库。')
-    destination = PLUGIN_DIRECTORY / library.name
-    if destination.exists() or destination.is_symlink():
-        raise RuntimeError('拒绝覆盖已有的 KWin 组件。')
-    command('pkexec', '/usr/bin/install', '-D', '-m', '0755', '--', str(library), str(destination), timeout=60)
+    destination = plugin_directory(root) / library.name
+    write_immutable(destination, library.read_bytes())
     if verify_native_compatibility(running) != baseline:
         raise RuntimeError('KWin 软件包或进程在安装期间发生变化，原生组件尚未加载，请重试安装。')
     return plugin
@@ -303,59 +356,73 @@ def refresh(archive, root, automatic):
     if automatic and not read_state(root):
         return {'installed': False, 'ready': False, 'changed': False, 'message': ''}
     running = version()
-    native_revision = content_id(files, NATIVE, running)
     revision = content_id(files, ['shaders/' + name for name in SHADERS])
     with locked(root):
         previous = read_state(root)
         if automatic and not previous:
             return {'installed': False, 'ready': False, 'changed': False, 'message': ''}
+        managed = discovery_installed(root)
+        if automatic and not managed:
+            return {'installed': True, 'ready': False, 'changed': False, 'needsRepair': True,
+                    'message': '请从原有安装 / 修复入口完成一次 KWin 固定入口部署，此后原生组件与着色器将随插件自动更新。'}
+        baseline = verify_native_compatibility(running)
+        native_revision = content_id(files, NATIVE, running + '\0' + baseline[0])
         current = info()
         native_ok = (previous.get('native') == native_revision and previous.get('kwin') == running and
-                     PLUGIN.fullmatch(previous.get('plugin', '')))
-        if not automatic and native_ok and not (PLUGIN_DIRECTORY / (previous['plugin'] + '.so')).is_file():
-            native_ok = False
-        if automatic and not native_ok:
-            return {'installed': True, 'ready': False, 'changed': False, 'needsRepair': True,
-                    'message': 'KWin 原生接口已更新，请在原有“安装 / 修复 Linux 液态玻璃支持”入口更新配套组件。'}
+                     previous.get('managed') is True and PLUGIN.fullmatch(previous.get('plugin', '')))
+        plugins = plugin_directory(root)
+        if native_ok:
+            library = plugins / (previous['plugin'] + '.so')
+            native_ok = library.is_file() and not library.is_symlink()
         revisions = directory(root / 'revisions')
         shaders = directory(revisions / revision)
         for name in SHADERS:
             write_immutable(shaders / name, files['shaders/' + name])
         plugin = previous.get('plugin') if native_ok else None
-        built = False
         if not plugin:
-            plugin = build_native(files, root, running, native_revision)
-            built = True
+            plugin = build_native(files, root, running, native_revision, automatic)
+        library = plugins / (plugin + '.so')
+        if verify_native_compatibility(running) != baseline:
+            raise RuntimeError('KWin 软件包或进程在更新期间发生变化，请重新启用插件。')
         old_plugin = current.get('plugin') if current else None
+        old_current = current
+        old_entry = select_entry(root, library)
+        new_loaded = None
         try:
-            if current and (current.get('native') != native_revision or current.get('kwin') != running):
+            if not automatic:
+                register_discovery(root)
+            if current and (current.get('native') != native_revision or current.get('kwin') != running or
+                            current.get('plugin') != plugin):
                 dbus('/Effects', 'org.kde.kwin.Effects', 'unloadEffect', old_plugin, signature='()')
                 current = None
             if not current:
-                try:
-                    load(plugin)
-                except (OSError, RuntimeError, subprocess.TimeoutExpired):
-                    if automatic:
-                        return {'installed': True, 'ready': False, 'changed': False, 'needsRepair': True,
-                                'message': 'KWin 配套原生组件无法加载，请从原有安装 / 修复入口重新部署。'}
-                    if built:
-                        raise
-                    plugin = build_native(files, root, running, native_revision)
-                    load(plugin)
+                load(plugin)
+                new_loaded = plugin
                 current = info()
-            if not current or current.get('native') != native_revision or current.get('kwin') != running:
+            if (not current or current.get('native') != native_revision or current.get('kwin') != running or
+                    current.get('plugin') != plugin):
                 raise RuntimeError('已加载的 KWin 组件与当前接口不匹配。')
             result = dbus(PATH, INTERFACE, 'Reload', revision)
             if result != 'LOADED':
                 raise RuntimeError(str(result))
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
-            if old_plugin and old_plugin != plugin and not info():
+            if new_loaded:
+                try:
+                    dbus('/Effects', 'org.kde.kwin.Effects', 'unloadEffect', new_loaded, signature='()')
+                except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                    pass
+            if old_entry is not None and old_entry.is_file():
+                select_entry(root, old_entry)
+            if old_plugin and not info():
                 try:
                     load(old_plugin)
+                    old_revision = old_current.get('revision') or previous.get('revision', '')
+                    if re.fullmatch('[a-f0-9]{32}', old_revision):
+                        dbus(PATH, INTERFACE, 'Reload', old_revision)
                 except (OSError, RuntimeError, subprocess.TimeoutExpired):
                     pass
             raise
-        state = {'schema': 1, 'plugin': current['plugin'], 'native': native_revision,
+        state = {'schema': 1, 'managed': True, 'plugin': current['plugin'], 'native': native_revision,
                  'kwin': running, 'revision': revision}
         if previous.get('revision') != revision:
             state['previous'] = previous.get('revision')
@@ -373,10 +440,10 @@ def refresh(archive, root, automatic):
             manifest.rename(root / ('state-backup-' + uuid.uuid4().hex + '.json'))
         pending.rename(manifest)
         return {'installed': True, 'ready': True, 'changed': previous != state,
-                'message': 'KWin 液态玻璃模块已加载，无需注销；后续着色器更新随插件自动同步。'}
+                'message': 'KWin 液态玻璃模块已加载，无需注销；后续原生组件与着色器随插件自动更新，重启后自动恢复。'}
 
 
-def host_setup(archive, root):
+def host_setup(archive, root, automatic):
     """The user service executes against host KWin headers even when SPW uses Steam Runtime."""
     job = directory(root / 'jobs' / uuid.uuid4().hex)
     helper = job / 'setup.py'
@@ -390,6 +457,8 @@ def host_setup(archive, root):
     output, error = job / 'result.json', job / 'error.log'
     q = lambda text: json.dumps(str(text), ensure_ascii=False)
     arguments = ['/usr/bin/python3', str(helper), str(shared_archive), str(bridge), '--host']
+    if automatic:
+        arguments.append('--refresh-existing')
     environment = ['XDG_DATA_HOME=' + str(root.parent.parent), 'SPW_ISLAND_PY_DIAGNOSTICS=' + str(diagnostics)]
     # The plugin may use a container-only proxy. Host tasks inherit their user manager's native bus address.
     for key in ('XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'DISPLAY', 'WAYLAND_DISPLAY'):
@@ -409,7 +478,7 @@ def host_setup(archive, root):
     session().call('org.freedesktop.systemd1', '/org/freedesktop/systemd1',
         'org.freedesktop.systemd1.Manager', 'StartTransientUnit',
         '(' + q(unit) + ', "fail", ' + properties + ', @a(sa(sv)) [])', '(o)')
-    deadline = time.monotonic() + 605
+    deadline = time.monotonic() + (305 if automatic else 605)
     while time.monotonic() < deadline:
         try:
             if not output.is_symlink() and output.stat().st_size <= 65536:
@@ -420,6 +489,8 @@ def host_setup(archive, root):
         except (OSError, ValueError):
             pass
         time.sleep(.25)
+    if automatic:
+        raise RuntimeError('KWin 自动更新尚未完成，后台任务仍会继续；请稍后重新启用插件。')
     raise RuntimeError('KWin 安装尚未完成，请检查系统授权窗口。已授权的系统安装任务会继续完成，请稍后重试。')
 
 
@@ -434,7 +505,16 @@ if __name__ == '__main__':
         root = directory(directory(data_home / 'spw-island-support') / 'kwin-glass')
         # Validate before allowing a host-side build or requesting any system authorization.
         bundle(sys.argv[1])
-        result = refresh(sys.argv[1], root, automatic) if automatic or '--host' in sys.argv[3:] else host_setup(sys.argv[1], root)
+        if '--host' in sys.argv[3:]:
+            result = refresh(sys.argv[1], root, automatic)
+        elif automatic and not (previous := read_state(root)).get('managed'):
+            # Legacy installs need one explicit migration; never open PolicyKit at startup.
+            result = {'installed': bool(previous), 'ready': False, 'changed': False,
+                      'needsRepair': bool(previous),
+                      'message': '请从原有安装 / 修复入口完成一次 KWin 固定入口部署，此后自动更新。'
+                                 if previous else ''}
+        else:
+            result = host_setup(sys.argv[1], root, automatic)
         print(json.dumps(result, ensure_ascii=False), flush=True)
     except Exception as error:
         result = {'error': str(error)}

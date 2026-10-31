@@ -154,7 +154,7 @@ GNOME 合成器实现可参考 [Mutter 50](https://github.com/GNOME/mutter/tree/
 | `LinuxGlobalPointer.kt` | 提供 X11 指针查询，管理 KWin / GNOME 指针桥接及样本有效期 |
 | `LinuxCompositorGlass.kt` | 合并发送现有动态轮廓，管理 GNOME / KWin 材质桥接、首帧确认、失联回退和低性能停用 |
 | `src/linux/resources/native/island-glass.py` | 复用指针桥的 GIO 连接，将几何消息转发给当前合成器；不传输桌面像素 |
-| `src/linux/resources/native/kwin-glass-support.py` | Arch 原生组件安装、宿主用户服务构建、接口版本校验与普通着色器热更新 |
+| `src/linux/resources/native/kwin-glass-support.py` | 首次固定入口注册、宿主用户服务构建、KWin 版本校验、原生组件与着色器自动更新 |
 | `native/kwin-glass/IslandGlassEffect.*` | KWin 几何服务、调用进程与 XWayland 窗口绑定、租约和候选材质切换 |
 | `native/kwin-glass/GlassRenderer.*` | GPU 后景与客户端 alpha、连续模糊、轮廓缓存及光学合成 |
 | `native/kwin-glass/shaders/` | KWin 轮廓距离场、中心模糊、边缘折射、色散与高光 |
