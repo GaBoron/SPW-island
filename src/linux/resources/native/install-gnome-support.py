@@ -276,13 +276,13 @@ def install(kind, archive, refresh_existing=False):
         if refresh_existing and not configured:
             message = ''  # Explicitly disabled extensions stay disabled, without prompting to change settings.
         elif active:
-            message = 'GNOME 液态玻璃渲染模块已加载，后续插件更新会自动同步，无需调整设置或重新登录。'
+            message = 'GNOME 液态玻璃支持已就绪。'
         else:
-            message = 'GNOME 液态玻璃支持已同步。首次安装或旧入口迁移后，请保存工作并重新登录一次；后续渲染更新会自动生效。'
+            message = 'GNOME 液态玻璃支持已安装，请保存工作并重新登录。'
     elif changed or not active:
         message = support['label'] + '已安装，用户扩展总开关已开启。请保存工作，注销后重新登录。'
     else:
-        message = support['label'] + '已就绪，无需重新安装。'
+        message = support['label'] + '已就绪。'
     return {'installed': True, 'ready': active, 'changed': changed, 'message': message}
 
 

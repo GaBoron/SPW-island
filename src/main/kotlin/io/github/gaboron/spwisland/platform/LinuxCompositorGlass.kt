@@ -42,8 +42,8 @@ internal class LinuxCompositorGlass : AutoCloseable {
     @Volatile private var readyAt = 0L
     @Volatile private var detail = when {
         kde && System.getenv("XDG_SESSION_TYPE") != "wayland" -> "KWin 液态玻璃当前适配 Plasma 6 的 Wayland 会话。"
-        kde -> "请从插件设置安装 / 修复 Linux 液态玻璃支持；需要匹配本机 KWin 的原生组件。"
-        gnome -> "首次安装或旧入口迁移后需重新登录一次；此后渲染模块随插件自动更新。"
+        kde -> "请在插件设置中安装 / 修复 Linux 液态玻璃支持。"
+        gnome -> "首次安装 GNOME 液态玻璃支持后，请重新登录。"
         else -> "当前提供 GNOME 与 KDE Plasma 合成器适配。"
     }
 
@@ -115,7 +115,7 @@ internal class LinuxCompositorGlass : AutoCloseable {
                             if (enabled && !closed) {
                                 val ready = reply == "READY" || reply.startsWith("READY ")
                                 readyAt = if (ready) System.nanoTime() else 0L
-                                detail = if (reply == "READY") "后景、模糊、折射、色散和高光在 $compositor 内处理。"
+                                detail = if (reply == "READY") "液态玻璃已启用。"
                                     else reply.removePrefix(if (ready) "READY " else "WAIT ")
                             }
                         }

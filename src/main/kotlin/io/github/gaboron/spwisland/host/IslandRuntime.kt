@@ -126,7 +126,7 @@ class IslandRuntime : AutoCloseable {
                     val kdeSetup = kind == "glass" && System.getenv("XDG_CURRENT_DESKTOP").orEmpty()
                         .split(':').any { it.equals("KDE", true) }
                     val progress = when {
-                        kdeSetup -> "正在安装液态玻璃支持；KDE 首次安装可能弹出系统授权窗口，请按提示完成。"
+                        kdeSetup -> "正在安装 KDE 液态玻璃支持，请稍候。"
                         kind == "glass" -> "正在安装 GNOME 液态玻璃支持，请稍候。"
                         else -> "正在安装 GNOME 悬停隐藏支持，请稍候。"
                     }

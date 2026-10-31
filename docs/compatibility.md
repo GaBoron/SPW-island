@@ -24,7 +24,7 @@
 | 本地专辑封面 | ✅ | ✅ |
 | 歌词 / 背景封面取色 | ✅ | ✅ |
 | 背景播放进度 | ✅ | ✅ |
-| 实验性液态玻璃背景 | ✅*（Windows 11 SDR） | GNOME 50；KWin 实验接入待验收* |
+| 实验性液态玻璃背景 | ✅*（Windows 11 SDR） | GNOME 50 / Arch KDE Wayland* |
 | 悬停展开播放控制 | ✅ | ✅ |
 | 可用时拖动进度条 | ✅ | ✅ |
 | 九宫格拖动与吸附 | ✅ | ✅ |
@@ -41,9 +41,11 @@
 
 ## 液态玻璃
 
-- **Windows**：支持 Windows 11 的 SDR 显示环境和 GPU 绘制；词岛、右键菜单与关于页均可使用。Windows 10、HDR、低性能模式或背景捕获不可用时使用经典背景。启用后，支持系统捕获排除的录屏可能无法录到对应窗口。
-- **GNOME Shell 50**：只作用于词岛主体；菜单和关于页保持经典背景。首次使用需[安装配套扩展](usage.md#gnome-配套扩展)并重新登录。
-- **KDE Plasma**：提供面向 Arch Linux、KWin 6.6–6.8 Wayland 的实验性接入，需要 OpenGL 合成，仍需目标环境验收。合成器内部完成中心模糊、折射、色散和高光，仅作用于词岛主体。首次安装会匹配本机 KWin 构建原生组件，可能请求系统授权；安装流程见 [KDE 配套效果](usage.md#kde-配套效果)。X11 会话及其他 KWin 版本使用经典背景。
+- **Windows**：Windows 11 SDR 和 GPU 绘制；作用于词岛、右键菜单和关于页。部分录屏工具可能无法录到玻璃窗口。
+- **GNOME Shell 50**：仅词岛主体，需[安装配套支持](installation.md#linux)。
+- **KDE Plasma**：Arch Linux、KWin 6.6–6.8 Wayland 和 OpenGL 合成；仅词岛主体，需[安装配套支持](installation.md#linux)。
+
+不满足条件、开启低性能模式或后景不可用时使用经典背景。
 
 ## 歌词、封面与播放控制
 

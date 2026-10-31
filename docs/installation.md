@@ -4,33 +4,28 @@
 
 ## 下载与安装
 
-在 [Releases](https://github.com/GaBoron/Dynamic-Lyrics-Island-for-SPW/releases/latest) 下载 `spw-island-<版本>.spmod`，或通过 [Steam 创意工坊](https://steamcommunity.com/sharedfiles/filedetails/?id=3821553308) 订阅。Windows x64 和 Linux x64 使用同一个插件包；不要导入带 `-source` 后缀的源码包。
+通过 [Steam 创意工坊](https://steamcommunity.com/sharedfiles/filedetails/?id=3821553308) 订阅，或从 [Releases](https://github.com/GaBoron/SPW-island/releases/latest) 下载 `spw-island-<版本>.spmod`。
 
-手动安装步骤：
+手动安装：
 
-1. 在 SPW 的创意工坊 / 插件管理中导入 `.spmod`。
+1. 在 SPW 插件管理中导入 `.spmod`，Windows x64 和 Linux x64 使用同一个包。
 2. 启用“灵动词岛 for SPW”。
-3. 播放一首 SPW 已经加载歌词的歌曲。
+3. 播放一首 SPW 已加载歌词的歌曲。
 
-需要 **SPW 1.19.0+（Workshop API dev23）** 和宿主提供的 **Java 25+**。可授予“曲库读取”和“快捷键”权限，以便恢复当前歌曲、读取封面 / 时长及使用快捷键。
+需要 **SPW 1.19.0+（Workshop API dev23）** 和 **Java 25+**。授予“曲库读取”权限可读取当前歌曲、封面和时长；“快捷键”权限用于显示 / 隐藏词岛。
 
 ## Linux
 
-Linux x64 为实验性支持，需要 `/usr/bin/python3` 和 X11 / XWayland。功能差异见 [兼容性与限制](compatibility.md)。
+需要 Linux x64、`/usr/bin/python3` 和 X11 / XWayland。
 
-需要使用以下功能时，另有要求：
+- **实时频谱**：需要 PipeWire 和 `pw-record` / `pw-dump`。
+- **液态玻璃**：首次使用时，在“背景与进度”中点击“安装 / 修复 Linux 液态玻璃支持”。GNOME 安装后重新登录；KDE 按系统授权提示完成安装。[支持范围](compatibility.md#液态玻璃)。
+- **GNOME 悬停隐藏**：点击“安装 GNOME 悬停隐藏支持”，安装或更新后重新登录。适用于 GNOME Wayland 45–50。
 
-- **实时频谱**：PipeWire，以及 `pw-record` / `pw-dump`。
-- **GNOME Wayland 悬停隐藏（45–50）**：在插件设置中点击“安装 GNOME 悬停隐藏支持”，首次安装或更新扩展后重新登录。
-- **GNOME 50 液态玻璃**：在插件设置的“背景与进度”中点击“安装 / 修复 Linux 液态玻璃支持”，首次安装后重新登录。
-- **KDE 液态玻璃（实验接入）**：Arch Linux、KWin 6.6–6.8 Wayland 使用同一安装入口，首次部署可能请求系统授权，此后组件随插件自动更新；详见 [KDE 配套效果](usage.md#kde-配套效果)。
-
-Linux 的快捷菜单位于系统托盘；看不到托盘时，仍可从 SPW 插件设置管理词岛。
+GNOME 配套支持安装会开启用户扩展，其他已启用扩展也可能恢复。Linux 快捷菜单位于系统托盘；没有托盘时可使用 SPW 插件设置。
 
 ## 更新
 
-从创意工坊更新，或导入新版 `.spmod` 即可。Windows 若提示文件被占用，先完全退出 SPW；使用手动插件目录的用户应退出后替换原文件。
+从创意工坊更新，或导入新版 `.spmod`。提示文件被占用时，完全退出 SPW 后再更新；手动替换插件文件也应先退出 SPW。
 
-## 遇到问题
-
-词岛不显示、歌词异常或频谱不动时，请查看 [故障排查](troubleshooting.md)。插件不负责在线搜索歌词，需要时可搭配 [SPW-Lyrics](https://github.com/GaBoron/SPW-Lyrics)。
+遇到问题请查看 [故障排查](troubleshooting.md)。

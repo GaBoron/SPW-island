@@ -364,7 +364,7 @@ def refresh(archive, root, automatic):
         managed = discovery_installed(root)
         if automatic and not managed:
             return {'installed': True, 'ready': False, 'changed': False, 'needsRepair': True,
-                    'message': '请从原有安装 / 修复入口完成一次 KWin 固定入口部署，此后原生组件与着色器将随插件自动更新。'}
+                    'message': '请在插件设置中安装 / 修复 Linux 液态玻璃支持。'}
         baseline = verify_native_compatibility(running)
         native_revision = content_id(files, NATIVE, running + '\0' + baseline[0])
         current = info()
@@ -440,7 +440,7 @@ def refresh(archive, root, automatic):
             manifest.rename(root / ('state-backup-' + uuid.uuid4().hex + '.json'))
         pending.rename(manifest)
         return {'installed': True, 'ready': True, 'changed': previous != state,
-                'message': 'KWin 液态玻璃模块已加载，无需注销；后续原生组件与着色器随插件自动更新，重启后自动恢复。'}
+                'message': 'KWin 液态玻璃支持已就绪。'}
 
 
 def host_setup(archive, root, automatic):
@@ -511,7 +511,7 @@ if __name__ == '__main__':
             # Legacy installs need one explicit migration; never open PolicyKit at startup.
             result = {'installed': bool(previous), 'ready': False, 'changed': False,
                       'needsRepair': bool(previous),
-                      'message': '请从原有安装 / 修复入口完成一次 KWin 固定入口部署，此后自动更新。'
+                      'message': '请在插件设置中安装 / 修复 Linux 液态玻璃支持。'
                                  if previous else ''}
         else:
             result = host_setup(sys.argv[1], root, automatic)
