@@ -219,12 +219,12 @@
             "liquid_glass"
           ],
           "default_value": "classic",
-          "summary": "Windows 需要 Windows 11 SDR 与 GPU 绘制，玻璃窗口不出现在系统录屏中。GNOME 50 请先安装下方配套支持；目前为实验性适配。低性能或后景不可用时使用经典背景。"
+          "summary": "Windows 需要 Windows 11 SDR 与 GPU 绘制，玻璃窗口不出现在系统录屏中。GNOME 50 与 KDE Plasma 6 请先安装下方配套支持；目前为实验性适配。低性能或后景不可用时使用经典背景。"
         },
         {
           "type": "button",
-          "title": "安装 / 修复 GNOME 液态玻璃支持（Linux）",
-          "summary": "适用于 GNOME 50。安装时会开启用户扩展总开关，其他已启用扩展也可能恢复。首次安装按提示重新登录一次，后续渲染更新随插件自动生效，无需改设置或终端。",
+          "title": "安装 / 修复 Linux 液态玻璃支持",
+          "summary": "GNOME 50 首次安装后需重新登录，并会开启用户扩展总开关。KDE 支持 Arch Linux 的 KWin 6.6–6.8 Wayland；首次安装可能请求系统授权以部署原生组件，无需终端。后续渲染更新自动同步。",
           "arrow_type": "none",
           "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.installGnomeGlass"
         },

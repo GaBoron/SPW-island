@@ -1,0 +1,9 @@
+{
+  "KPlugin": {
+    "Name": "SPW Island Liquid Glass",
+    "Description": "Compositor liquid glass for the SPW Island window",
+    "Category": "Appearance",
+    "License": "GPL-3.0-only",
+    "EnabledByDefault": false
+  }
+}

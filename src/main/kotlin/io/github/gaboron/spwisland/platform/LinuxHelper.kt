@@ -59,6 +59,12 @@ internal object LinuxHelper {
 
     fun installGnomeSupport(kind: String): String = runGnomeSetup(kind, false)
 
+    private val kde: Boolean get() = System.getenv("XDG_CURRENT_DESKTOP").orEmpty()
+        .split(':').any { it.equals("KDE", true) }
+
+    fun installCompositorGlass(): String = if (kde) runKwinSetup(false)["message"].asString
+        else installGnomeSupport("glass")
+
     fun refreshGnomeGlass(): String? {
         val result = JsonParser.parseString(runGnomeSetup("glass", true)).asJsonObject
         IslandLog.event("linux.glass", "renderer.synced", mapOf(
@@ -67,6 +73,37 @@ internal object LinuxHelper {
         return result["message"]?.asString?.takeIf {
             it.isNotBlank() && result["installed"]?.asBoolean == true && result["ready"]?.asBoolean != true &&
                 result["changed"]?.asBoolean == true
+        }
+    }
+
+    fun refreshCompositorGlass(): String? {
+        if (!kde) return refreshGnomeGlass()
+        val result = runKwinSetup(true)
+        IslandLog.event("linux.glass", "kwin.renderer.synced", mapOf(
+            "installed" to result["installed"]?.asBoolean, "ready" to result["ready"]?.asBoolean,
+            "changed" to result["changed"]?.asBoolean))
+        return result["message"]?.asString?.takeIf {
+            it.isNotBlank() && result["ready"]?.asBoolean != true
+        }
+    }
+
+    private fun runKwinSetup(refresh: Boolean): com.google.gson.JsonObject {
+        val archive = extract("spw-island-kwin-glass.zip")
+        val arguments = listOf(archive.toString()) + if (refresh) listOf("--refresh-existing") else emptyList()
+        val process = startScript("kwin-glass-support.py", *arguments.toTypedArray())
+        val output = FutureTask { process.inputStream.readNBytes(65_537) }
+        IslandLog.thread("SPW Island KWin setup output") { output.run() }.start()
+        try {
+            check(process.waitFor(if (refresh) 30 else 630, TimeUnit.SECONDS)) { "KWin 配套组件安装超时。" }
+            val bytes = output.get(2, TimeUnit.SECONDS)
+            check(bytes.size <= 65_536) { "KWin 安装输出超出限制。" }
+            val result = JsonParser.parseString(bytes.toString(Charsets.UTF_8)).asJsonObject
+            check(process.exitValue() == 0) { result["error"]?.asString ?: "KWin 配套组件安装失败。" }
+            return result
+        } finally {
+            if (process.isAlive) process.destroyForcibly()
+            process.inputStream.close()
+            output.cancel(true)
         }
     }
 

@@ -36,8 +36,8 @@ class IslandRuntime : AutoCloseable {
     private val spectrum: SpectrumSource = if (Platform.isLinux()) LinuxProcessSpectrum()
         else ProcessSpectrum(::notifySpectrumFallback)
     @Volatile private var closed = false
-    private val gnomeSetupRunning = AtomicBoolean()
-    private val gnomeRefreshStarted = AtomicBoolean()
+    private val desktopSetupRunning = AtomicBoolean()
+    private val glassRefreshStarted = AtomicBoolean()
     private val settings = HostSettings(WorkshopApi.manager.createConfigManager()) {
         updateSpectrumMode()
         if (!closed) ui?.reload()
@@ -81,20 +81,22 @@ class IslandRuntime : AutoCloseable {
         // Startup-only synchronization follows the same disabled/low-performance gate as rendering.
         if (!closed && Platform.isLinux() && current.enabled && current.performance.renderLiquidGlass &&
             current.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
-            System.getenv("XDG_CURRENT_DESKTOP").orEmpty().split(':').any { it.equals("GNOME", true) } &&
-            gnomeRefreshStarted.compareAndSet(false, true)) {
-            if (gnomeSetupRunning.compareAndSet(false, true)) {
-                IslandLog.thread("SPW Island GNOME renderer sync") {
+            System.getenv("XDG_CURRENT_DESKTOP").orEmpty().split(':').any {
+                it.equals("GNOME", true) || it.equals("KDE", true) && System.getenv("XDG_SESSION_TYPE") == "wayland"
+            } &&
+            glassRefreshStarted.compareAndSet(false, true)) {
+            if (desktopSetupRunning.compareAndSet(false, true)) {
+                IslandLog.thread("SPW Island compositor renderer sync") {
                     try {
-                        if (!closed) safely("gnome.renderer.sync") {
-                            val message = LinuxHelper.refreshGnomeGlass()
+                        if (!closed) safely("compositor.renderer.sync") {
+                            val message = LinuxHelper.refreshCompositorGlass()
                             if (!closed && message != null)
                                 WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning)
                         }
-                    } finally { gnomeSetupRunning.set(false) }
+                    } finally { desktopSetupRunning.set(false) }
                 }.start()
             } else {
-                gnomeRefreshStarted.set(false)
+                glassRefreshStarted.set(false)
             }
         }
     }
@@ -110,23 +112,30 @@ class IslandRuntime : AutoCloseable {
     private fun installGnomeSupport(kind: String) {
         if (closed) return
         if (!Platform.isLinux()) {
-            WorkshopApi.ui.toast("此安装入口仅用于 Linux 的 GNOME 桌面。", WorkshopApi.Ui.ToastType.Warning)
+            WorkshopApi.ui.toast("此安装入口仅用于 Linux 桌面。", WorkshopApi.Ui.ToastType.Warning)
             return
         }
-        if (!gnomeSetupRunning.compareAndSet(false, true)) {
-            WorkshopApi.ui.toast("GNOME 支持正在安装，请稍候。", WorkshopApi.Ui.ToastType.Warning)
+        if (!desktopSetupRunning.compareAndSet(false, true)) {
+            WorkshopApi.ui.toast("桌面支持正在安装，请稍候。", WorkshopApi.Ui.ToastType.Warning)
             return
         }
-        IslandLog.thread("SPW Island GNOME setup") {
+        IslandLog.thread("SPW Island desktop setup") {
             try {
-                safely("gnome.install.$kind") {
+                safely("desktop.install.$kind") {
                     if (closed) return@safely
-                    WorkshopApi.ui.toast("正在安装 GNOME 支持，请稍候。", WorkshopApi.Ui.ToastType.Warning)
-                    val message = LinuxHelper.installGnomeSupport(kind)
+                    val kdeSetup = kind == "glass" && System.getenv("XDG_CURRENT_DESKTOP").orEmpty()
+                        .split(':').any { it.equals("KDE", true) }
+                    val progress = when {
+                        kdeSetup -> "正在安装液态玻璃支持；KDE 首次安装可能弹出系统授权窗口，请按提示完成。"
+                        kind == "glass" -> "正在安装 GNOME 液态玻璃支持，请稍候。"
+                        else -> "正在安装 GNOME 悬停隐藏支持，请稍候。"
+                    }
+                    WorkshopApi.ui.toast(progress, WorkshopApi.Ui.ToastType.Warning)
+                    val message = if (kind == "glass") LinuxHelper.installCompositorGlass() else LinuxHelper.installGnomeSupport(kind)
                     if (!closed) WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning)
                 }
             } finally {
-                gnomeSetupRunning.set(false)
+                desktopSetupRunning.set(false)
                 if (!closed) updateSpectrumMode()
             }
         }.start()

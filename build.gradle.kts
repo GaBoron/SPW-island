@@ -52,12 +52,19 @@ val gnomeGlass = tasks.register<Zip>("gnomeGlass") {
     from("LICENSE", "NOTICE")
     from("licenses/Apache-2.0.txt") { into("licenses") }
 }
+val kwinGlass = tasks.register<Zip>("kwinGlass") {
+    archiveFileName.set("spw-island-kwin-glass.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+    from("native/kwin-glass")
+    from("LICENSE", "NOTICE")
+    from("licenses/Apache-2.0.txt") { into("licenses") }
+}
 tasks.processResources {
     doFirst {
         check(currentOs.isWindows) { "Build the universal plugin on Windows with the native toolchains installed" }
     }
     from("native/shared-fonts/MiSansVF.ttf") { into("fonts") }
-    dependsOn("buildSpectrum", "buildWindowsTray", "buildWindowsGlass", gnomePointer, gnomeGlass)
+    dependsOn("buildSpectrum", "buildWindowsTray", "buildWindowsGlass", gnomePointer, gnomeGlass, kwinGlass)
     from(layout.buildDirectory.file("native/spw-spectrum.exe")) { into("native") }
     from(layout.buildDirectory.file("native/spw-island-tray.exe")) { into("native") }
     from(layout.buildDirectory.file("native/spw-island-glass.dll")) { into("native") }
@@ -70,6 +77,7 @@ tasks.processResources {
     from("src/linux/resources") { exclude("**/__pycache__/**", "**/*.pyc", "native/gnome-pointer/**", "native/gnome-glass/**") }
     from(gnomePointer) { into("native") }
     from(gnomeGlass) { into("native") }
+    from(kwinGlass) { into("native") }
     inputs.property("projectUrl", projectUrl)
     filesMatching("project.properties") { expand("projectUrl" to projectUrl.get()) }
 }

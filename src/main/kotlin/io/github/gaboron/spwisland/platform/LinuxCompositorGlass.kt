@@ -2,6 +2,7 @@
 package io.github.gaboron.spwisland.platform
 
 import com.google.gson.Gson
+import com.sun.jna.Native
 import io.github.gaboron.spwisland.core.GlassStatus
 import io.github.gaboron.spwisland.core.IslandBackgroundStyle
 import io.github.gaboron.spwisland.core.IslandSettings
@@ -18,6 +19,8 @@ import java.util.concurrent.TimeUnit
 /** Sends geometry, never desktop pixels. All process and D-Bus work stays off the EDT. */
 internal class LinuxCompositorGlass : AutoCloseable {
     private val gnome = System.getenv("XDG_CURRENT_DESKTOP").orEmpty().split(':').any { it.equals("GNOME", true) }
+    private val kde = System.getenv("XDG_CURRENT_DESKTOP").orEmpty().split(':').any { it.equals("KDE", true) }
+    private val compositor = if (kde) "KWin" else "GNOME"
     private val gson = Gson()
     private val worker = DiagnosticExecutors.single {
         Thread(it, "SPW Island compositor glass").apply {
@@ -37,12 +40,16 @@ internal class LinuxCompositorGlass : AutoCloseable {
     private var input: BufferedReader? = null
     private var output: BufferedWriter? = null
     @Volatile private var readyAt = 0L
-    @Volatile private var detail = if (gnome) "首次安装或旧入口迁移后需重新登录一次；此后渲染模块随插件自动更新。" else
-        "当前仅提供 GNOME 合成器适配。"
+    @Volatile private var detail = when {
+        kde && System.getenv("XDG_SESSION_TYPE") != "wayland" -> "KWin 液态玻璃当前适配 Plasma 6 的 Wayland 会话。"
+        kde -> "请从插件设置安装 / 修复 Linux 液态玻璃支持；需要匹配本机 KWin 的原生组件。"
+        gnome -> "首次安装或旧入口迁移后需重新登录一次；此后渲染模块随插件自动更新。"
+        else -> "当前提供 GNOME 与 KDE Plasma 合成器适配。"
+    }
 
-    val supported: Boolean get() = gnome
+    val supported: Boolean get() = gnome || kde && System.getenv("XDG_SESSION_TYPE") == "wayland"
     val active: Boolean get() = enabled && System.nanoTime() - readyAt < 1_500_000_000L && readyAt != 0L
-    val status: GlassStatus get() = if (active) GlassStatus("GNOME 合成器", detail)
+    val status: GlassStatus get() = if (active) GlassStatus("$compositor 合成器", detail)
         else GlassStatus("经典背景", detail)
 
     @Synchronized fun update(window: Window, settings: IslandSettings, shape: Shape, key: Any, opacity: Double) {
@@ -64,9 +71,11 @@ internal class LinuxCompositorGlass : AutoCloseable {
             deactivate()
             return
         }
-        pending = gson.toJson(mapOf("pid" to ProcessHandle.current().pid(), "title" to window.name,
+        val payload = mutableMapOf<String, Any>("pid" to ProcessHandle.current().pid(), "title" to window.name,
             "points" to geometry, "opacity" to opacity,
-            "maskAlpha" to (maxOf(1, settings.opacity / 2) * 255 / 100) / 255.0))
+            "maskAlpha" to (maxOf(1, settings.opacity / 2) * 255 / 100) / 255.0)
+        if (kde) payload["windowId"] = Native.getWindowID(window)
+        pending = gson.toJson(payload)
         dispatch()
     }
 
@@ -97,7 +106,7 @@ internal class LinuxCompositorGlass : AutoCloseable {
                             output = process.outputStream.bufferedWriter()
                         }
                         output!!.apply { write(message); newLine(); flush() }
-                        val reply = input!!.readLine() ?: error("GNOME 玻璃桥接已断开")
+                        val reply = input!!.readLine() ?: error("$compositor 玻璃桥接已断开")
                         if (reply != lastReply) {
                             IslandLog.state("linux.glass", "bridge", reply.take(1200))
                             lastReply = reply
@@ -106,14 +115,14 @@ internal class LinuxCompositorGlass : AutoCloseable {
                             if (enabled && !closed) {
                                 val ready = reply == "READY" || reply.startsWith("READY ")
                                 readyAt = if (ready) System.nanoTime() else 0L
-                                detail = if (reply == "READY") "后景、模糊、折射、色散和高光在 Shell 内处理。"
+                                detail = if (reply == "READY") "后景、模糊、折射、色散和高光在 $compositor 内处理。"
                                     else reply.removePrefix(if (ready) "READY " else "WAIT ")
                             }
                         }
                     } catch (error: Exception) {
                         IslandLog.failure("LinuxCompositorGlass", "bridge.failed", error)
                         readyAt = 0L
-                        detail = "GNOME 配套扩展不可用：${error.message}"
+                        detail = "$compositor 配套组件不可用：${error.message}"
                         disconnect()
                     }
                 }

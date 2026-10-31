@@ -73,6 +73,24 @@ RGB separation and directional lighting to GNOME Cogl in
 src/linux/resources/native/gnome-glass/glass.glsl. The compositor retains its
 own background textures; the plugin transmits only animated contour geometry.
 
+Modified 2026-10-31: adapted the same optical profile to the KWin companion in
+native/kwin-glass/shaders/glass.frag; only compositor GPU textures are sampled.
+
+KWin compositor integration
+Reference: KDE KWin, Plasma/6.8 revision 53ac56a5caf16f090360c80eea6d8b8424b8de52,
+src/plugins/blur/blur.cpp and src/effect/offscreeneffect.cpp.
+https://invent.kde.org/plasma/kwin
+Copyright 2010 Fredrik Höglund, 2011 Philipp Knechtges, 2018 Alex Nemeth,
+2021 Vlad Zahorodnii and other KDE contributors; GPL-2.0-or-later.
+Also referenced: 4v3ngR/kwin-effects-glass, revision
+1edd1cdb382dacf0c8b9cb4bd28011c8de95eb58, src/blur.cpp (GPL-2.0-or-later).
+https://github.com/4v3ngR/kwin-effects-glass
+Modified 2026-10-31: adapted framebuffer allocation, repaint integration,
+GPU blit and per-window alpha rendering for a PID/window-bound SPW effect.
+The adaptation is conveyed under GPL-3.0-only. Original compositor code is
+provided by the Linux desktop; complete companion sources and build files
+are included with the plugin.
+
 Jaudiotagger 3.0.1, Copyright Paul Taylor and contributors.
 https://www.jthink.net/jaudiotagger/
 Unmodified library under LGPL-2.1-or-later (licenses/LGPL-2.1.txt).

@@ -22,7 +22,8 @@ Linux x64 为实验性支持，需要 `/usr/bin/python3` 和 X11 / XWayland。�
 
 - **实时频谱**：PipeWire，以及 `pw-record` / `pw-dump`。
 - **GNOME Wayland 悬停隐藏（45–50）**：在插件设置中点击“安装 GNOME 悬停隐藏支持”，首次安装或更新扩展后重新登录。
-- **GNOME 50 液态玻璃**：在插件设置的“背景与进度”中点击“安装 / 修复 GNOME 液态玻璃支持（Linux）”，首次安装后重新登录。
+- **GNOME 50 液态玻璃**：在插件设置的“背景与进度”中点击“安装 / 修复 Linux 液态玻璃支持”，首次安装后重新登录。
+- **KDE 液态玻璃（实验接入）**：Arch Linux、KWin 6.6–6.8 Wayland 使用同一安装入口，首次部署可能请求系统授权；详见 [KDE 配套效果](usage.md#kde-配套效果)。
 
 Linux 的快捷菜单位于系统托盘；看不到托盘时，仍可从 SPW 插件设置管理词岛。
 

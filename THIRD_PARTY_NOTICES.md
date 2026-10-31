@@ -22,7 +22,11 @@
 
 [AndroidLiquidGlass / Backdrop](https://github.com/Kyant0/AndroidLiquidGlass)，Copyright 2025 Kyant，来源提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`，采用 [Apache-2.0](licenses/Apache-2.0.txt)。
 
-2026-10-15 参考 Lens、色散、Vibrancy 与高光合成实现 Windows `IslandGlassShaders.kt` 等组件；2026-10-29 将相关光学效果适配到 GNOME `gnome-glass/glass.glsl`。未引入原项目的 Compose 组件，具体修改见 [NOTICE](NOTICE)。GNOME 扩展包同样附带相应 NOTICE 与 Apache-2.0 许可。
+2026-10-15 参考 Lens、色散、Vibrancy 与高光合成实现 Windows `IslandGlassShaders.kt` 等组件；后续将相关光学效果适配到 GNOME `gnome-glass/glass.glsl` 和 KWin `native/kwin-glass/shaders/glass.frag`。未引入原项目的 Compose 组件，具体修改见 [NOTICE](NOTICE)。配套组件同样附带相应 NOTICE 与 Apache-2.0 许可。
+
+### KWin 合成器接入
+
+`native/kwin-glass/` 的帧缓冲、重绘及窗口 alpha 处理参考 [KDE KWin](https://invent.kde.org/plasma/kwin) 与 [kwin-effects-glass](https://github.com/4v3ngR/kwin-effects-glass) 的 GPL-2.0-or-later 实现，以 GPL-3.0-only 分发改编代码与完整源码。原作者、来源提交及改动见 [NOTICE](NOTICE)；KWin 本体由桌面环境提供。
 
 ## 依赖与构建工具
 

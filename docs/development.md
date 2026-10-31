@@ -30,11 +30,11 @@ Linux 的播放与设置变更由 `LinuxIslandProcess` 和 `IslandWire` 在宿�
 
 - **窗口与交互**：`IslandWindow` 管理窗口生命周期；`IslandPanel` 组合歌词和控件。X11 输入区域由 `X11InputRegion` 处理；`IslandPointerPresence` 与 `LinuxGlobalPointer` 管理悬停和全局指针。
 - **Linux 桌面**：X11 直接查询指针，KDE Wayland 使用临时 KWin 脚本，GNOME Wayland 使用配套扩展。指针失联时必须恢复词岛可见状态，不能留下无法操作的永久桌面设置。
-- **液态玻璃**：Windows 由原生背景捕获与 Skia 着色器实现；GNOME 50 由 Shell 扩展完成合成器内渲染，`LinuxCompositorGlass` 只同步动态轮廓和不透明度，不传输桌面像素。实现时不得干扰原有歌词布局、窗口输入和动画。
+- **液态玻璃**：Windows 由原生背景捕获与 Skia 着色器实现；GNOME 50 由 Shell 扩展、KDE 实验路径由 KWin 原生效果完成合成器内渲染，`LinuxCompositorGlass` 只同步动态轮廓和不透明度，不传输桌面像素。实现时不得干扰原有歌词布局、窗口输入和动画。
 - **音频**：Windows `ProcessSpectrum` 和 Linux `LinuxProcessSpectrum` 分别管理辅助进程，只向 UI 提供四频段数据；无可用音频流时降级，不影响歌词。
 - **设置**：`IslandSettings`、`HostSettings` 和 `preference_config.json` 共同定义用户设置。配置变更保持已发布键名的兼容性。
 
-GNOME 合成器实现可参考 [Mutter 50](https://github.com/GNOME/mutter/tree/50.0) 和 [GNOME Liquid Glass](https://github.com/ryohsuke1231/liquid-glass)；KWin 的参考项目为 [kwin-effects-glass](https://github.com/4v3ngR/kwin-effects-glass)。参考项目不代表当前已支持 KDE 液态玻璃。
+GNOME 合成器实现可参考 [Mutter 50](https://github.com/GNOME/mutter/tree/50.0) 和 [GNOME Liquid Glass](https://github.com/ryohsuke1231/liquid-glass)；KWin 的参考项目为 [kwin-effects-glass](https://github.com/4v3ngR/kwin-effects-glass)。KWin 实验接入面向 Arch Linux、KWin 6.6–6.8 Wayland，仍需目标环境的原生构建与视觉验收。
 
 ## 修改入口
 
@@ -152,8 +152,12 @@ GNOME 合成器实现可参考 [Mutter 50](https://github.com/GNOME/mutter/tree/
 | `LinuxHelper.kt` | 提取并启动 Linux Python helper，并为独立界面 JVM 构造 classpath |
 | `src/linux/resources/native/island-dbus-tray.py` | GTK 缺失时通过 GIO 提供 StatusNotifierItem / DBusMenu；按管道和总线事件更新，图标以 ARGB 像素传输 |
 | `LinuxGlobalPointer.kt` | 提供 X11 指针查询，管理 KWin / GNOME 指针桥接及样本有效期 |
-| `LinuxCompositorGlass.kt` | 合并发送现有动态轮廓，管理 GNOME 材质桥接、首帧确认、失联回退和低性能停用 |
-| `src/linux/resources/native/island-glass.py` | 复用指针桥的 GIO 连接，将几何消息转发给 Shell；不传输桌面像素 |
+| `LinuxCompositorGlass.kt` | 合并发送现有动态轮廓，管理 GNOME / KWin 材质桥接、首帧确认、失联回退和低性能停用 |
+| `src/linux/resources/native/island-glass.py` | 复用指针桥的 GIO 连接，将几何消息转发给当前合成器；不传输桌面像素 |
+| `src/linux/resources/native/kwin-glass-support.py` | Arch 原生组件安装、宿主用户服务构建、接口版本校验与普通着色器热更新 |
+| `native/kwin-glass/IslandGlassEffect.*` | KWin 几何服务、调用进程与 XWayland 窗口绑定、租约和候选材质切换 |
+| `native/kwin-glass/GlassRenderer.*` | GPU 后景与客户端 alpha、连续模糊、轮廓缓存及光学合成 |
+| `native/kwin-glass/shaders/` | KWin 轮廓距离场、中心模糊、边缘折射、色散与高光 |
 | `src/linux/resources/native/install-gnome-support.py` | 共用的指针 / 玻璃扩展安装器，校验内置包、备份替换、合并启用设置；失败暂存目录移入回收站 |
 | `src/linux/resources/native/gnome-glass/extension.js` | GNOME 50 配套服务、词岛窗口绑定、调用进程校验、租约回收及渲染模块加载 |
 | `src/linux/resources/native/gnome-glass/surface.js` | 稳定的 Clutter Actor、渲染模块首帧切换及失败保留 |
@@ -300,6 +304,9 @@ GNOME 合成器实现可参考 [Mutter 50](https://github.com/GNOME/mutter/tree/
 - `island-pointer.py`、`gnome-pointer/`：Wayland 指针桥接与配套扩展。
 - `island-spectrum.py`：PipeWire 播放流的频谱数据处理。
 - `install-gnome-support.py`、`gnome-glass/`：GNOME 组件安装与液态玻璃扩展。
+- `kwin-glass-support.py`、`native/kwin-glass/`：KWin 原生组件与着色器，`kwinGlass` 任务打包源代码后随插件分发。首次安装通过宿主的 systemd 用户服务匹配系统 KWin SDK，在普通用户身份下构建；只有补充编译工具和部署独立原生库时请求 PolicyKit 授权，不以管理员身份编译。普通更新只写入用户数据目录并热加载着色器，不弹系统授权。
+
+KWin 后景通过当前绘制目标的 GPU blit 获取，另在 GPU 上绘制当前词岛的 alpha 以约束最终轮廓，随后保留原有窗口绘制。重绘区域未完整覆盖采样范围时保留上一张完整材质并请求重绘；候选模块出首帧后才替换当前模块。低性能模式、隐藏或关闭窗口时结束租约，释放各视图纹理且停止续约定时器。原生接口更新需要通过同一安装入口重新构建；不加载不匹配的 KWin SDK 组件，不修改全局模糊、窗口规则或输入区域。
 
 ### 资源与构建入口
 
