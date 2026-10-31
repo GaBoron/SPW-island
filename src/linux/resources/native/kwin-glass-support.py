@@ -27,6 +27,13 @@ PLUGIN = re.compile(r'spw_island_glass_[a-f0-9]{32}')
 _session = None
 
 
+class SetupError(RuntimeError):
+    """Keep actionable UI text separate from bounded command details for diagnostics."""
+    def __init__(self, message, detail=''):
+        super().__init__(message)
+        self.detail = detail[-5000:]
+
+
 def connect_bus(bridge, host):
     factory = runpy.run_path(bridge)['Bus']
     try:
@@ -259,7 +266,14 @@ def build_native(files, root, running, native_revision):
     if missing:
         # Explicit setup may request the desktop's PolicyKit authentication dialog; automatic refresh never does.
         # Never terminate a package-manager transaction on a launcher timeout.
-        command('pkexec', '/usr/bin/pacman', '-S', '--needed', '--noconfirm', *missing, timeout=None)
+        try:
+            command('pkexec', '/usr/bin/pacman', '-S', '--needed', '--noconfirm', *missing, timeout=None)
+        except RuntimeError as error:
+            detail = str(error)
+            if 'returned error: 404' in detail and '.pkg.tar.' in detail:
+                raise SetupError('Arch 编译工具下载失败（镜像返回 404）。请先手动完整更新系统，重新登录后再从此入口安装。',
+                                 detail) from error
+            raise
     job = directory(root / 'builds' / uuid.uuid4().hex)
     source = directory(job / 'source')
     for name in NATIVE:
@@ -401,7 +415,7 @@ def host_setup(archive, root):
             if not output.is_symlink() and output.stat().st_size <= 65536:
                 result = json.loads(output.read_bytes())
                 if 'error' in result:
-                    raise RuntimeError(result['error'])
+                    raise SetupError(result['error'], result.get('detail', ''))
                 return result
         except (OSError, ValueError):
             pass
@@ -423,5 +437,8 @@ if __name__ == '__main__':
         result = refresh(sys.argv[1], root, automatic) if automatic or '--host' in sys.argv[3:] else host_setup(sys.argv[1], root)
         print(json.dumps(result, ensure_ascii=False), flush=True)
     except Exception as error:
-        print(json.dumps({'error': str(error)}, ensure_ascii=False), flush=True)
+        result = {'error': str(error)}
+        if isinstance(error, SetupError) and error.detail:
+            result['detail'] = error.detail
+        print(json.dumps(result, ensure_ascii=False), flush=True)
         sys.exit(1)

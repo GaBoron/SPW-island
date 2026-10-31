@@ -99,6 +99,9 @@ internal object LinuxHelper {
             val bytes = output.get(2, TimeUnit.SECONDS)
             check(bytes.size <= 65_536) { "KWin 安装输出超出限制。" }
             val result = JsonParser.parseString(bytes.toString(Charsets.UTF_8)).asJsonObject
+            if (process.exitValue() != 0) result["detail"]?.asString?.let { detail ->
+                IslandLog.warn("linux.glass", "kwin.setup.failed", mapOf("detail" to detail.takeLast(5000)))
+            }
             check(process.exitValue() == 0) { result["error"]?.asString ?: "KWin 配套组件安装失败。" }
             return result
         } finally {
