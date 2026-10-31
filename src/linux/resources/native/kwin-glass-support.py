@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import runpy
+import stat
 import subprocess
 import sys
 import time
@@ -26,10 +27,34 @@ PLUGIN = re.compile(r'spw_island_glass_[a-f0-9]{32}')
 _session = None
 
 
+def connect_bus(bridge, host):
+    factory = runpy.run_path(bridge)['Bus']
+    try:
+        return factory()
+    except (OSError, RuntimeError) as first_error:
+        failure = first_error
+        if host:
+            # A stale manager address may be recovered only through this UID's existing session socket.
+            uid = os.getuid()
+            runtime = Path('/run/user') / str(uid)
+            endpoint = runtime / 'bus'
+            try:
+                runtime_info, endpoint_info = runtime.stat(), endpoint.stat()
+                if (runtime_info.st_uid == uid and stat.S_ISDIR(runtime_info.st_mode) and
+                        endpoint_info.st_uid == uid and stat.S_ISSOCK(endpoint_info.st_mode)):
+                    os.environ['XDG_RUNTIME_DIR'] = str(runtime)
+                    os.environ['DBUS_SESSION_BUS_ADDRESS'] = 'unix:path=' + str(endpoint)
+                    return factory()
+            except (OSError, RuntimeError) as retry_error:
+                failure = retry_error
+        phase = '宿主安装任务' if host else '插件环境'
+        raise RuntimeError(phase + '无法连接桌面会话 D-Bus：' + str(failure)) from failure
+
+
 class SetupBus:
     """Reuse the geometry bridge's GIO connection without requiring a gdbus executable."""
-    def __init__(self, bridge):
-        self.bus = runpy.run_path(bridge)['Bus']()
+    def __init__(self, bridge, host):
+        self.bus = connect_bus(bridge, host)
         def bind(name, result, *arguments):
             function = getattr(self.bus.glib, name)
             function.restype, function.argtypes = result, list(arguments)
@@ -81,7 +106,7 @@ class SetupBus:
 def session():
     global _session
     if _session is None:
-        _session = SetupBus(sys.argv[2])
+        _session = SetupBus(sys.argv[2], '--host' in sys.argv[3:])
     return _session
 
 
@@ -336,7 +361,8 @@ def host_setup(archive, root):
     q = lambda text: json.dumps(str(text), ensure_ascii=False)
     arguments = ['/usr/bin/python3', str(helper), str(shared_archive), str(bridge), '--host']
     environment = ['XDG_DATA_HOME=' + str(root.parent.parent), 'SPW_ISLAND_PY_DIAGNOSTICS=' + str(diagnostics)]
-    for key in ('XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'DISPLAY', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS'):
+    # The plugin may use a container-only proxy. Host tasks inherit their user manager's native bus address.
+    for key in ('XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'DISPLAY', 'WAYLAND_DISPLAY'):
         if key in os.environ:
             environment.append(key + '=' + os.environ[key])
     properties = '[' + ','.join([
