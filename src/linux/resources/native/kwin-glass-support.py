@@ -227,18 +227,32 @@ def load(plugin):
         raise RuntimeError('KWin 未能加载匹配的原生组件。')
 
 
+def verify_native_compatibility(running):
+    installed = command('pacman', '-Q', 'kwin').split()[1]
+    match = re.search(r'(6\.\d+\.\d+)', installed)
+    if not match or match[1] != running or version() != running:
+        raise RuntimeError('磁盘与正在运行的 KWin 版本不同，请完成系统更新并重新登录后再安装。')
+    compositor_pid = session().call('org.freedesktop.DBus', '/org/freedesktop/DBus',
+        'org.freedesktop.DBus', 'GetConnectionUnixProcessID', '("org.kde.KWin",)', '(u)')
+    if compositor_pid < 1:
+        raise RuntimeError('无法确认当前 KWin 进程，请稍后重试安装。')
+    try:
+        executable = os.readlink(f'/proc/{compositor_pid}/exe')
+    except PermissionError:
+        # Compositors may deny ptrace-style /proc access; version and SDK matching remain mandatory.
+        executable = None
+    except FileNotFoundError as error:
+        raise RuntimeError('KWin 进程已发生变化，请稍后重试安装。') from error
+    if executable is not None and executable.endswith(' (deleted)'):
+        raise RuntimeError('正在运行的 KWin 可执行文件已被系统更新替换，请重新登录后再安装原生组件。')
+    return installed, compositor_pid
+
+
 def build_native(files, root, running, native_revision):
     release = Path('/etc/os-release').read_text()
     if not re.search(r'^ID=\s*"?arch"?\s*$', release, re.MULTILINE):
         raise RuntimeError('当前 KWin 原生组件自动安装支持 Arch Linux。')
-    installed = command('pacman', '-Q', 'kwin').split()[1]
-    match = re.search(r'(6\.\d+\.\d+)', installed)
-    if not match or match[1] != running:
-        raise RuntimeError('磁盘与正在运行的 KWin 版本不同，请完成系统更新并重新登录后再安装。')
-    compositor_pid = session().call('org.freedesktop.DBus', '/org/freedesktop/DBus',
-        'org.freedesktop.DBus', 'GetConnectionUnixProcessID', '("org.kde.KWin",)', '(u)')
-    if compositor_pid < 1 or os.readlink(f'/proc/{compositor_pid}/exe').endswith(' (deleted)'):
-        raise RuntimeError('正在运行的 KWin 可执行文件已被系统更新替换，请重新登录后再安装原生组件。')
+    baseline = verify_native_compatibility(running)
     tools = ['cmake', 'gcc', 'make', 'pkgconf', 'extra-cmake-modules', 'vulkan-headers']
     missing = [name for name in tools if subprocess.run(
         ['pacman', '-Q', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode]
@@ -265,6 +279,8 @@ def build_native(files, root, running, native_revision):
     if destination.exists() or destination.is_symlink():
         raise RuntimeError('拒绝覆盖已有的 KWin 组件。')
     command('pkexec', '/usr/bin/install', '-D', '-m', '0755', '--', str(library), str(destination), timeout=60)
+    if verify_native_compatibility(running) != baseline:
+        raise RuntimeError('KWin 软件包或进程在安装期间发生变化，原生组件尚未加载，请重试安装。')
     return plugin
 
 
