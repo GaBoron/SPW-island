@@ -26,9 +26,13 @@ public:
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds time) override;
 #endif
 #ifdef SPW_KWIN_68
+    bool paintScreen(const RenderTarget &, const RenderViewport &, int,
+                     const Region &, LogicalOutput *) override;
     bool drawWindow(const RenderTarget &, const RenderViewport &, EffectWindow *, int,
                     const Region &, WindowPaintData &) override;
 #else
+    void paintScreen(const RenderTarget &, const RenderViewport &, int,
+                     const Region &, LogicalOutput *) override;
     void drawWindow(const RenderTarget &, const RenderViewport &, EffectWindow *, int,
                     const Region &, WindowPaintData &) override;
 #endif
@@ -43,11 +47,12 @@ private:
                     const Region &, WindowPaintData &);
     EffectWindow *m_window = nullptr;
     RenderView *m_view = nullptr;
+    const Region *m_screenDamage = nullptr;
     std::unique_ptr<BackgroundEffectItem> m_background;
     std::unique_ptr<SpwIsland::GlassRenderer> m_renderer;
     std::unique_ptr<SpwIsland::GlassRenderer> m_candidate;
     SpwIsland::Contour m_contour;
-    QString m_sender, m_revision, m_candidateRevision, m_notice;
+    QString m_sender, m_revision, m_candidateRevision, m_notice, m_waitingReason;
     QElapsedTimer m_clock;
     QTimer m_lease;
     qint64 m_updated = 0, m_painted = -10000;

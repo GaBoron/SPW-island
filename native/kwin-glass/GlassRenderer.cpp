@@ -134,6 +134,8 @@ std::unique_ptr<GLShader> program(const QString &directory, const QString &name)
     if (shader && !shader->isValid()) shader.reset();
 #endif
     if (!shader) throw std::runtime_error("KWin could not compile liquid glass shaders");
+    if (shader->attributeLocation("position") != VA_Position || shader->attributeLocation("texcoord") != VA_TexCoord)
+        throw std::runtime_error("liquid glass vertex attributes do not match KWin's buffer layout");
     return shader;
 }
 struct Frame {
@@ -184,20 +186,30 @@ void GlassRenderer::clearFrames() { m_resources->views.clear(); m_resources->las
 
 bool GlassRenderer::paint(const RenderTarget &renderTarget, const RenderViewport &viewport,
     RenderView *view, EffectWindow *window, int mask, const Region &damage,
-    WindowPaintData &data, const Contour &contour) {
-    if (!view || contour.points.empty()) return false;
+    const Region &screenDamage, WindowPaintData &data, const Contour &contour, QString &waitingReason) {
+    if (!view || contour.points.empty()) {
+        waitingReason = QStringLiteral("等待 KWin 输出视图与词岛轮廓");
+        return false;
+    }
     // Desktop overview / third-party window transformations keep their normal compositor path.
     if (effects->activeFullScreenEffect() || data.xScale() != 1 || data.yScale() != 1 ||
-        data.xTranslation() != 0 || data.yTranslation() != 0) return false;
+        data.xTranslation() != 0 || data.yTranslation() != 0) {
+        waitingReason = QStringLiteral("桌面变换期间暂停玻璃绘制");
+        return false;
+    }
     const auto geometry = window->frameGeometry();
     const double scale = viewport.scale();
     const Rect client = geometry.rounded();
     const Rect sample = client.adjusted(-padding, -padding, padding, padding)
                             .intersected(viewport.mapFromDeviceCoordinatesContained(viewport.deviceRect()));
-    if (sample.isEmpty()) return false;
+    if (sample.isEmpty()) {
+        waitingReason = QStringLiteral("词岛采样区域不在当前输出中");
+        return false;
+    }
     StateScope state;
     auto &cache = m_resources->views[view];
-    const Region fresh = viewport.mapFromDeviceCoordinatesContained(damage);
+    // drawWindow damage is clipped to the window; only screen damage can cover the backdrop padding.
+    const Region fresh = viewport.mapFromDeviceCoordinatesContained(screenDamage);
     std::shared_ptr<Frame> copy = cache.complete ? cache.complete : m_resources->last;
     if ((Region(sample) - fresh).isEmpty()) {
         const QSize size(std::ceil(sample.width() * scale), std::ceil(sample.height() * scale));
@@ -219,7 +231,10 @@ bool GlassRenderer::paint(const RenderTarget &renderTarget, const RenderViewport
         effects->addRepaint(RectF(sample));
         cache.requested = sample;
     }
-    if (!copy) return false;
+    if (!copy) {
+        waitingReason = QStringLiteral("等待后景采样区域完整重绘");
+        return false;
+    }
     m_resources->last = copy;
     const QSize clientSize(std::ceil(geometry.width() * scale), std::ceil(geometry.height() * scale));
     if (!cache.mask.texture || cache.mask.texture->size() != clientSize) {
@@ -240,7 +255,10 @@ bool GlassRenderer::paint(const RenderTarget &renderTarget, const RenderViewport
         neutral.setOpacity(1);
 #ifdef SPW_KWIN_68
         if (!effects->drawWindow(target, maskViewport, window, Effect::PAINT_WINDOW_TRANSFORMED |
-                                Effect::PAINT_WINDOW_TRANSLUCENT, Region::infinite(), neutral)) return false;
+                                Effect::PAINT_WINDOW_TRANSLUCENT, Region::infinite(), neutral)) {
+            waitingReason = QStringLiteral("等待词岛 alpha 首帧");
+            return false;
+        }
 #else
         effects->drawWindow(target, maskViewport, window, Effect::PAINT_WINDOW_TRANSFORMED |
                             Effect::PAINT_WINDOW_TRANSLUCENT, Region::infinite(), neutral);
@@ -308,6 +326,7 @@ bool GlassRenderer::paint(const RenderTarget &renderTarget, const RenderViewport
     quad(QRectF(geometry.x() * scale, geometry.y() * scale, geometry.width() * scale, geometry.height() * scale),
          QRectF(-copy->sample.x() / copy->sample.width(), -copy->sample.y() / copy->sample.height(),
                 geometry.width() / copy->sample.width(), geometry.height() / copy->sample.height()), clip);
+    waitingReason.clear();
     return true;
 }
 }

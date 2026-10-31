@@ -14,6 +14,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QScopedValueRollback>
 #include <QStandardPaths>
 #include <cmath>
 #include <stdexcept>
@@ -155,7 +156,8 @@ QString SpwIslandGlassEffect::UpdateManaged(const QString &text) {
     m_window->addRepaintFull();
     if (m_clock.elapsed() - m_painted < 1500)
         return m_notice.isEmpty() ? QStringLiteral("READY") : QStringLiteral("READY ") + m_notice;
-    return QStringLiteral("WAIT ") + (m_notice.isEmpty() ? QStringLiteral("等待 KWin 合成器首帧") : m_notice);
+    return QStringLiteral("WAIT ") + (!m_notice.isEmpty() ? m_notice :
+        m_waitingReason.isEmpty() ? QStringLiteral("等待 KWin 合成器首帧") : m_waitingReason);
 }
 
 void SpwIslandGlassEffect::Release() {
@@ -169,6 +171,7 @@ void SpwIslandGlassEffect::clearWindow() {
     m_sender.clear();
     m_background.reset();
     m_painted = -10000;
+    m_waitingReason.clear();
     // Releasing the lease also releases all per-view GPU images; no idle repaint loop survives.
     effects->makeOpenGLContextCurrent();
     if (m_candidate) m_candidate->clearFrames();
@@ -187,16 +190,35 @@ void SpwIslandGlassEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono:
 }
 #endif
 
+#ifdef SPW_KWIN_68
+bool SpwIslandGlassEffect::paintScreen(const RenderTarget &target, const RenderViewport &viewport,
+    int mask, const Region &damage, LogicalOutput *screen) {
+    QScopedValueRollback<const Region *> screenDamage(m_screenDamage, &damage);
+    return effects->paintScreen(target, viewport, mask, damage, screen);
+}
+#else
+void SpwIslandGlassEffect::paintScreen(const RenderTarget &target, const RenderViewport &viewport,
+    int mask, const Region &damage, LogicalOutput *screen) {
+    QScopedValueRollback<const Region *> screenDamage(m_screenDamage, &damage);
+    effects->paintScreen(target, viewport, mask, damage, screen);
+}
+#endif
+
 void SpwIslandGlassEffect::paintGlass(const RenderTarget &target, const RenderViewport &viewport,
     EffectWindow *window, int mask, const Region &damage, WindowPaintData &data) {
     if (window != m_window || m_drawingMask) return;
+    if (!m_screenDamage) {
+        m_waitingReason = QStringLiteral("等待 KWin 屏幕合成阶段");
+        return;
+    }
     // Mask rendering re-enters the effect chain; it must never capture its own offscreen target.
     m_drawingMask = true;
     try {
         bool painted = false;
         if (m_candidate) {
             try {
-                painted = m_candidate->paint(target, viewport, m_view, window, mask, damage, data, m_contour);
+                painted = m_candidate->paint(target, viewport, m_view, window, mask, damage,
+                    *m_screenDamage, data, m_contour, m_waitingReason);
                 if (painted) {
                     m_renderer = std::move(m_candidate);
                     m_revision = m_candidateRevision;
@@ -210,7 +232,8 @@ void SpwIslandGlassEffect::paintGlass(const RenderTarget &target, const RenderVi
             }
         }
         if (!painted && m_renderer)
-            painted = m_renderer->paint(target, viewport, m_view, window, mask, damage, data, m_contour);
+            painted = m_renderer->paint(target, viewport, m_view, window, mask, damage,
+                *m_screenDamage, data, m_contour, m_waitingReason);
         if (painted) m_painted = m_clock.elapsed();
     } catch (const std::exception &error) {
         m_notice = QStringLiteral("KWin 材质绘制失败：") + QString::fromUtf8(error.what());

@@ -29,7 +29,8 @@ public:
     ~GlassRenderer();
     bool paint(const KWin::RenderTarget &target, const KWin::RenderViewport &viewport,
                KWin::RenderView *view, KWin::EffectWindow *window, int mask,
-               const KWin::Region &damage, KWin::WindowPaintData &data, const Contour &contour);
+               const KWin::Region &damage, const KWin::Region &screenDamage,
+               KWin::WindowPaintData &data, const Contour &contour, QString &waitingReason);
     void removeView(KWin::RenderView *view);
     void clearFrames();
     static constexpr int padding = 120;
