@@ -344,8 +344,9 @@ def host_setup(archive, root):
         '("Type", <"exec">)',
         '("ExecStart", <@a(sasb) [(' + q(arguments[0]) + ', @as [' + ','.join(map(q, arguments)) + '], false)]>)',
         '("Environment", <@as [' + ','.join(map(q, environment)) + ']>)',
-        '("StandardOutput", <' + q('file:' + str(output)) + '>)',
-        '("StandardError", <' + q('file:' + str(error)) + '>)',
+        # D-Bus file properties take paths; the "file:" prefix belongs to unit-file syntax.
+        '("StandardOutputFile", <' + q(output) + '>)',
+        '("StandardErrorFile", <' + q(error) + '>)',
         '("CollectMode", <"inactive-or-failed">)',
     ]) + ']'
     unit = 'spw-island-kwin-setup-' + uuid.uuid4().hex + '.service'
