@@ -89,7 +89,8 @@ internal object LinuxHelper {
 
     private fun runKwinSetup(refresh: Boolean): com.google.gson.JsonObject {
         val archive = extract("spw-island-kwin-glass.zip")
-        val arguments = listOf(archive.toString()) + if (refresh) listOf("--refresh-existing") else emptyList()
+        val arguments = listOf(archive.toString(), extract("island-pointer.py").toString()) +
+            if (refresh) listOf("--refresh-existing") else emptyList()
         val process = startScript("kwin-glass-support.py", *arguments.toTypedArray())
         val output = FutureTask { process.inputStream.readNBytes(65_537) }
         IslandLog.thread("SPW Island KWin setup output") { output.run() }.start()
