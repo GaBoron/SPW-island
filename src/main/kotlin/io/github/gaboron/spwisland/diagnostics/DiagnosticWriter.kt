@@ -9,20 +9,23 @@ import java.nio.file.StandardOpenOption.*
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
-import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CancellationException
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.FutureTask
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /** Bounded, nonblocking producers; formatting, stack traces and all disk work stay on this worker. */
 internal class DiagnosticWriter(val directory: Path, val session: String, private val role: String) : AutoCloseable {
-    private data class Barrier(val latch: CountDownLatch, @Volatile var successful: Boolean = false)
     private data class Repeated(val first: DiagnosticEvent, var count: Long, var last: String, var reported: Long)
     private data class State(val module: String, val key: String, val value: String,
                              val context: Map<String, Any?>, val observedAt: Instant,
                              val changedAt: Instant, val monotonicNs: Long)
     private val queue = LinkedBlockingDeque<Any>(4096)
+    private val shutdownWakeup = Any()
     private val lost = AtomicLong()
     private val overflow = AtomicReference<DiagnosticEvent?>()
     private val gson = Gson()
@@ -44,7 +47,13 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
     private var nextMaintenance = 0L
     private var lastFallback = 0L
     @Volatile var idleIntervalNs = 1_000_000_000L
-    private val worker = Thread(::run, "SPW Island log writer").apply { isDaemon = true; start() }
+    private val worker = Thread(::run, "SPW Island log writer").apply {
+        isDaemon = true
+        uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, error ->
+            reportFailure("Diagnostic writer stopped", error)
+        }
+        start()
+    }
 
     fun offer(event: DiagnosticEvent) {
         if (closed) return
@@ -89,8 +98,13 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
 
     fun flush(timeoutMs: Long): Boolean {
         if (Thread.currentThread() === worker || closed) return false
-        val barrier = Barrier(CountDownLatch(1))
-        return queue.offer(barrier) && barrier.latch.await(timeoutMs, TimeUnit.MILLISECONDS) && barrier.successful
+        // Queue markers use JDK classes so shutdown can release waiters after the plugin loader closes.
+        val barrier = FutureTask { true }
+        if (!queue.offer(barrier)) return false
+        return try { barrier.get(timeoutMs, TimeUnit.MILLISECONDS) }
+        catch (_: TimeoutException) { false }
+        catch (_: CancellationException) { false }
+        catch (_: ExecutionException) { false }
     }
 
     private fun run() {
@@ -107,7 +121,7 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
                     if (value is DiagnosticEvent) accept(value)
                     overflow.getAndSet(null)?.let(::accept)
                     repeated.values.forEach { repeat ->
-                        if (repeat.count > 1 && (value is Barrier || now - repeat.reported >= 60_000_000_000L)) {
+                        if (repeat.count > 1 && (value is FutureTask<*> || now - repeat.reported >= 60_000_000_000L)) {
                             summary(repeat); repeat.count = 1; repeat.reported = now
                         }
                     }
@@ -115,27 +129,36 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
                     if (dropped > 0) write(DiagnosticEvent(java.time.Instant.now().toString(), now, "WARN",
                         "diagnostics", "queue.entries_lost", worker.name, mapOf("count" to dropped)))
                     output?.flush()
-                    if (value is Barrier) {
+                    if (value is FutureTask<*>) {
                         // Include pending repeat summaries, overflow evidence and loss counts in the export barrier.
-                        value.successful = output != null
-                        value.latch.countDown()
+                        if (output != null) value.run() else value.cancel(false)
                     }
                 } catch (error: Throwable) {
-                    if (value is Barrier) value.latch.countDown()
+                    if (value is FutureTask<*>) value.cancel(false)
                     lost.incrementAndGet()
                     try { closeOutput() } catch (_: Throwable) { }
                     if (System.nanoTime() - lastFallback > 60_000_000_000L || lastFallback == 0L) {
                         lastFallback = System.nanoTime()
                         reportFailure("Persistent diagnostics unavailable", error)
                     }
+                    if (error is LinkageError) break
                 }
             }
             repeated.values.filter { it.count > 1 }.forEach(::summary)
         } catch (error: Throwable) {
             reportFailure("Diagnostic writer stopped", error)
         } finally {
+            closed = true
+            try { retention.close() } catch (_: Throwable) { }
             try { closeOutput() } catch (_: Throwable) { }
-            while (true) { val pending = queue.poll() ?: break; if (pending is Barrier) pending.latch.countDown() }
+            try {
+                while (true) {
+                    val pending = queue.poll() ?: break
+                    if (pending is FutureTask<*>) pending.cancel(false)
+                }
+            } catch (error: Throwable) {
+                reportFailure("Diagnostic queue cleanup failed", error)
+            }
         }
     }
 
@@ -211,6 +234,7 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
             "diagnostics.stopped", Thread.currentThread().name, emptyMap()))
         closed = true
         retention.close()
+        queue.offer(shutdownWakeup)
         // Plugin shutdown can hold a host monitor: never wait for disk/EDT from that thread.
     }
 }

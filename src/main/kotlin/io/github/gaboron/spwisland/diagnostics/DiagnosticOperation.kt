@@ -38,7 +38,6 @@ internal class DiagnosticOperation(private val module: String, private val name:
     private fun context() = mapOf("operation" to id, "elapsedMs" to (System.nanoTime() - started) / 1_000_000)
     companion object {
         private val active = ConcurrentHashMap<String, DiagnosticOperation>()
-        fun pending() = active.isNotEmpty()
         fun cancelAll() { active.values.forEach { it.cancel() } }
         fun checkTimeouts() {
             active.values.forEach { operation ->

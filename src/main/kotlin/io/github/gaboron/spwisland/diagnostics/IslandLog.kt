@@ -10,16 +10,12 @@ import java.util.concurrent.ThreadFactory
 internal object IslandLog {
     @Volatile private var writer: DiagnosticWriter? = null
     @Volatile private var watchdog: DiagnosticWatchdog? = null
-    private var finishing = false
-    @Volatile private var closeGeneration = 0L
     @Volatile private var runContext: Map<String, Any?> = emptyMap()
     val session: String get() = writer?.session ?: "uninitialized"
     val directory: Path get() = writer?.directory ?: DiagnosticStorage.defaultDirectory()
 
     @Synchronized fun start(role: String, context: Map<String, Any?> = emptyMap()) {
-        closeGeneration++
-        if (writer != null) { finishing = false; return }
-        finishing = false
+        if (writer != null) return
         runContext = context
         val inherited = System.getenv("SPW_ISLAND_LOG_SESSION")?.takeIf { it.matches(Regex("[a-zA-Z0-9-]{1,80}")) }
         val id = if (role == "ui") inherited ?: UUID.randomUUID().toString() else UUID.randomUUID().toString()
@@ -81,31 +77,14 @@ internal object IslandLog {
     fun snapshot(): Map<String, Any?> = writer?.snapshot() ?: mapOf(
         "available" to false, "scope" to "current_process", "capturedAt" to Instant.now().toString())
     fun stop() {
+        // Detach while the plugin loader is valid; closing the writer never waits for disk work.
         val previous = synchronized(this) {
             watchdog?.close(); watchdog = null
             DiagnosticOperation.cancelAll()
             DiagnosticPulse.clear()
-            writer.also { writer = null; closeGeneration++ }
+            writer.also { writer = null }
         }
         previous?.close()
-    }
-    @Synchronized fun finish() {
-        val previous = writer ?: return
-        if (finishing) return
-        finishing = true
-        val token = ++closeGeneration
-        thread("SPW Island diagnostic shutdown") {
-            // EDT disposal and native/helper cleanup are asynchronous and still need their sink.
-            Thread.sleep(3_000)
-            val deadline = System.nanoTime() + 12_000_000_000L
-            while (token == closeGeneration && DiagnosticOperation.pending() && System.nanoTime() < deadline) Thread.sleep(1_000)
-            synchronized(this) {
-                if (writer === previous && finishing && token == closeGeneration) {
-                    DiagnosticOperation.checkTimeouts()
-                    stop()
-                }
-            }
-        }.start()
     }
 
     fun environment(): Map<String, Any?> = mapOf(
