@@ -17,6 +17,7 @@
 #include "opengl/glshadermanager.h"
 #include "opengl/gltexture.h"
 #include "opengl/glvertexbuffer.h"
+#include <QFile>
 #include <QFileInfo>
 #include <array>
 #include <algorithm>
@@ -113,14 +114,26 @@ void pass(Target &destination, GLShader *shader, GLTexture *source) {
     quad(QRectF(QPointF(), destination.texture->size()));
 }
 std::unique_ptr<GLShader> program(const QString &directory, const QString &name) {
-    for (const auto &file : {QStringLiteral("quad.vert"), name}) {
-        const QFileInfo info(directory + QLatin1Char('/') + file);
+    const auto readShader = [&directory](const QString &name) {
+        const QString path = directory + QLatin1Char('/') + name;
+        const QFileInfo info(path);
         if (info.isSymLink() || !info.isFile() || info.size() > 65536)
             throw std::runtime_error("invalid shader file");
-    }
-    auto shader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture,
-        directory + QStringLiteral("/quad.vert"), directory + QLatin1Char('/') + name);
-    if (!shader || !shader->isValid()) throw std::runtime_error("KWin could not compile liquid glass shaders");
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) throw std::runtime_error("cannot read shader file");
+        const auto source = file.readAll();
+        if (source.isEmpty()) throw std::runtime_error("empty shader file");
+        return source;
+    };
+    // These are complete GLSL sources; bypass 6.6's automatic "_core" filename rewriting.
+    const auto vertex = readShader(QStringLiteral("quad.vert"));
+    const auto fragment = readShader(name);
+    auto shader = ShaderManager::instance()->generateCustomShader(ShaderTrait::MapTexture, vertex, fragment);
+#ifndef SPW_KWIN_67
+    // 6.7+ returns nullptr on compilation/link failure; 6.6 may return an invalid object.
+    if (shader && !shader->isValid()) shader.reset();
+#endif
+    if (!shader) throw std::runtime_error("KWin could not compile liquid glass shaders");
     return shader;
 }
 struct Frame {
