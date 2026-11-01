@@ -21,14 +21,19 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
                          private val actions: PlaybackActions, private val report: (Throwable) -> Unit,
                          private val spectrum: SpectrumSource,
                          javaHome: String = System.getProperty("java.home")) : AutoCloseable {
-    private val process = LinuxHelper.startUi(javaHome)
+    private val process = IslandLog.timed("linux.ui.process.start") { LinuxHelper.startUi(javaHome) }
+    private val output = try {
+        ObjectOutputStream(BufferedOutputStream(process.outputStream)).apply { flush() }
+    } catch (error: Throwable) {
+        process.destroyForcibly()
+        throw error
+    }
     private val sending = DiagnosticPulse("ipc", "state_sending").apply { expected = true }
     private val receiving = DiagnosticPulse("ipc", "ui_heartbeat").apply { expected = true }
     private var sent = 0L
     private var received = 0L
     @Volatile var presentedFrames: Long = 0
         private set
-    private val output = ObjectOutputStream(BufferedOutputStream(process.outputStream)).apply { flush() }
     private val sender = DiagnosticExecutors.scheduled { Thread(it, "SPW Island IPC").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("LinuxIslandProcess") } }
     private val closed = AtomicBoolean()
     private val showAbout = AtomicBoolean()
@@ -42,6 +47,14 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
     private var lastAudioStatus = ""
 
     init {
+        try { startTransport() }
+        catch (error: Throwable) {
+            close()
+            throw error
+        }
+    }
+
+    private fun startTransport() {
         sender.scheduleWithFixedDelay({
             if (!closed.get()) try {
                 // Read the watermark BEFORE the state: never acknowledge a command with its old snapshot.
@@ -96,6 +109,7 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
     }
 
     private fun dispatch(command: IslandCommand) {
+        if (closed.get()) return
         val a = command.arguments
         receiving.beat(++received)
         if (command.action !in setOf("frames", "volume", "set_volume")) IslandLog.event("ipc", "command.received",
@@ -130,7 +144,7 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
         }
     }
 
-    fun about() { showAbout.set(true) }
+    fun about() { if (!closed.get()) showAbout.set(true) }
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         sending.close(); receiving.close()

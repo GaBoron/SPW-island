@@ -35,7 +35,10 @@ internal class DiagnosticOperation(private val module: String, private val name:
             IslandLog.event(module, if (timedOut.get()) "$name.recovered" else "$name.completed", context())
         }
     }
-    private fun context() = mapOf("operation" to id, "elapsedMs" to (System.nanoTime() - started) / 1_000_000)
+    private fun context(): Map<String, Any?> {
+        val elapsed = System.nanoTime() - started
+        return mapOf("operation" to id, "elapsedNs" to elapsed, "elapsedMs" to elapsed / 1_000_000.0)
+    }
     companion object {
         private val active = ConcurrentHashMap<String, DiagnosticOperation>()
         fun cancelAll() { active.values.forEach { it.cancel() } }

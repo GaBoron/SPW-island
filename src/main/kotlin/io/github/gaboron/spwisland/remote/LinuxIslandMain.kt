@@ -11,7 +11,9 @@ import io.github.gaboron.spwisland.diagnostics.DiagnosticPulse
 /** Entry point loaded with the host's bundled JVM, even when jpackage omits bin/java. */
 object LinuxIslandMain {
     @JvmStatic fun main(args: Array<String>) {
+        val started = System.nanoTime()
         IslandLog.start("ui")
+        IslandLog.duration("linux.main.diagnostics", started)
         val startup = IslandLog.operation("window", "remote.create")
         val incoming = DiagnosticPulse("ipc", "host_updates").apply { expected = true }
         var messages = 0L
@@ -43,14 +45,17 @@ object LinuxIslandMain {
                     }
                     val state = message as IslandState
                     state.settings?.let {
-                        IslandLog.cadence(it.performance.diagnosticSampleIntervalNs)
+                        IslandLog.cadence(it.performance.diagnosticSampleIntervalNs, it.performance.performanceReportIntervalNs)
                         incoming.timeoutNs = it.performance.diagnosticStallTimeoutNs
                     }
+                    val submitted = System.nanoTime()
                     SwingUtilities.invokeAndWait {
                         IslandLog.guard("LinuxIslandMain", "invokeAndWait.callback_failed") {
                             timeline.accept(state)
                             val settingsChanged = store.accept(state)
                             if (window == null) {
+                                IslandLog.duration("window.edt.queue", submitted)
+                                val windowStarted = System.nanoTime()
                                 window = IslandWindow(timeline, store, object : PlaybackActions {
                                 override fun previous() { send("previous") }
                                 override fun toggle() { send("toggle") }
@@ -62,6 +67,7 @@ object LinuxIslandMain {
                                     IslandLog.failure("ui", "operation.failed", error)
                                     send("error", error.javaClass.name)
                                 }, spectrum::levels, spectrum::fallback, spectrum::status)
+                                IslandLog.duration("window.construct.edt", windowStarted)
                                 startup.close()
                             }
                             else if (settingsChanged) window.reload()

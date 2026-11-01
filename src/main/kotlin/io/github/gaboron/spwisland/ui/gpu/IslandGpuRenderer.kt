@@ -71,6 +71,7 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
             created.isFocusable = false
             created.renderDelegate = SkikoRenderDelegate { canvas, _, _, _ ->
                 IslandLog.guard("IslandGpuRenderer", "SkikoRenderDelegate.callback_failed") {
+                    val started = System.nanoTime()
                     try {
                         val paint = {
                             IslandLog.guard("IslandGpuRenderer", "SkikoRenderDelegate.callback_failed") {
@@ -90,6 +91,7 @@ internal class IslandGpuRenderer(private val owner: Window, private val surface:
                             }
                         }
                         if (gpu != null) gpu.locked(paint) else paint()
+                        surface.frameProduced(started, created.renderApi.name)
                     } catch (error: Throwable) {
                         IslandLog.failure("IslandGpuRenderer", "caught.error", error);
                         SwingUtilities.invokeLater {

@@ -117,17 +117,19 @@ internal object LinuxHelper {
         val archive = extract("spw-island-$kind@gaboron.github.io.shell-extension.zip")
         val arguments = listOf(kind, archive.toString()) + if (refresh) listOf("--refresh-existing") else emptyList()
         val process = startScript("install-gnome-support.py", *arguments.toTypedArray())
-        if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            error("GNOME 支持安装超时，请重试。")
+        try {
+            check(process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) { "GNOME 支持安装超时，请重试。" }
+            val message = process.inputStream.bufferedReader().readText().trim()
+            check(process.exitValue() == 0) {
+                if (refresh) runCatching { JsonParser.parseString(message).asJsonObject["error"]?.asString }
+                    .getOrNull() ?: "GNOME 支持自动同步失败"
+                else message.ifBlank { "GNOME 支持安装失败" }
+            }
+            return message
+        } finally {
+            if (process.isAlive) process.destroyForcibly()
+            process.inputStream.close()
         }
-        val message = process.inputStream.bufferedReader().readText().trim()
-        check(process.exitValue() == 0) {
-            if (refresh) runCatching { JsonParser.parseString(message).asJsonObject["error"]?.asString }
-                .getOrNull() ?: "GNOME 支持自动同步失败"
-            else message.ifBlank { "GNOME 支持安装失败" }
-        }
-        return message
     }
 
     fun startScript(name: String, vararg arguments: String): Process {

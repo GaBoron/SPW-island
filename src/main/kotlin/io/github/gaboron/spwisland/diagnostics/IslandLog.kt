@@ -16,11 +16,13 @@ internal object IslandLog {
 
     @Synchronized fun start(role: String, context: Map<String, Any?> = emptyMap()) {
         if (writer != null) return
+        val started = System.nanoTime()
         runContext = context
         val inherited = System.getenv("SPW_ISLAND_LOG_SESSION")?.takeIf { it.matches(Regex("[a-zA-Z0-9-]{1,80}")) }
         val id = if (role == "ui") inherited ?: UUID.randomUUID().toString() else UUID.randomUUID().toString()
         val path = if (role == "ui") System.getenv("SPW_ISLAND_LOG_DIRECTORY")?.let(Path::of)
             ?: DiagnosticStorage.defaultDirectory() else DiagnosticStorage.defaultDirectory()
+        val writerStarted = System.nanoTime()
         try { writer = DiagnosticWriter(path, id, role) }
         catch (error: Throwable) {
             try {
@@ -29,9 +31,13 @@ internal object IslandLog {
             } catch (_: Throwable) { }
             return
         }
+        duration("diagnostics.writer.construct", writerStarted)
+        val watchdogStarted = System.nanoTime()
         try { watchdog = DiagnosticWatchdog() }
         catch (error: Throwable) { failure("diagnostics", "watchdog.start_failed", error) }
+        duration("diagnostics.watchdog.start", watchdogStarted)
         event("lifecycle", "diagnostics.started", environment() + context)
+        duration("diagnostics.start", started)
     }
 
     fun event(module: String, event: String, context: Map<String, Any?> = emptyMap()) =
@@ -72,7 +78,19 @@ internal object IslandLog {
     }
 
     fun operation(module: String, name: String): DiagnosticOperation = DiagnosticOperation(module, name)
-    fun cadence(intervalNs: Long) { writer?.idleIntervalNs = intervalNs; watchdog?.intervalNs = intervalNs }
+    fun duration(name: String, startedNs: Long, context: Map<String, Any?> = emptyMap()) =
+        event("performance", name, mapOf("elapsedNs" to System.nanoTime() - startedNs) + context)
+
+    inline fun <T> timed(name: String, action: () -> T): T {
+        val started = System.nanoTime()
+        try { return action() }
+        finally { duration(name, started) }
+    }
+
+    fun cadence(intervalNs: Long, reportIntervalNs: Long) {
+        writer?.idleIntervalNs = intervalNs
+        watchdog?.let { it.intervalNs = intervalNs; it.reportIntervalNs = reportIntervalNs }
+    }
     fun flush(timeoutMs: Long = 2_000): Boolean = writer?.flush(timeoutMs) ?: false
     fun snapshot(): Map<String, Any?> = writer?.snapshot() ?: mapOf(
         "available" to false, "scope" to "current_process", "capturedAt" to Instant.now().toString())

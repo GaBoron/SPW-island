@@ -3,6 +3,7 @@ package io.github.gaboron.spwisland.ui
 
 import io.github.gaboron.spwisland.diagnostics.IslandLog
 import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
+import io.github.gaboron.spwisland.diagnostics.DiagnosticLatency
 
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.core.*
@@ -32,12 +33,14 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                    actions: PlaybackActions, private val report: (Throwable) -> Unit,
                    private val spectrum: () -> FloatArray = { FloatArray(4) },
                    private val spectrumFallback: () -> Boolean = { false },
-                   private val spectrumStatus: () -> String = { "" }) : AutoCloseable {
+                   private val spectrumStatus: () -> String = { "" },
+                   private val active: () -> Boolean = { true }) : AutoCloseable {
     companion object {
         private const val HOVER_MARGIN = 18
     }
     // A persistent overlay is a frame, not an AWT popup (SunAwtWindow).
     // Give it a distinct native role from tray menus and tooltips.
+    private val constructedAtNs = System.nanoTime()
     private val window = BufferedIslandWindow(overlayGraphicsConfiguration()).apply {
         isUndecorated = true
         defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
@@ -55,7 +58,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         layeredPane.isOpaque = false
     }
     private val panel = IslandPanel(actions, report)
-    private val surface = IslandSurface(panel)
+    private val surface = IslandSurface(panel, constructedAtNs)
     private val renderer = IslandGpuRenderer(window, surface, report)
     private val hoverVisibility = IslandHoverVisibility()
     private val expandedMotion = IslandExpandedMotion()
@@ -105,12 +108,22 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     private val frameClock = IslandFrameClock()
     private val diagnostics = WindowDiagnostics()
     @Volatile private var frameInterval = 16_666_666L
+    private val tickLatency = DiagnosticLatency("frame.tick")
+    private val queueLatency = DiagnosticLatency("frame.edt.queue")
     private val frameScheduler = DiagnosticExecutors.scheduled { task ->
         Thread(task, "SPW Island frame scheduler").apply { isDaemon = true; uncaughtExceptionHandler = IslandLog.uncaught("IslandWindow") }
     }
 
     init {
         check(SwingUtilities.isEventDispatchThread())
+        try { initialize(actions) }
+        catch (error: Throwable) {
+            close()
+            throw error
+        }
+    }
+
+    private fun initialize(actions: PlaybackActions) {
         window.contentPane = surface
         window.setSize(width.toInt(), height.toInt())
         panel.addMouseListener(object : MouseAdapter() {
@@ -174,12 +187,13 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             }
         })
         // Allocate a native peer while hidden, so full-screen checks also work before first show.
-        window.addNotify()
-        if (settings.enabled) renderer.install()
+        IslandLog.timed("window.peer.create") { window.addNotify() }
+        IslandLog.timed("window.renderer.install") { if (settings.enabled) renderer.install() }
         window.gpuRendering = renderer.active
-        try { menu.installTray() } catch (error: Exception) {
+        try { IslandLog.timed("window.tray.install") { if (active()) menu.installTray() } } catch (error: Exception) {
             IslandLog.failure("IslandWindow", "caught.error", error); report(error) }
-        tick(); scheduleNextFrame()
+        IslandLog.timed("window.first_tick") { tick() }
+        scheduleNextFrame()
     }
     fun reload() {
         if (closed) return
@@ -194,7 +208,13 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     internal val presentedFrames: Long get() = renderer.frames + surface.presentedFrames
 
     private fun tick() {
-        if (closed) return
+        if (closed || !active()) return
+        val started = System.nanoTime()
+        try { tickFrame() }
+        finally { tickLatency.record(System.nanoTime() - started, frameInterval, settings.performance) }
+    }
+
+    private fun tickFrame() {
         // Local optimistic edits must take effect even before the next host notification.
         settings = store.read()
         val now = System.nanoTime()
@@ -219,6 +239,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             hoverVisibility.shouldRender(!paused, window.isVisible, performance.animateLayout)
         globalPointer?.setEnabled(clickThrough && settings.autoHideOnHover && visible && !paused)
         if (!visible) {
+            surface.pauseFrameDiagnostics()
             compositorGlass?.deactivate()
             panel.compositorGlass = false
             panel.expanded = false
@@ -415,6 +436,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 maxOf(displayInterval, 50_000_000L)
             else -> displayInterval
         }
+        surface.frameBudgetNs = frameInterval
     }
 
     /** Sample only display inputs and geometry; never include lyrics or track metadata. */
@@ -434,12 +456,14 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
 
     /** Keep one outstanding frame and avoid adding rendering time to the target interval. */
     private fun scheduleNextFrame() {
-        if (closed) return
+        if (closed || !active()) return
         frameScheduler.schedule({
-            if (closed) return@schedule
+            if (closed || !active()) return@schedule
+            val submitted = System.nanoTime()
             SwingUtilities.invokeLater {
                 IslandLog.guard("IslandWindow", "invokeLater.callback_failed") {
-                    if (closed) return@invokeLater
+                    if (closed || !active()) return@invokeLater
+                    queueLatency.record(System.nanoTime() - submitted, frameInterval, settings.performance)
                     try {
                         tick()
                         if (frameFailed) {
@@ -488,8 +512,24 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
 
     override fun close() {
         if (closed) return
-        closed = true; diagnostics.close(); frameScheduler.shutdownNow(); renderer.close(); panel.close(); menu.close()
-        compositorGlass?.close()
-        pointerPresence?.close(); globalPointer?.close(); inputRegion?.close(); window.releaseFrame(); window.dispose()
+        closed = true
+        fun release(name: String, action: () -> Unit) {
+            try { IslandLog.timed("window.close.$name", action) }
+            catch (error: Throwable) {
+                IslandLog.failure("window", "release.$name.failed", error)
+                IslandLog.attempt("window", "release.report_failed") { report(error) }
+            }
+        }
+        release("scheduler") { frameScheduler.shutdownNow() }
+        release("metrics") { tickLatency.close(); queueLatency.close(); surface.closeDiagnostics(); diagnostics.close() }
+        release("renderer") { renderer.close() }
+        release("panel") { panel.close() }
+        release("menu") { menu.close() }
+        release("glass") { compositorGlass?.close() }
+        release("pointerPresence") { pointerPresence?.close() }
+        release("globalPointer") { globalPointer?.close() }
+        release("inputRegion") { inputRegion?.close() }
+        release("frame") { window.releaseFrame() }
+        release("peer") { window.dispose() }
     }
 }

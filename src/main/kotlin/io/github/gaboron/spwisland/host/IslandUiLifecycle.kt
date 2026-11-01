@@ -19,13 +19,15 @@ internal class IslandUiLifecycle(
     private var window: IslandWindow? = null
 
     fun start() {
+        val submitted = System.nanoTime()
         val operation = IslandLog.operation("window", "create")
         dispatch {
             operation.runningHere()
+            IslandLog.duration("window.edt.queue", submitted)
             if (!closed.get() && !started) {
                 started = true
                 try {
-                    val created = create()
+                    val created = IslandLog.timed("window.construct.edt", create)
                     window = created
                     operation.close()
                     if (closed.get()) dispose()
@@ -56,7 +58,7 @@ internal class IslandUiLifecycle(
         val previous = window
         window = null
         val operation = IslandLog.operation("window", "dispose")
-        try { previous?.close(); operation.close() } catch (error: Throwable) {
+        try { IslandLog.timed("window.dispose.edt") { previous?.close() }; operation.close() } catch (error: Throwable) {
             operation.failed(error); report(error)
         }
     }

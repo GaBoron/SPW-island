@@ -2,6 +2,8 @@
 package io.github.gaboron.spwisland.platform
 
 import io.github.gaboron.spwisland.diagnostics.IslandLog
+import io.github.gaboron.spwisland.diagnostics.DiagnosticLatency
+import io.github.gaboron.spwisland.core.PerformanceProfile
 
 import com.sun.jna.Library
 import com.sun.jna.Native
@@ -73,6 +75,10 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
     private var unavailable = false
     private var gpuFallback: String? = null
     private var nativeGpuReasonRead = false
+    private val readLatency = DiagnosticLatency("capture.sample") { captureContext() }
+    private val transportLatency = DiagnosticLatency("capture.transport") { captureContext() }
+    private fun captureContext() = mapOf("transport" to if (image?.texture != null) "gpu_shared" else "cpu",
+        "cropWidth" to image?.width, "cropHeight" to image?.height)
     var status = GlassStatus("等待桌面图像")
         private set
 
@@ -103,6 +109,8 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
         val native = api ?: return null
         val current = capture ?: return null
         if (unavailable) return null
+        val started = System.nanoTime()
+        val previousSerial = image?.serial
         return try {
             // GPU frames borrow an immutable native resource; the fallback writes into Skia Data.
             var result = native.GlassRead(current, image?.serial ?: 0L, null, 0, metadata)
@@ -170,6 +178,11 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
             }
         } catch (error: Throwable) {
             IslandLog.failure("WindowsDesktopBackdrop", "caught.error", error); fail(error); null }
+        finally {
+            readLatency.record(System.nanoTime() - started, 0, PerformanceProfile.STANDARD)
+            if (image != null && image?.serial != previousSerial)
+                transportLatency.record(metadata[7].coerceAtLeast(0) * 1_000, 0, PerformanceProfile.STANDARD)
+        }
     }
 
     private fun dispose(pixels: Pixels?) {
@@ -214,6 +227,7 @@ internal class WindowsDesktopBackdrop(private val report: (Throwable) -> Unit,
     }
 
     override fun close() {
+        readLatency.close(); transportLatency.close()
         val previous = capture
         val native = api
         val previousListener = listener

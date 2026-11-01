@@ -6,20 +6,29 @@ import com.xuncorp.spw.workshop.api.SpwPlugin
 import io.github.gaboron.spwisland.diagnostics.IslandLog
 
 class IslandPlugin(context: PluginContext) : SpwPlugin(context) {
-    private fun startDiagnostics() = IslandLog.start("host", mapOf("pluginVersion" to pluginContext.pluginVersion,
-        "spwVersion" to pluginContext.spwVersion, "spwChannel" to pluginContext.spwChannel))
-    init { startDiagnostics() }
+    private fun startDiagnostics() {
+        val started = System.nanoTime()
+        IslandLog.start("host", mapOf("pluginVersion" to pluginContext.pluginVersion,
+            "spwVersion" to pluginContext.spwVersion, "spwChannel" to pluginContext.spwChannel))
+        IslandLog.duration("plugin.diagnostics", started)
+    }
+    init {
+        val started = System.nanoTime()
+        startDiagnostics()
+        IslandLog.duration("plugin.init", started)
+    }
     override fun start() {
         if (runtime != null) return
+        val started = System.nanoTime()
         startDiagnostics()
         val operation = IslandLog.operation("lifecycle", "plugin.start")
         var created: IslandRuntime? = null
         try {
-            val next = IslandRuntime()
+            val next = IslandLog.timed("runtime.construct") { IslandRuntime() }
             created = next
             runtime = next
             next.start()
-            playback.attach(next)
+            IslandLog.timed("runtime.playback.attach") { playback.attach(next) }
             operation.close()
         } catch (error: Throwable) {
             IslandLog.failure("IslandPlugin", "caught.error", error);
@@ -29,6 +38,8 @@ class IslandPlugin(context: PluginContext) : SpwPlugin(context) {
             IslandLog.attempt("lifecycle", "plugin.start_cleanup_failed") { created?.close() }
             IslandLog.attempt("lifecycle", "diagnostics.start_cleanup_failed") { IslandLog.stop() }
             throw error
+        } finally {
+            IslandLog.duration("plugin.start", started)
         }
     }
     override fun stop() {

@@ -7,6 +7,8 @@ import io.github.gaboron.spwisland.core.PlaybackTimeline
 import io.github.gaboron.spwisland.core.SpectrumMode
 import io.github.gaboron.spwisland.core.IslandBackgroundStyle
 import io.github.gaboron.spwisland.core.performance
+import io.github.gaboron.spwisland.core.PerformanceProfile
+import io.github.gaboron.spwisland.diagnostics.DiagnosticLatency
 import io.github.gaboron.spwisland.ui.*
 import io.github.gaboron.spwisland.platform.ProcessSpectrum
 import io.github.gaboron.spwisland.platform.LinuxProcessSpectrum
@@ -14,6 +16,7 @@ import io.github.gaboron.spwisland.platform.SpectrumSource
 import io.github.gaboron.spwisland.ui.ComposeFontPickerWindow
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.remote.LinuxIslandProcess
+import io.github.gaboron.spwisland.remote.LinuxUiLifecycle
 import javax.swing.SwingUtilities
 import io.github.gaboron.spwisland.diagnostics.IslandLog
 import io.github.gaboron.spwisland.platform.LinuxHelper
@@ -21,6 +24,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class IslandRuntime : AutoCloseable {
     val timeline = PlaybackTimeline()
+    @Volatile private var diagnosticProfile = PerformanceProfile.STANDARD
+    private val positionLatency = DiagnosticLatency("callback.position")
+    private val lineLatency = DiagnosticLatency("callback.line")
     private val metadata = TrackMetadataLoader(timeline, performance = { settings.read().performance })
     fun trackChanged(track: io.github.gaboron.spwisland.core.Track) {
         IslandLog.event("playback", "track.changed")
@@ -35,24 +41,36 @@ class IslandRuntime : AutoCloseable {
         metadata.recoverMissingTrack()
     }
     fun positionChanged(value: Long) {
-        timeline.positionChanged(value)
-        metadata.recoverMissingTrack()
+        val started = System.nanoTime()
+        try {
+            timeline.positionChanged(value)
+            metadata.recoverMissingTrack()
+        } finally { positionLatency.record(System.nanoTime() - started, 0, diagnosticProfile) }
     }
-    fun lineChanged(line: io.github.gaboron.spwisland.core.LyricLine?) = timeline.lineChanged(line)
+    fun lineChanged(line: io.github.gaboron.spwisland.core.LyricLine?) {
+        val started = System.nanoTime()
+        try { timeline.lineChanged(line) }
+        finally { lineLatency.record(System.nanoTime() - started, 0, diagnosticProfile) }
+    }
     fun lyricsChanged(lines: List<io.github.gaboron.spwisland.core.LyricLine>) {
         IslandLog.event("playback", "lyrics.document_changed", mapOf("lines" to lines.size))
         timeline.lyricsChanged(lines)
     }
     private val ui: IslandUiLifecycle? = if (Platform.isLinux()) null else IslandUiLifecycle(::createWindow, ::report)
-    private var linuxWindow: LinuxIslandProcess? = null
+    private val linuxWindow = if (Platform.isLinux()) LinuxUiLifecycle({
+        LinuxIslandProcess(timeline, settings, playbackActions(), ::report, spectrum)
+    }, ::report) else null
     private val spectrum: SpectrumSource = if (Platform.isLinux()) LinuxProcessSpectrum()
         else ProcessSpectrum(::notifySpectrumFallback)
     @Volatile private var closed = false
     private val desktopSetupRunning = AtomicBoolean()
     private val glassRefreshStarted = AtomicBoolean()
-    private val settings = HostSettings(WorkshopApi.manager.createConfigManager()) {
-        updateSpectrumMode()
-        if (!closed) ui?.reload()
+    @Volatile private var desktopSetupThread: Thread? = null
+    private val settings = IslandLog.timed("runtime.settings.construct") {
+        HostSettings(WorkshopApi.manager.createConfigManager()) {
+            updateSpectrumMode()
+            if (!closed) ui?.reload()
+        }
     }
     private val fontPicker = if (Platform.isWindows()) ComposeFontPickerWindow({ selection ->
         safely {
@@ -62,15 +80,17 @@ class IslandRuntime : AutoCloseable {
     private val shortcut = IslandShortcut { safely { settings.set("enabled", !settings.read().enabled) } }
     private val volume = HostVolumeControl(::report)
     fun start() {
-        updateSpectrumMode()
-        shortcut.start()
-        metadata.start()
-        if (Platform.isLinux()) {
-            linuxWindow = LinuxIslandProcess(timeline, settings, playbackActions(), ::report, spectrum)
-        } else ui?.start()
+        IslandLog.timed("runtime.spectrum.start") { updateSpectrumMode() }
+        IslandLog.timed("runtime.shortcut.register") { shortcut.start() }
+        IslandLog.timed("runtime.metadata.enqueue") { metadata.start() }
+        IslandLog.timed("runtime.ui.enqueue") {
+            if (Platform.isLinux()) {
+                linuxWindow?.start()
+            } else ui?.start()
+        }
     }
     private fun createWindow(): IslandWindow = IslandWindow(timeline, settings, playbackActions(), ::report,
-        spectrum::levels, spectrum::usesSyntheticFallback, { spectrum.status })
+        spectrum::levels, spectrum::usesSyntheticFallback, { spectrum.status }, active = { !closed })
 
     private fun playbackActions(): PlaybackActions = object : PlaybackActions {
         override fun previous() = safely("playback.previous") { WorkshopApi.playback.previous() }
@@ -86,8 +106,10 @@ class IslandRuntime : AutoCloseable {
         override fun setVolume(value: Double, completed: (Double?) -> Unit) = volume.set(value, completed)
     }
     private fun updateSpectrumMode() {
+        if (closed) return
         val current = settings.read()
-        IslandLog.cadence(current.performance.diagnosticSampleIntervalNs)
+        diagnosticProfile = current.performance
+        IslandLog.cadence(current.performance.diagnosticSampleIntervalNs, current.performance.performanceReportIntervalNs)
         spectrum.setEnabled(current.enabled && current.performance.spectrumMode == SpectrumMode.LIVE &&
             current.sideContent.showsSpectrum && (!Platform.isLinux() || timeline.snapshot().playing))
         // Startup-only synchronization follows the same disabled/low-performance gate as rendering.
@@ -105,8 +127,8 @@ class IslandRuntime : AutoCloseable {
                             if (!closed && message != null)
                                 WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning)
                         }
-                    } finally { desktopSetupRunning.set(false) }
-                }.start()
+                    } finally { desktopSetupThread = null; desktopSetupRunning.set(false) }
+                }.also { desktopSetupThread = it }.start()
             } else {
                 glassRefreshStarted.set(false)
             }
@@ -147,10 +169,11 @@ class IslandRuntime : AutoCloseable {
                     if (!closed) WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning)
                 }
             } finally {
+                desktopSetupThread = null
                 desktopSetupRunning.set(false)
                 if (!closed) updateSpectrumMode()
             }
-        }.start()
+        }.also { desktopSetupThread = it }.start()
     }
     fun resetSettings() = safely { settings.resetAll() }
     fun about() {
@@ -163,25 +186,28 @@ class IslandRuntime : AutoCloseable {
 
     fun openSource() { SwingUtilities.invokeLater { IslandLog.guard("IslandRuntime", "invokeLater.callback_failed") { if (!closed) safely { ProjectLinks.openSource() } } } }
     private fun safely(name: String = "operation", block: () -> Unit) {
+        if (closed) return
         val operation = IslandLog.operation("runtime", name)
         try { block(); operation.close() }
         catch (error: Exception) { operation.failed(error); report(error) }
     }
     private fun report(error: Throwable) {
         IslandLog.failure("runtime", "operation.failed", error)
+        if (closed) return
         IslandLog.attempt("IslandRuntime", "report.attempt1") { WorkshopApi.ui.toast(error.message ?: "词岛操作失败", WorkshopApi.Ui.ToastType.Error) }
     }
     private fun notifySpectrumFallback(message: String) {
+        if (closed) return
         IslandLog.attempt("IslandRuntime", "notifySpectrumFallback.attempt2") { WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Warning) }
     }
     override fun close() {
         if (closed) return
         closed = true
+        desktopSetupThread?.interrupt()
+        positionLatency.close(); lineLatency.close()
         ui?.close()
-        val remote = linuxWindow
-        linuxWindow = null
-        listOfNotNull(shortcut, volume, remote, fontPicker, metadata, settings, spectrum).forEach { resource ->
-            try { resource.close() } catch (error: Throwable) {
+        listOfNotNull(shortcut, volume, linuxWindow, fontPicker, metadata, settings, spectrum).forEach { resource ->
+            try { IslandLog.timed("runtime.close.${resource.javaClass.simpleName}") { resource.close() } } catch (error: Throwable) {
                 IslandLog.failure("IslandRuntime", "caught.error", error); report(error) }
         }
     }

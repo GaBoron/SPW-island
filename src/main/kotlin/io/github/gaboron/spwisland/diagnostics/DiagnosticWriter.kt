@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Bounded, nonblocking producers; formatting, stack traces and all disk work stay on this worker. */
 internal class DiagnosticWriter(val directory: Path, val session: String, private val role: String) : AutoCloseable {
+    private val initializedAt = System.nanoTime()
     private data class Repeated(val first: DiagnosticEvent, var count: Long, var last: String, var reported: Long)
     private data class State(val module: String, val key: String, val value: String,
                              val context: Map<String, Any?>, val observedAt: Instant,
@@ -54,6 +55,11 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
         }
         start()
     }
+    init { timing("diagnostics.writer.initialize", initializedAt) }
+
+    private fun timing(name: String, started: Long) = offer(DiagnosticEvent(
+        Instant.now().toString(), System.nanoTime(), "INFO", "performance", name,
+        Thread.currentThread().name, mapOf("elapsedNs" to System.nanoTime() - started)))
 
     fun offer(event: DiagnosticEvent) {
         if (closed) return
@@ -114,9 +120,11 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
                 try {
                     val now = System.nanoTime()
                     if (now >= nextMaintenance) {
+                        val maintenanceStarted = System.nanoTime()
                         storage.prepare()
                         retention.request()
                         nextMaintenance = now + 3_600_000_000_000L
+                        timing("diagnostics.storage.prepare", maintenanceStarted)
                     }
                     if (value is DiagnosticEvent) accept(value)
                     overflow.getAndSet(null)?.let(::accept)
@@ -197,6 +205,7 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
     private fun write(event: DiagnosticEvent) {
         val currentDay = LocalDate.now(ZoneOffset.UTC)
         if (output == null || day != currentDay || size >= 4 * 1_048_576) {
+            val fileStarted = System.nanoTime()
             closeOutput()
             storage.prepare()
             retention.request()
@@ -208,6 +217,7 @@ internal class DiagnosticWriter(val directory: Path, val session: String, privat
                 outputLease = lease
             } catch (error: Throwable) { lease.close(); throw error }
             day = currentDay; size = 0
+            timing("diagnostics.file.open", fileStarted)
         }
         val record = linkedMapOf<String, Any?>("time" to event.time, "monotonicNs" to event.monotonicNs,
             "session" to session, "process" to pid, "role" to role, "thread" to privacy.text(event.thread),
