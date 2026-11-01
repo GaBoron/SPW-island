@@ -15,7 +15,7 @@ internal object DiagnosticExecutors {
         }
         error?.let { IslandLog.failure("async", "task.failed", it) }
     }
-    fun scheduled(factory: ThreadFactory): ScheduledExecutorService = object : ScheduledThreadPoolExecutor(1, factory) {
+    fun scheduled(factory: ThreadFactory): ScheduledThreadPoolExecutor = object : ScheduledThreadPoolExecutor(1, factory) {
         override fun afterExecute(task: Runnable, error: Throwable?) { super.afterExecute(task, error); completed(task, error) }
     }
     fun single(factory: ThreadFactory): ExecutorService = pool(1, 1, 0, TimeUnit.MILLISECONDS,

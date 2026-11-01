@@ -52,7 +52,11 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
     }
     @Synchronized fun trackGeneration(): Long = generation
 
-    /** Startup recovery preserves any position, state and lyrics already replayed by the host. */
+    @Synchronized fun missingTrackGeneration(allowIdle: Boolean = false): Long? = generation.takeIf {
+        track == null && status != PlaybackStatus.ENDED && (allowIdle || status != PlaybackStatus.IDLE)
+    }
+
+    /** Recovery preserves any position, state and lyrics already replayed by the host. */
     @Synchronized fun recoverTrack(token: Long, value: Track): Long? {
         if (generation != token || track != null || status == PlaybackStatus.ENDED) return null
         track = value

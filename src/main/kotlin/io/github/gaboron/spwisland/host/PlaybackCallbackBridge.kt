@@ -17,9 +17,9 @@ internal class PlaybackCallbackBridge {
 
     @Synchronized fun attach(target: IslandRuntime) {
         track?.let(target::trackChanged)
-        status?.let(target.timeline::stateChanged)
-        position?.let(target.timeline::positionChanged)
-        playing?.let(target.timeline::playingChanged)
+        status?.let(target::stateChanged)
+        position?.let(target::positionChanged)
+        playing?.let(target::playingChanged)
         lyrics?.let(target::lyricsChanged)
         line?.let(target::lineChanged)
         clearPending()
@@ -40,7 +40,7 @@ internal class PlaybackCallbackBridge {
     }
 
     @Synchronized fun stateChanged(value: PlaybackStatus) {
-        runtime?.let { it.timeline.stateChanged(value); return }
+        runtime?.let { it.stateChanged(value); return }
         status = value
         if (value == PlaybackStatus.IDLE || value == PlaybackStatus.ENDED) {
             playing = false
@@ -54,12 +54,12 @@ internal class PlaybackCallbackBridge {
     }
 
     @Synchronized fun playingChanged(value: Boolean) {
-        runtime?.let { it.timeline.playingChanged(value); return }
+        runtime?.let { it.playingChanged(value); return }
         playing = value
     }
 
     @Synchronized fun positionChanged(value: Long) {
-        runtime?.let { it.timeline.positionChanged(value); return }
+        runtime?.let { it.positionChanged(value); return }
         position = value
     }
 

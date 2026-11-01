@@ -21,10 +21,22 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class IslandRuntime : AutoCloseable {
     val timeline = PlaybackTimeline()
-    private val metadata = TrackMetadataLoader(timeline)
+    private val metadata = TrackMetadataLoader(timeline, performance = { settings.read().performance })
     fun trackChanged(track: io.github.gaboron.spwisland.core.Track) {
         IslandLog.event("playback", "track.changed")
         metadata.load(track)
+    }
+    fun stateChanged(value: io.github.gaboron.spwisland.core.PlaybackStatus) {
+        timeline.stateChanged(value)
+        metadata.recoverMissingTrack()
+    }
+    fun playingChanged(value: Boolean) {
+        timeline.playingChanged(value)
+        metadata.recoverMissingTrack()
+    }
+    fun positionChanged(value: Long) {
+        timeline.positionChanged(value)
+        metadata.recoverMissingTrack()
     }
     fun lineChanged(line: io.github.gaboron.spwisland.core.LyricLine?) = timeline.lineChanged(line)
     fun lyricsChanged(lines: List<io.github.gaboron.spwisland.core.LyricLine>) {
