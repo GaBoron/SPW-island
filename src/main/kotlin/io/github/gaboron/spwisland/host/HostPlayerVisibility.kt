@@ -150,7 +150,8 @@ internal class HostPlayerVisibility(
         }
     }
 
-    private inner class Observation(plan: HostPlayerTarget, loader: ClassLoader, private val token: Long) : AutoCloseable {
+    private inner class Observation(plan: HostPlayerTarget, private val loader: ClassLoader,
+                                    private val token: Long) : AutoCloseable {
         private val site = plan.composition()
         private val caller = plan.caller().replace('/', '.')
         private val navigator = Class.forName(plan.navigator().replace('/', '.'), false, loader)

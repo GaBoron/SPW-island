@@ -9,6 +9,7 @@ import com.sun.jna.platform.win32.WinDef.*
 import com.sun.jna.platform.win32.WinNT.HANDLE
 import com.sun.jna.platform.win32.WinUser.MSG
 import com.sun.jna.platform.win32.WinUser.WinEventProc
+import com.sun.jna.platform.win32.WinUser.WS_MINIMIZE
 import com.sun.jna.ptr.IntByReference
 import com.sun.jna.win32.StdCallLibrary
 import io.github.gaboron.spwisland.core.PerformanceProfile
@@ -153,7 +154,7 @@ internal class WindowsSystemUi(private val changed: () -> Unit) : AutoCloseable 
     }
 
     private fun visible(window: HWND): Boolean {
-        if (!user.IsWindowVisible(window) || user.IsIconic(window)) return false
+        if (!user.IsWindowVisible(window) || user.GetWindowLong(window, -16) and WS_MINIMIZE != 0) return false
         val cloaked = IntByReference()
         if (dwm.DwmGetWindowAttribute(window, 14, cloaked, 4) == 0 && cloaked.value != 0) return false
         val bounds = RECT()
