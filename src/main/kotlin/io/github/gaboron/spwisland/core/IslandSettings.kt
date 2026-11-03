@@ -26,6 +26,7 @@ data class IslandSettings(
     val experimentalMultiLine: Boolean = false,
     val hidePaused: Boolean = false,
     val hideFullscreen: Boolean = true,
+    val hideSpwPlayerForeground: Boolean = false,
     val clickThrough: Boolean = false,
     val autoHideOnHover: Boolean = false,
     val scrollVolume: Boolean = false,

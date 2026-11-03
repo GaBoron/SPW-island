@@ -41,6 +41,7 @@ Windows 界面运行在 SPW JVM 中，使用 Skia / Direct3D。Linux 界面运�
 | 设置与字体 | `IslandSettings`、`HostSettings`、`IslandConfigFile`、`ComposeFontPickerWindow` |
 | Linux 进程通信 | `LinuxIslandProcess`、`LinuxIslandMain`、`IslandWire` |
 | 菜单与状态 | `IslandMenu`、`IslandRuntimeStatus`、`diagnostics/` |
+| 宿主播放页与焦点 | `HostPlayerVisibility`、`HostPlayerTarget` |
 
 ## 状态、线程与资源
 

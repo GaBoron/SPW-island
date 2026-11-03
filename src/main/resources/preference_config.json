@@ -31,6 +31,13 @@
         },
         {
           "type": "switch",
+          "key": "hide_spw_player_foreground",
+          "title": "SPW 播放页在前台时隐藏",
+          "default_value": false,
+          "summary": "需要 Hook 权限；暂停时仍隐藏。"
+        },
+        {
+          "type": "switch",
           "key": "click_through",
           "title": "鼠标穿透",
           "default_value": false

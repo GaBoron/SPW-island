@@ -11,7 +11,8 @@ internal data class IslandState(
     val metadata: TrackMetadata?,
     val lyrics: List<LyricLine>?,
     val about: Boolean = false,
-    val acknowledgedCommand: Long = 0
+    val acknowledgedCommand: Long = 0,
+    val hostPlayerForeground: Boolean = false
 ) : Serializable
 
 internal data class IslandCommand(val action: String, val arguments: List<String> = emptyList(),
@@ -38,6 +39,8 @@ internal class RemoteSpectrum {
 }
 
 internal class RemotePlayback(private val nanoTime: () -> Long = System::nanoTime) : PlaybackSource {
+    var hostPlayerForeground: Boolean = false
+        private set
     private var value = PlaybackSnapshot(null, null, 0, false, PlaybackStatus.IDLE)
     private var received = nanoTime()
     private data class Seek(val requestId: Long, val track: Track?, val position: Long, val started: Long)
@@ -48,6 +51,7 @@ internal class RemotePlayback(private val nanoTime: () -> Long = System::nanoTim
         pending = Seek(requestId, value.track, target, nanoTime())
     }
     @Synchronized fun accept(state: IslandState) {
+        hostPlayerForeground = state.hostPlayerForeground
         value = state.snapshot.copy(metadata = state.metadata ?: value.metadata, lyrics = state.lyrics ?: value.lyrics)
         received = nanoTime()
         pending?.let {

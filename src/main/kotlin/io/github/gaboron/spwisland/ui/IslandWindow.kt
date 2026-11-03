@@ -8,6 +8,7 @@ import io.github.gaboron.spwisland.diagnostics.DiagnosticLatency
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.core.*
 import io.github.gaboron.spwisland.platform.WindowsOverlay
+import io.github.gaboron.spwisland.platform.WindowsSystemUi
 import io.github.gaboron.spwisland.platform.X11InputRegion
 import io.github.gaboron.spwisland.platform.LinuxGlobalPointer
 import io.github.gaboron.spwisland.platform.LinuxCompositorGlass
@@ -34,7 +35,8 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                    private val spectrum: () -> FloatArray = { FloatArray(4) },
                    private val spectrumFallback: () -> Boolean = { false },
                    private val spectrumStatus: () -> String = { "" },
-                   private val active: () -> Boolean = { true }) : AutoCloseable {
+                   private val active: () -> Boolean = { true },
+                   private val hostPlayerForeground: () -> Boolean = { false }) : AutoCloseable {
     companion object {
         private const val HOVER_MARGIN = 18
     }
@@ -95,6 +97,15 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     private var controlsWidth = 0.0
     private var hoverActive = false
     private var frameFailed = false
+    private val systemUi = if (Platform.isWindows()) {
+        IslandLog.attempt("IslandWindow", "system_ui.initialize_failed") {
+            WindowsSystemUi {
+                SwingUtilities.invokeLater {
+                    IslandLog.guard("IslandWindow", "system_ui.changed") { if (!closed && active()) tick() }
+                }
+            }
+        }.onFailure(report).getOrNull()
+    } else null
 
     private var canvasWidth = 0
     private var canvasHeight = 0
@@ -224,10 +235,14 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         val dt = ((now - lastFrame) / 1_000_000_000.0).coerceIn(0.0, .1)
         lastFrame = now
         val performance = settings.performance
+        systemUi?.update(settings.enabled, performance)
         diagnostics.tick(performance)
         val clickThrough = (settings.clickThrough || settings.autoHideOnHover) &&
             (native.supportsClickThrough || inputRegion != null)
         val snap = timeline.snapshot()
+        val systemHidden = systemUi?.hiddenReason
+        val playerHidden = settings.hideSpwPlayerForeground && hostPlayerForeground()
+        val sceneHidden = systemHidden != null || playerHidden
         if (settings.enabled && nativeAvailable && now >= nextScreenCheck) {
             try { fullscreen = settings.hideFullscreen && native.foregroundIsFullscreen(window) }
             catch (error: Exception) {
@@ -235,9 +250,16 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             nextScreenCheck = now + performance.screenCheckIntervalNs
         }
         val paused = settings.hidePaused && !snap.playing
-        val visible = settings.enabled && (!settings.hideFullscreen || !fullscreen) &&
-            hoverVisibility.shouldRender(!paused, window.isVisible, performance.animateLayout)
-        globalPointer?.setEnabled(clickThrough && settings.autoHideOnHover && visible && !paused)
+        val showContent = !paused && !sceneHidden
+        val visible = settings.enabled && (!settings.hideFullscreen || !fullscreen || sceneHidden) &&
+            hoverVisibility.shouldRender(showContent, window.isVisible, performance.animateLayout)
+        if (!showContent) {
+            panel.cancelInteractions()
+            dragging = false; press = null; dragOrigin = null; dragTopLeft = null; dragAnchor = null
+            hoverActive = false
+        }
+        renderer.suppressInput(!showContent)
+        globalPointer?.setEnabled(clickThrough && settings.autoHideOnHover && visible && showContent)
         if (!visible) {
             surface.pauseFrameDiagnostics()
             compositorGlass?.deactivate()
@@ -254,15 +276,16 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
                 buffersReleased = true
             }
             surface.hoverPose = IslandHoverMotion.Pose.HIDDEN
-            // Keep a paused reveal at zero so playback resumes through the same motion.
-            // Other policies retain their immediate native hide/show behavior.
-            hoverVisibility.update(false, null, Rectangle(), dt, true, settings.notch, show = !paused)
+            // Scene suppression shares the same reversible motion as pause and hover hiding.
+            hoverVisibility.update(false, null, Rectangle(), dt, true, settings.notch, show = showContent)
             hoverActive = false
             pointerPresence?.reset()
             nextTopmostCheck = 0
             frameInterval = 200_000_000L
             diagnostics.sample(window, when {
                 !settings.enabled -> "disabled"
+                systemHidden != null -> systemHidden
+                playerHidden -> "host_player_foreground"
                 settings.hidePaused && !snap.playing -> "paused"
                 else -> "fullscreen"
             }, performance, presentedFrames, renderer::diagnosticState,
@@ -299,12 +322,12 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             window.x + panel.x - HOVER_MARGIN, window.y + panel.y - HOVER_MARGIN,
             panel.width + HOVER_MARGIN * 2, panel.height + HOVER_MARGIN * 2).contains(mouse)
         hoverActive = when {
-            controlsBlocked || !window.isVisible || clickThrough -> { pointerPresence?.reset(); false }
+            !showContent || controlsBlocked || !window.isVisible || clickThrough -> { pointerPresence?.reset(); false }
             pointerPresence != null -> pointerPresence.active(now)
             hoverActive -> hoverRetention
             else -> overIsland
         }
-        panel.expanded = !paused && surface.hoverPose.fullyShown && !controlsBlocked && !clickThrough &&
+        panel.expanded = showContent && surface.hoverPose.fullyShown && !controlsBlocked && !clickThrough &&
             (dragging || panel.progress.dragging || hoverActive)
         val visibleLines = ActiveLyrics.select(snap, settings.experimentalMultiLine)
         if (visibleLines != lastLines || snap.track != previousSnapshot?.track) {
@@ -368,7 +391,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             settings.cornerRoundness))
         surface.hoverPose = hoverVisibility.update(
             clickThrough && settings.autoHideOnHover, mouse, hoverRegion, dt,
-            !performance.animateLayout, settings.notch, show = !paused)
+            !performance.animateLayout, settings.notch, show = showContent)
         panel.hoverSettled = surface.hoverPose.fullyShown
         compositorGlass?.let { glass ->
             if (glass.supported && settings.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
@@ -383,7 +406,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         }
         panel.updateProgressTransition(dt)
         panel.doLayout()
-        val inputClickThrough = clickThrough || !surface.hoverPose.fullyShown
+        val inputClickThrough = !showContent || clickThrough || !surface.hoverPose.fullyShown
         inputRegion?.let { input ->
             val scale = window.graphicsConfiguration.defaultTransform
             val shape = if (inputClickThrough) Rectangle() else scale.createTransformedShape(surface.inputRegion())
@@ -394,9 +417,9 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             window.isVisible = true
             nextTopmostCheck = 0
         }
-        if (now >= nextTopmostCheck) {
+        if (showContent && now >= nextTopmostCheck) {
             val wasAvailable = topmostAvailable
-            try { topmostAvailable = native.reinforceTopmost(window, performance.topmostRefreshIntervalNs) }
+            try { topmostAvailable = native.reinforceTopmost(window) }
             catch (error: Exception) {
                 IslandLog.failure("IslandWindow", "topmost.failed", error)
                 topmostAvailable = false
@@ -420,6 +443,8 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             }
         } else surface.repaint()
         diagnostics.sample(window, when {
+            systemHidden != null -> systemHidden
+            playerHidden -> "host_player_foreground"
             paused -> "pausing"
             settings.autoHideOnHover && surface.hoverPose.reveal < .01 -> "hover_hidden"
             else -> "visible"
@@ -445,6 +470,8 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
         return mapOf(
             "policy" to mapOf("enabled" to settings.enabled, "playing" to snapshot.playing,
                 "hidePaused" to settings.hidePaused, "hideFullscreen" to settings.hideFullscreen,
+                "hideSpwPlayerForeground" to settings.hideSpwPlayerForeground,
+                "hostPlayerForeground" to hostPlayerForeground(),
                 "fullscreenDetected" to fullscreen, "clickThrough" to settings.clickThrough,
                 "autoHideOnHover" to settings.autoHideOnHover, "lowPerformance" to settings.lowPerformance),
             "contentBounds" to listOf(panel.x, panel.y, panel.width, panel.height),
@@ -521,6 +548,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
             }
         }
         release("scheduler") { frameScheduler.shutdownNow() }
+        release("systemUi") { systemUi?.close() }
         release("metrics") { tickLatency.close(); queueLatency.close(); surface.closeDiagnostics(); diagnostics.close() }
         release("renderer") { renderer.close() }
         release("panel") { panel.close() }

@@ -58,11 +58,13 @@ class IslandRuntime : AutoCloseable {
     }
     private val ui: IslandUiLifecycle? = if (Platform.isLinux()) null else IslandUiLifecycle(::createWindow, ::report)
     private val linuxWindow = if (Platform.isLinux()) LinuxUiLifecycle({
-        LinuxIslandProcess(timeline, settings, playbackActions(), ::report, spectrum)
+        LinuxIslandProcess(timeline, settings, playbackActions(), ::report, spectrum,
+            hostPlayerForeground = { playerVisibility?.hidden == true })
     }, ::report) else null
     private val spectrum: SpectrumSource = if (Platform.isLinux()) LinuxProcessSpectrum()
         else ProcessSpectrum(::notifySpectrumFallback)
     @Volatile private var closed = false
+    @Volatile private var playerVisibility: HostPlayerVisibility? = null
     private val desktopSetupRunning = AtomicBoolean()
     private val glassRefreshStarted = AtomicBoolean()
     @Volatile private var desktopSetupThread: Thread? = null
@@ -80,6 +82,8 @@ class IslandRuntime : AutoCloseable {
     private val shortcut = IslandShortcut { safely { settings.set("enabled", !settings.read().enabled) } }
     private val volume = HostVolumeControl(::report)
     fun start() {
+        playerVisibility = HostPlayerVisibility({ settings.read() }) { if (!closed) ui?.reload() }
+            .also { it.refresh() }
         IslandLog.timed("runtime.spectrum.start") { updateSpectrumMode() }
         IslandLog.timed("runtime.shortcut.register") { shortcut.start() }
         IslandLog.timed("runtime.metadata.enqueue") { metadata.start() }
@@ -90,7 +94,8 @@ class IslandRuntime : AutoCloseable {
         }
     }
     private fun createWindow(): IslandWindow = IslandWindow(timeline, settings, playbackActions(), ::report,
-        spectrum::levels, spectrum::usesSyntheticFallback, { spectrum.status }, active = { !closed })
+        spectrum::levels, spectrum::usesSyntheticFallback, { spectrum.status }, active = { !closed },
+        hostPlayerForeground = { playerVisibility?.hidden == true })
 
     private fun playbackActions(): PlaybackActions = object : PlaybackActions {
         override fun previous() = safely("playback.previous") { WorkshopApi.playback.previous() }
@@ -108,6 +113,7 @@ class IslandRuntime : AutoCloseable {
     private fun updateSpectrumMode() {
         if (closed) return
         val current = settings.read()
+        playerVisibility?.refresh()
         diagnosticProfile = current.performance
         IslandLog.cadence(current.performance.diagnosticSampleIntervalNs, current.performance.performanceReportIntervalNs)
         spectrum.setEnabled(current.enabled && current.performance.spectrumMode == SpectrumMode.LIVE &&
@@ -136,6 +142,7 @@ class IslandRuntime : AutoCloseable {
     }
     fun recover() = safely("window.recover") {
         settings.set("auto_hide_on_hover", false); settings.set("click_through", false)
+        settings.set("hide_spw_player_foreground", false)
         settings.set("enabled", true); settings.resetPosition()
         IslandLog.event("window", "recovery.settings_applied", mapOf(
             "source" to "spw_settings", "presentationVerified" to false))
@@ -206,7 +213,7 @@ class IslandRuntime : AutoCloseable {
         desktopSetupThread?.interrupt()
         positionLatency.close(); lineLatency.close()
         ui?.close()
-        listOfNotNull(shortcut, volume, linuxWindow, fontPicker, metadata, settings, spectrum).forEach { resource ->
+        listOfNotNull(playerVisibility, shortcut, volume, linuxWindow, fontPicker, metadata, settings, spectrum).forEach { resource ->
             try { IslandLog.timed("runtime.close.${resource.javaClass.simpleName}") { resource.close() } } catch (error: Throwable) {
                 IslandLog.failure("IslandRuntime", "caught.error", error); report(error) }
         }

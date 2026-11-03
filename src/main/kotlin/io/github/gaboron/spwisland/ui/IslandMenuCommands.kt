@@ -47,6 +47,7 @@ internal class IslandMenuCommands(
             ENABLED -> store.set("enabled", !value.enabled)
             RECOVER -> {
                 store.set("auto_hide_on_hover", false)
+                store.set("hide_spw_player_foreground", false)
                 store.set("click_through", false)
                 store.set("enabled", true)
             }

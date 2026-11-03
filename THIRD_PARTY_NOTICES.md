@@ -30,6 +30,8 @@
 
 ## 依赖与构建工具
 
+宿主播放页结构识别改编自 [SPW Lyrics](https://github.com/GaBoron/SPW-Lyrics) 的 UI 发现代码，Copyright (c) 2026 GaBoron，采用 [MIT 许可](licenses/SPW-Lyrics-MIT.txt)。本项目仅保留播放页状态观察所需的识别逻辑。
+
 | 项目 | 用途及分发 | 许可证与保留材料 |
 | --- | --- | --- |
 | [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api)，Moriafly | 宿主 API（0.1.0-dev23），由 SPW 提供 | Apache-2.0；[许可文本](licenses/Apache-2.0.txt)、[NOTICE](NOTICE) |

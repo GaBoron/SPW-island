@@ -66,7 +66,8 @@ object LinuxIslandMain {
                                 }, { error ->
                                     IslandLog.failure("ui", "operation.failed", error)
                                     send("error", error.javaClass.name)
-                                }, spectrum::levels, spectrum::fallback, spectrum::status)
+                                }, spectrum::levels, spectrum::fallback, spectrum::status,
+                                    hostPlayerForeground = { timeline.hostPlayerForeground })
                                 IslandLog.duration("window.construct.edt", windowStarted)
                                 startup.close()
                             }

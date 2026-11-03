@@ -13,6 +13,7 @@ object IslandSettingsDefaults {
         "experimental_multi_line" to defaults.experimentalMultiLine,
         "hide_paused" to defaults.hidePaused,
         "hide_fullscreen" to true,
+        "hide_spw_player_foreground" to defaults.hideSpwPlayerForeground,
         "click_through" to defaults.clickThrough,
         "auto_hide_on_hover" to defaults.autoHideOnHover,
         "reduced_motion" to defaults.lowPerformance,

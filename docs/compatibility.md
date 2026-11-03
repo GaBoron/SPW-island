@@ -35,7 +35,8 @@
 | 鼠标穿透 | ✅ | ✅ |
 | 悬停自动隐藏 | ✅ | ✅*（X11 / KDE / GNOME Wayland） |
 | 前台全屏自动隐藏 | ✅ | ❌ |
-| Windows 额外置顶强化 | ✅ | ❌ |
+| SPW 播放页前台自动隐藏 | ✅ | ✅ |
+| Windows 置顶状态恢复 | ✅ | ❌ |
 
 `*` 表示有桌面或音频环境限制，见下文。
 
@@ -66,6 +67,6 @@
 
 需要 Linux x64、`/usr/bin/python3` 和 X11 / XWayland；OpenGL 环境不可用时可能回退到兼容绘制。
 
-悬停隐藏支持 X11、KDE Wayland 和安装配套扩展的 GNOME Wayland 45–50；其他 Wayland 桌面暂不支持该功能。Linux 暂不支持词岛区域右键菜单、前台全屏自动隐藏和 Windows 额外置顶强化。
+悬停隐藏支持 X11、KDE Wayland 和安装配套扩展的 GNOME Wayland 45–50；其他 Wayland 桌面暂不支持该功能。Linux 暂不支持词岛区域右键菜单、前台全屏自动隐藏和 Windows 置顶状态恢复。
 
 不同桌面下托盘、窗口位置或缩放可能有差异。安装方式见 [安装与更新](installation.md)，遇到问题请查看 [故障排查](troubleshooting.md)。

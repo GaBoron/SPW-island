@@ -47,5 +47,7 @@ internal class WindowsGpuInput(private val owner: Window) : AutoCloseable {
         if (!window.isVisible) window.isVisible = true
     }
 
+    fun hide() { window.isVisible = false }
+
     override fun close() { owner.removeComponentListener(visibility); window.dispose() }
 }

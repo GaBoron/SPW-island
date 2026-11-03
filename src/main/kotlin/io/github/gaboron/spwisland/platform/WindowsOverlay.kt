@@ -27,8 +27,6 @@ class WindowsOverlay {
     }
     private val user32 = if (Platform.isWindows()) User32.INSTANCE else null
     private var lastTopmostPeer: HWND? = null
-    private var lastForeground: HWND? = null
-    private var nextTopmostRefresh = 0L
     private var peerGeneration = 0L
     val supportsClickThrough: Boolean get() = user32 != null
     val supportsStableTranslucentCanvas: Boolean get() = user32 != null
@@ -40,15 +38,13 @@ class WindowsOverlay {
         return hwnd.takeIf { api.IsWindow(it) }
     }
 
-    fun reinforceTopmost(window: Window, refreshIntervalNs: Long): Boolean {
+    fun reinforceTopmost(window: Window): Boolean {
         val api = user32 ?: return true
         if (!window.isDisplayable || !window.isVisible) return false
         val hwnd = existingHandle(window, api) ?: run {
             IslandLog.state("window", "topmost", "peer_missing")
             return false
         }
-        val now = System.nanoTime()
-        val foreground = api.GetForegroundWindow()
         val peerChanged = hwnd != lastTopmostPeer
         if (peerChanged) {
             peerGeneration++
@@ -57,14 +53,15 @@ class WindowsOverlay {
         val wasTopmost = api.GetWindowLong(hwnd, -20) and 8 != 0
         val wasVisible = api.IsWindowVisible(hwnd)
         val wasMinimized = api.GetWindowLong(hwnd, -16) and WS_MINIMIZE != 0
-        if (!peerChanged && wasTopmost && wasVisible && !wasMinimized &&
-            foreground == lastForeground && now < nextTopmostRefresh) return true
+        // Healthy topmost windows may legitimately sit behind other topmost surfaces.
+        // Only native state loss justifies reordering, never elapsed time or focus changes.
+        if (!peerChanged && wasTopmost && wasVisible && !wasMinimized) return true
 
         val context = mapOf("peerGeneration" to peerGeneration,
             "pointerBits" to Native.POINTER_SIZE * 8,
             "insertAfter" to java.lang.Long.toUnsignedString(Pointer.nativeValue(HWND_TOPMOST.pointer), 16),
             "wasTopmost" to wasTopmost, "wasVisible" to wasVisible, "wasMinimized" to wasMinimized,
-            "peerChanged" to peerChanged, "foregroundChanged" to (foreground != lastForeground))
+            "peerChanged" to peerChanged)
         // Recover only a policy-visible island. This does not restore SPW or activate another application.
         if (wasMinimized) api.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
         val flags = SWP_NOSIZE or SWP_NOMOVE or SWP_NOACTIVATE or SWP_NOOWNERZORDER or
@@ -86,7 +83,6 @@ class WindowsOverlay {
             return false
         }
         if (!requested || !isTopmost || !isVisible || isMinimized) {
-            nextTopmostRefresh = 0L
             IslandLog.state("window", "topmost", "retry_required", result)
             // ERROR_INVALID_WINDOW_HANDLE is transient only when our target actually disappeared.
             // A still-valid target must retain the failure evidence, including invalid insert-after handles.
@@ -97,8 +93,6 @@ class WindowsOverlay {
             }
             error("无法维持词岛置顶：$errorCode（$detail）")
         }
-        lastForeground = foreground
-        nextTopmostRefresh = now + refreshIntervalNs
         IslandLog.state("window", "topmost", "verified", result)
         if (!wasTopmost || !wasVisible || wasMinimized) IslandLog.event("window", "topmost.repaired", result)
         return true

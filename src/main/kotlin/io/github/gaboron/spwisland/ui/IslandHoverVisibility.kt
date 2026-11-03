@@ -11,7 +11,7 @@ internal class IslandHoverVisibility {
     private var pose = IslandHoverMotion.Pose.SHOWN
     val animating: Boolean get() = motion.animating
 
-    /** A pause can retire the native window only after its last visible frame has collapsed. */
+    /** Retire a policy-hidden native window only after its last visible frame has collapsed. */
     fun shouldRender(show: Boolean, windowVisible: Boolean, animate: Boolean): Boolean =
         show || animate && windowVisible && (pose.reveal > 0.0 || animating)
 

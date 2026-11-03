@@ -90,7 +90,7 @@ spmod {
     PluginDescription = "SPW 灵动词岛插件：逐字歌词、桌面悬浮与播放控制"
     PluginHasConfig = true
     PluginOpenSourceUrl = projectUrl.get()
-    PluginPermissions = listOf(PluginPermission.LIBRARY_READ, PluginPermission.KEY_BINDINGS)
+    PluginPermissions = listOf(PluginPermission.LIBRARY_READ, PluginPermission.KEY_BINDINGS, PluginPermission.CLASS_TRANSFORM)
 }
 tasks.register<Zip>("sourceArchive") {
     archiveFileName.set("spw-island-${project.version}-source.zip")

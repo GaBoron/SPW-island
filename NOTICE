@@ -102,3 +102,9 @@ https://hyperos.mi.com/font
 Bundled for default Windows/Linux lyric and plugin UI text, both Windows right-click menus,
 and the font picker preview.
 License terms accompany the distribution in licenses/MiSans-License.pdf.
+
+SPW Lyrics UI discovery, Copyright (c) 2026 GaBoron.
+https://github.com/GaBoron/SPW-Lyrics
+MIT (licenses/SPW-Lyrics-MIT.txt).
+Adapted structural navigation/player-state discovery for optional read-only
+observation of the host player page and main-window focus.

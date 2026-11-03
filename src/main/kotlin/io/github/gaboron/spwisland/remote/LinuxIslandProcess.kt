@@ -20,7 +20,8 @@ import io.github.gaboron.spwisland.diagnostics.DiagnosticPulse
 internal class LinuxIslandProcess(private val timeline: PlaybackSource, private val settings: SettingsStore,
                          private val actions: PlaybackActions, private val report: (Throwable) -> Unit,
                          private val spectrum: SpectrumSource,
-                         javaHome: String = System.getProperty("java.home")) : AutoCloseable {
+                         javaHome: String = System.getProperty("java.home"),
+                         private val hostPlayerForeground: () -> Boolean = { false }) : AutoCloseable {
     private val process = IslandLog.timed("linux.ui.process.start") { LinuxHelper.startUi(javaHome) }
     private val output = try {
         ObjectOutputStream(BufferedOutputStream(process.outputStream)).apply { flush() }
@@ -71,7 +72,8 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
                     val state = IslandState(snapshot.copy(metadata = TrackMetadata(), lyrics = emptyList()),
                         currentSettings.takeIf { it != previousSettings },
                         snapshot.metadata.takeIf { it != previousMetadata },
-                        snapshot.lyrics.takeIf { it != previousLyrics }, showAbout.getAndSet(false), acknowledged)
+                        snapshot.lyrics.takeIf { it != previousLyrics }, showAbout.getAndSet(false), acknowledged,
+                        hostPlayerForeground = hostPlayerForeground())
                     output.writeObject(state)
                     previousSettings = currentSettings
                     previousMetadata = snapshot.metadata

@@ -42,6 +42,7 @@ private fun IslandSettings.withSetting(key: String, value: Any): IslandSettings 
     "experimental_multi_line" -> copy(experimentalMultiLine = value as Boolean)
     "hide_paused" -> copy(hidePaused = value as Boolean)
     "hide_fullscreen" -> copy(hideFullscreen = value as Boolean)
+    "hide_spw_player_foreground" -> copy(hideSpwPlayerForeground = value as Boolean)
     "click_through" -> copy(clickThrough = value as Boolean)
     "auto_hide_on_hover" -> copy(autoHideOnHover = value as Boolean)
     "scroll_volume" -> copy(scrollVolume = value as Boolean)

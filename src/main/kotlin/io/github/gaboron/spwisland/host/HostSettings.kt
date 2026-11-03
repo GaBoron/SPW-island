@@ -49,6 +49,7 @@ class HostSettings(private val manager: ConfigManager, private val changed: () -
         experimentalMultiLine = config.get("experimental_multi_line", false),
         hidePaused = config.get("hide_paused", accepted?.hidePaused ?: false),
         hideFullscreen = Platform.isWindows() && config.get("hide_fullscreen", accepted?.hideFullscreen ?: true),
+        hideSpwPlayerForeground = config.get("hide_spw_player_foreground", accepted?.hideSpwPlayerForeground ?: false),
         clickThrough = config.get("click_through", accepted?.clickThrough ?: false),
         autoHideOnHover = config.get("auto_hide_on_hover", accepted?.autoHideOnHover ?: false),
         scrollVolume = config.get("scroll_volume", false),
