@@ -12,7 +12,7 @@ class IslandTextBlock(snapshot: PlaybackSnapshot, private val settings: IslandSe
     val main = line?.text?.takeIf { it.isNotBlank() } ?: snapshot.track?.title?.takeIf { it.isNotBlank() } ?: "SPW"
     val mainFont = SystemUiFont.lyric(settings.fontFamily, settings.fontWeight, settings.fontSize.toFloat())
     val mainFallbackFont = SystemUiFont.lyricFallback(settings.fontWeight, settings.fontSize.toFloat())
-    val sub = line?.translation?.takeIf { settings.translation && it.isNotBlank() }
+    val sub = if (settings.translation) ChineseTranslation.select(line?.translation) else null
     val subFont = mainFont.deriveFont(settings.fontSize * .7f)
     val subFallbackFont = mainFallbackFont.deriveFont(settings.fontSize * .7f)
     val mainLineHeight = mainFont.getLineMetrics("Ag", LyricTypography.context).height
