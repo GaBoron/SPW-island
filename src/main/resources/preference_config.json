@@ -100,7 +100,7 @@
         {
           "type": "switch",
           "key": "experimental_multi_line",
-          "title": "实验性多行歌词",
+          "title": "多行歌词",
           "default_value": false,
           "summary": "同时显示时间重叠的歌词行。"
         },

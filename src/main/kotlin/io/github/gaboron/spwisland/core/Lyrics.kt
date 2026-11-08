@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package io.github.gaboron.spwisland.core
 
-data class Track(val title: String, val artist: String, val path: String) : java.io.Serializable
+data class Track(val title: String, val artist: String, val path: String, val playbackId: String = "") : java.io.Serializable
 data class Word(val startMs: Long, val endMs: Long, val text: String) : java.io.Serializable {
     fun progress(position: Long): Double = when {
         position < startMs -> 0.0

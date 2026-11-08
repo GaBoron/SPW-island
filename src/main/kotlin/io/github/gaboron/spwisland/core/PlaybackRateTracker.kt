@@ -10,6 +10,10 @@ internal class PlaybackRateTracker {
     var rate = 1.0
         private set
 
+    fun useRate(value: Double) {
+        if (value.isFinite() && value in .1..8.0) rate = value
+    }
+
     fun reset() {
         rate = 1.0
         discontinuity()

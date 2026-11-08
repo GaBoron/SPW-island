@@ -64,7 +64,7 @@ internal class PlaybackCallbackBridge {
     }
 
     @Synchronized fun seek(value: Long) {
-        runtime?.let { it.timeline.seek(value); return }
+        runtime?.let { it.seekChanged(value); return }
         position = value
         line = null
     }

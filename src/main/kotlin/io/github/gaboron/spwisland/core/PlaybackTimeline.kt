@@ -53,6 +53,7 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
         if (generation == token && track != null) metadata = value
     }
     @Synchronized fun trackGeneration(): Long = generation
+    @Synchronized fun externalPlaybackRate(value: Double) { rateTracker.useRate(value) }
 
     @Synchronized fun missingTrackGeneration(allowIdle: Boolean = false): Long? = generation.takeIf {
         track == null && status != PlaybackStatus.ENDED && (allowIdle || status != PlaybackStatus.IDLE)

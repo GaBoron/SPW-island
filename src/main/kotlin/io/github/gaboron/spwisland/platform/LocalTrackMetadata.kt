@@ -13,8 +13,17 @@ import javax.imageio.stream.MemoryCacheImageInputStream
 import kotlin.math.ceil
 import kotlin.math.roundToLong
 
-/** Read-only local tags. No audio decoding, writes, remote artwork, or host-private APIs. */
+/** Reads local tags and decodes caller-supplied artwork. */
 object LocalTrackMetadata {
+    fun fromArtwork(durationMs: Long, bytes: ByteArray?): TrackMetadata {
+        val image = bytes?.takeIf { it.size <= 16 * 1024 * 1024 }?.let {
+            IslandLog.attempt("metadata", "external_artwork.decode_failed") {
+                ByteArrayInputStream(it).use(::decode)
+            }.getOrNull()
+        }
+        return TrackMetadata(durationMs, image?.let(CoverColorExtractor::dominant), image?.let(::artwork))
+    }
+
     fun read(path: String, durationMs: Long = 0, artwork: ByteArray? = null): TrackMetadata {
         val file = File(path)
         val needsTags = file.isFile && (durationMs <= 0 || artwork == null)

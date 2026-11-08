@@ -28,6 +28,9 @@ class IslandRuntime : AutoCloseable {
     private val positionLatency = DiagnosticLatency("callback.position")
     private val lineLatency = DiagnosticLatency("callback.line")
     private val metadata = TrackMetadataLoader(timeline, performance = { settings.read().performance })
+    private val external = ExternalPlaybackSession(timeline, { settings.read().performance }, { settings.read().enabled }) {
+        metadata.recoverMissingTrack(allowIdle = true)
+    }
     fun trackChanged(track: io.github.gaboron.spwisland.core.Track) {
         IslandLog.event("playback", "track.changed")
         metadata.load(track)
@@ -47,6 +50,9 @@ class IslandRuntime : AutoCloseable {
             metadata.recoverMissingTrack()
         } finally { positionLatency.record(System.nanoTime() - started, 0, diagnosticProfile) }
     }
+    fun seekChanged(value: Long) {
+        timeline.seek(value)
+    }
     fun lineChanged(line: io.github.gaboron.spwisland.core.LyricLine?) {
         val started = System.nanoTime()
         try { timeline.lineChanged(line) }
@@ -58,7 +64,7 @@ class IslandRuntime : AutoCloseable {
     }
     private val ui: IslandUiLifecycle? = if (Platform.isLinux()) null else IslandUiLifecycle(::createWindow, ::report)
     private val linuxWindow = if (Platform.isLinux()) LinuxUiLifecycle({
-        LinuxIslandProcess(timeline, settings, playbackActions(), ::report, spectrum,
+        LinuxIslandProcess(external, settings, playbackActions(), ::report, spectrum,
             hostPlayerForeground = { playerVisibility?.hidden == true })
     }, ::report) else null
     private val spectrum: SpectrumSource = if (Platform.isLinux()) LinuxProcessSpectrum()
@@ -87,28 +93,46 @@ class IslandRuntime : AutoCloseable {
         IslandLog.timed("runtime.spectrum.start") { updateSpectrumMode() }
         IslandLog.timed("runtime.shortcut.register") { shortcut.start() }
         IslandLog.timed("runtime.metadata.enqueue") { metadata.start() }
+        external.start()
         IslandLog.timed("runtime.ui.enqueue") {
             if (Platform.isLinux()) {
                 linuxWindow?.start()
             } else ui?.start()
         }
     }
-    private fun createWindow(): IslandWindow = IslandWindow(timeline, settings, playbackActions(), ::report,
+    private fun createWindow(): IslandWindow = IslandWindow(external, settings, playbackActions(), ::report,
         spectrum::levels, spectrum::usesSyntheticFallback, { spectrum.status }, active = { !closed },
         hostPlayerForeground = { playerVisibility?.hidden == true })
 
     private fun playbackActions(): PlaybackActions = object : PlaybackActions {
-        override fun previous() = safely("playback.previous") { WorkshopApi.playback.previous() }
+        override fun previous() = safely("playback.previous") {
+            if (external.current != null) check(external.client.control("previous")) else WorkshopApi.playback.previous()
+        }
         override fun toggle() = safely("playback.toggle") {
-            if (timeline.snapshot().playing) WorkshopApi.playback.pause() else WorkshopApi.playback.play()
+            if (external.current != null) check(external.client.control(if (external.snapshot().playing) "pause" else "play"))
+            else if (timeline.snapshot().playing) WorkshopApi.playback.pause() else WorkshopApi.playback.play()
         }
-        override fun next() = safely("playback.next") { WorkshopApi.playback.next() }
+        override fun next() = safely("playback.next") {
+            if (external.current != null) check(external.client.control("next")) else WorkshopApi.playback.next()
+        }
         override fun seek(positionMs: Long) = safely("playback.seek") {
-            WorkshopApi.playback.seekTo(positionMs)
-            timeline.seek(positionMs)
+            val track = external.current
+            if (track == null) {
+                WorkshopApi.playback.seekTo(positionMs)
+                timeline.seek(positionMs)
+            } else {
+                check(external.client.seek(track, positionMs)) { "Spotify 跳转未被接受，请确认当前歌曲。" }
+                external.seekPreview(track, positionMs)
+            }
         }
-        override fun adjustVolume(delta: Double, completed: (Double?) -> Unit) = volume.adjust(delta, completed)
-        override fun setVolume(value: Double, completed: (Double?) -> Unit) = volume.set(value, completed)
+        override fun adjustVolume(delta: Double, completed: (Double?) -> Unit) {
+            if (external.current == null) volume.adjust(delta, completed)
+            else completed(external.changeVolume(delta, absolute = false))
+        }
+        override fun setVolume(value: Double, completed: (Double?) -> Unit) {
+            if (external.current == null) volume.set(value, completed)
+            else completed(external.changeVolume(value, absolute = true))
+        }
     }
     private fun updateSpectrumMode() {
         if (closed) return
@@ -117,7 +141,7 @@ class IslandRuntime : AutoCloseable {
         diagnosticProfile = current.performance
         IslandLog.cadence(current.performance.diagnosticSampleIntervalNs, current.performance.performanceReportIntervalNs)
         spectrum.setEnabled(current.enabled && current.performance.spectrumMode == SpectrumMode.LIVE &&
-            current.sideContent.showsSpectrum && (!Platform.isLinux() || timeline.snapshot().playing))
+            current.sideContent.showsSpectrum && (!Platform.isLinux() || external.snapshot().playing))
         // Startup-only synchronization follows the same disabled/low-performance gate as rendering.
         if (!closed && Platform.isLinux() && current.enabled && current.performance.renderLiquidGlass &&
             current.backgroundStyle == IslandBackgroundStyle.LIQUID_GLASS &&
@@ -213,7 +237,7 @@ class IslandRuntime : AutoCloseable {
         desktopSetupThread?.interrupt()
         positionLatency.close(); lineLatency.close()
         ui?.close()
-        listOfNotNull(playerVisibility, shortcut, volume, linuxWindow, fontPicker, metadata, settings, spectrum).forEach { resource ->
+        listOfNotNull(external, playerVisibility, shortcut, volume, linuxWindow, fontPicker, metadata, settings, spectrum).forEach { resource ->
             try { IslandLog.timed("runtime.close.${resource.javaClass.simpleName}") { resource.close() } } catch (error: Throwable) {
                 IslandLog.failure("IslandRuntime", "caught.error", error); report(error) }
         }
