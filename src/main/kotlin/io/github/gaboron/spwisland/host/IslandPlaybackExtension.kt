@@ -8,7 +8,7 @@ import io.github.gaboron.spwisland.diagnostics.IslandLog
 /** Registered through META-INF/extensions.idx; never supplies or replaces the host's lyrics. */
 class IslandPlaybackExtension : PlaybackExtensionPoint {
     override fun onBeforeLoadLyrics(mediaItem: PlaybackExtensionPoint.MediaItem): String? {
-        callback("load_lyrics") { IslandPlugin.playback.trackChanged(mediaItem.toTrack()) }
+        callback("load_lyrics") { IslandPlugin.playback.trackChanged(mediaItem.toTrack(), mediaItem) }
         return null
     }
     override fun onStateChanged(state: PlaybackExtensionPoint.State) {

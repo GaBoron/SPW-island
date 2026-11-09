@@ -6,6 +6,8 @@ import io.github.gaboron.spwisland.diagnostics.DiagnosticExecutors
 import io.github.gaboron.spwisland.diagnostics.IslandLog
 import io.github.gaboron.spwisland.platform.LocalTrackMetadata
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
 
 /** External playback owns the timeline until its provider relinquishes the local device. */
 internal class ExternalPlaybackSession(
@@ -19,7 +21,8 @@ internal class ExternalPlaybackSession(
     @Volatile var current: ExternalPlayback? = null
         private set
     private val worker = DiagnosticExecutors.scheduled(IslandLog.threads("SPW Island external playback"))
-    private val artwork = DiagnosticExecutors.single(IslandLog.threads("SPW Island external artwork"))
+    private val artwork = DiagnosticExecutors.pool(1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(1),
+        IslandLog.threads("SPW Island external artwork"), ThreadPoolExecutor.DiscardOldestPolicy())
     @Volatile private var closed = false
     private var lyricsRevision = -1L
     private var requestedVolume: Double? = null
@@ -31,7 +34,7 @@ internal class ExternalPlaybackSession(
         val now = System.nanoTime()
         val pending = requestedVolume?.takeIf { now - volumeRequestedAt < 2_000_000_000L }
         val next = (if (absolute) value else (pending ?: track.volumePercent / 100.0) + value).coerceIn(0.0, 1.0)
-        if (!client.volume((next * 100).toInt())) return null
+        if (!client.volume(track, (next * 100).toInt())) return null
         requestedVolume = next
         volumeRequestedAt = now
         return next
@@ -56,6 +59,7 @@ internal class ExternalPlaybackSession(
     }
 
     @Synchronized private fun update(next: ExternalPlayback?) {
+        if (closed) return
         val previous = current
         current = next
         if (next == null) {
@@ -66,16 +70,32 @@ internal class ExternalPlaybackSession(
             }
             return
         }
-        if (next.identity != previous?.identity) {
-            synchronized(this) { requestedVolume = null }
+        val changedTrack = next.identity != previous?.identity
+        if (changedTrack) {
+            requestedVolume = null
             timeline.stateChanged(PlaybackStatus.IDLE)
             val token = timeline.trackChanged(Track(next.title, next.artist, "", next.identity))
             timeline.metadataLoaded(token, TrackMetadata(next.durationMs))
             timeline.stateChanged(PlaybackStatus.READY)
             lyricsRevision = -1L
-            artwork.execute {
-                val value = LocalTrackMetadata.fromArtwork(next.durationMs, readExternalArtwork(next.coverUrl))
-                if (!closed && current?.identity == next.identity) timeline.metadataLoaded(token, value)
+        } else if (next.title != previous.title || next.artist != previous.artist) {
+            timeline.updateTrackMetadata(Track(next.title, next.artist, "", next.identity))
+        }
+        if (!changedTrack && next.durationMs != previous.durationMs) {
+            timeline.metadataLoaded(timeline.trackGeneration(), timeline.snapshot().metadata.copy(durationMs = next.durationMs))
+        }
+        if (changedTrack || next.coverUrl != previous.coverUrl) {
+            val token = timeline.trackGeneration()
+            timeline.metadataLoaded(token, TrackMetadata(next.durationMs))
+            if (next.coverUrl.isNotBlank()) {
+                artwork.execute {
+                    val value = LocalTrackMetadata.fromArtwork(0, readExternalArtwork(next.coverUrl))
+                    synchronized(this) {
+                        val selected = current
+                        if (!closed && selected?.identity == next.identity && selected.coverUrl == next.coverUrl)
+                            timeline.metadataLoaded(token, value.copy(durationMs = selected.durationMs))
+                    }
+                }
             }
         }
         if (previous?.identity != next.identity || previous.playing != next.playing) timeline.playingChanged(next.playing)
@@ -83,7 +103,7 @@ internal class ExternalPlaybackSession(
         timeline.externalPlaybackRate(next.playbackSpeed)
         val lyrics = client.lyrics(next)
         val revision = lyrics?.revision ?: -1L
-        if (revision != lyricsRevision) {
+        if (revision != lyricsRevision || next.durationMs != previous?.durationMs) {
             lyricsRevision = revision
             val offset = lyrics?.offsetMs ?: 0
             val lines = if (lyrics == null || lyrics.format == "empty") emptyList() else
@@ -98,8 +118,10 @@ internal class ExternalPlaybackSession(
     }
 
     override fun close() {
-        closed = true
-        current = null
+        synchronized(this) {
+            closed = true
+            current = null
+        }
         worker.shutdownNow()
         artwork.shutdownNow()
     }

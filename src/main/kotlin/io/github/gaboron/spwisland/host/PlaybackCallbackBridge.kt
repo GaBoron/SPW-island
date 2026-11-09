@@ -4,11 +4,13 @@ package io.github.gaboron.spwisland.host
 import io.github.gaboron.spwisland.core.LyricLine
 import io.github.gaboron.spwisland.core.PlaybackStatus
 import io.github.gaboron.spwisland.core.Track
+import com.xuncorp.spw.workshop.api.PlaybackExtensionPoint
 
 /** Preserves host callbacks delivered before the plugin runtime is ready. */
 internal class PlaybackCallbackBridge {
     private var runtime: IslandRuntime? = null
     private var track: Track? = null
+    private var mediaItem: PlaybackExtensionPoint.MediaItem? = null
     private var status: PlaybackStatus? = null
     private var playing: Boolean? = null
     private var position: Long? = null
@@ -16,7 +18,7 @@ internal class PlaybackCallbackBridge {
     private var lyrics: List<LyricLine>? = null
 
     @Synchronized fun attach(target: IslandRuntime) {
-        track?.let(target::trackChanged)
+        track?.let { target.trackChanged(it, mediaItem) }
         status?.let(target::stateChanged)
         position?.let(target::positionChanged)
         playing?.let(target::playingChanged)
@@ -31,9 +33,10 @@ internal class PlaybackCallbackBridge {
         clearPending()
     }
 
-    @Synchronized fun trackChanged(value: Track) {
-        runtime?.let { it.trackChanged(value); return }
+    @Synchronized fun trackChanged(value: Track, item: PlaybackExtensionPoint.MediaItem? = null) {
+        runtime?.let { it.trackChanged(value, item); return }
         track = value
+        mediaItem = item
         line = null
         lyrics = null
         position = null
@@ -48,6 +51,7 @@ internal class PlaybackCallbackBridge {
             lyrics = null
             if (value == PlaybackStatus.IDLE) {
                 track = null
+                mediaItem = null
                 position = 0
             }
         }
@@ -82,6 +86,7 @@ internal class PlaybackCallbackBridge {
 
     private fun clearPending() {
         track = null
+        mediaItem = null
         status = null
         playing = null
         position = null

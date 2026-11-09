@@ -14,7 +14,8 @@ internal class TrackMetadataLoader(
     private val timeline: PlaybackTimeline,
     private val current: () -> PlaybackExtensionPoint.MediaItem? = WorkshopTrackMetadata::current,
     private val read: (Track, PlaybackExtensionPoint.MediaItem?) -> TrackMetadata = WorkshopTrackMetadata::read,
-    private val performance: () -> PerformanceProfile = { PerformanceProfile.STANDARD }
+    private val performance: () -> PerformanceProfile = { PerformanceProfile.STANDARD },
+    private val enabled: () -> Boolean = { true },
 ) : AutoCloseable {
     private val executor = DiagnosticExecutors.scheduled(IslandLog.threads("SPW Island track metadata")).apply {
         removeOnCancelPolicy = true
@@ -24,6 +25,8 @@ internal class TrackMetadataLoader(
     private var recoveryGeneration: Long? = null
     private var started = false
     private var closed = false
+    private var observationQueued = false
+    private var lastObservationAt = 0L
 
     @Synchronized fun start() {
         if (closed || started) return
@@ -31,7 +34,7 @@ internal class TrackMetadataLoader(
         recoverMissingTrack(allowIdle = true)
     }
 
-    /** Callbacks only enqueue work; a healthy track never causes an extra host query. */
+    /** Recovery and foreign-source observation share the metadata worker and the performance budget. */
     @Synchronized fun recoverMissingTrack(allowIdle: Boolean = false) {
         if (closed || !started) return
         val generation = timeline.missingTrackGeneration(allowIdle) ?: return
@@ -73,15 +76,43 @@ internal class TrackMetadataLoader(
         return false
     }
 
-    @Synchronized fun load(track: Track) {
+    @Synchronized fun load(track: Track, item: PlaybackExtensionPoint.MediaItem? = null) {
         if (closed) return
         val generation = timeline.trackChanged(track)
         if (token == generation) return
         token = generation
+        lastObservationAt = System.nanoTime()
         recoveryGeneration = null
         pending?.cancel(true)
         pending = executor.submit {
-            publish(generation, track, IslandLog.attempt("TrackMetadataLoader", "load.attempt2", current).getOrNull())
+            publish(generation, track, item ?: IslandLog.attempt("TrackMetadataLoader", "load.attempt2", current).getOrNull())
+        }
+    }
+
+    /** Host position/state callbacks also detect source changes that omitted a lyric-load callback. */
+    @Synchronized fun observeCurrent(force: Boolean = false) {
+        if (closed || !started || !enabled() || observationQueued) return
+        val snapshot = timeline.snapshot()
+        if (!force && snapshot.status in setOf(PlaybackStatus.IDLE, PlaybackStatus.ENDED)) return
+        val now = System.nanoTime()
+        if (!force && lastObservationAt != 0L && now - lastObservationAt <
+            TimeUnit.MILLISECONDS.toNanos(performance().metadataRecoveryIntervalMs)) return
+        lastObservationAt = now
+        observationQueued = true
+        val expectedGeneration = timeline.trackGeneration()
+        executor.execute {
+            try {
+                val item = IslandLog.attempt("TrackMetadataLoader", "observe.current_failed", current).getOrNull()
+                    ?: return@execute
+                synchronized(this) {
+                    if (closed || !enabled() || timeline.trackGeneration() != expectedGeneration) return@execute
+                    val selected = timeline.snapshot()
+                    val track = item.toTrack()
+                    if (selected.track != track) load(track, item)
+                    else if (item.duration > 0 && item.duration != selected.metadata.durationMs)
+                        timeline.metadataLoaded(timeline.trackGeneration(), selected.metadata.copy(durationMs = item.duration))
+                }
+            } finally { synchronized(this) { observationQueued = false } }
         }
     }
     private fun publish(generation: Long, track: Track, item: PlaybackExtensionPoint.MediaItem?) {

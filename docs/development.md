@@ -49,6 +49,8 @@ Windows 界面运行在 SPW JVM 中，使用 Skia / Direct3D。Linux 界面运�
 
 `PlaybackTimeline` 提供稳定播放快照。Linux 菜单和位置操作可即时预览，但最终状态以宿主确认结果为准；相关消息由 `IslandWire` 定义。
 
+外部音源通过进程内 JMX 接入，可提供曲目、播放时钟、封面、歌词与受身份保护的控制。已进入 SPW 播放链路的来源也会通过播放回调和有界的媒体项核对自动识别。插件接入步骤、数据字段和生命周期见 [外部播放 API](https://github.com/GaBoron/SPW-Lyrics/blob/main/docs/external-playback-api.md)。
+
 `PerformanceProfile` 集中管理标准和低性能预算。渲染、采集和辅助进程须随隐藏、停用及关闭释放资源。诊断经 `IslandLog` 统一记录；日志清理保护活动文件，诊断导出不复制媒体、用户设置或宿主日志。
 
 新增设置同时检查 `IslandSettings`、`IslandSettingsDefaults`、`HostSettings` 和 `src/main/resources/preference_config.json`，保持已有配置兼容。

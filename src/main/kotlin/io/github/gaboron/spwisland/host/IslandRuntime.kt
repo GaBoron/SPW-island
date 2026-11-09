@@ -27,27 +27,33 @@ class IslandRuntime : AutoCloseable {
     @Volatile private var diagnosticProfile = PerformanceProfile.STANDARD
     private val positionLatency = DiagnosticLatency("callback.position")
     private val lineLatency = DiagnosticLatency("callback.line")
-    private val metadata = TrackMetadataLoader(timeline, performance = { settings.read().performance })
+    private val metadata = TrackMetadataLoader(timeline, performance = { settings.read().performance },
+        enabled = { settings.read().enabled })
     private val external = ExternalPlaybackSession(timeline, { settings.read().performance }, { settings.read().enabled }) {
         metadata.recoverMissingTrack(allowIdle = true)
+        metadata.observeCurrent(force = true)
     }
-    fun trackChanged(track: io.github.gaboron.spwisland.core.Track) {
+    fun trackChanged(track: io.github.gaboron.spwisland.core.Track,
+                     item: com.xuncorp.spw.workshop.api.PlaybackExtensionPoint.MediaItem? = null) {
         IslandLog.event("playback", "track.changed")
-        metadata.load(track)
+        metadata.load(track, item)
     }
     fun stateChanged(value: io.github.gaboron.spwisland.core.PlaybackStatus) {
         timeline.stateChanged(value)
         metadata.recoverMissingTrack()
+        metadata.observeCurrent()
     }
     fun playingChanged(value: Boolean) {
         timeline.playingChanged(value)
         metadata.recoverMissingTrack()
+        metadata.observeCurrent()
     }
     fun positionChanged(value: Long) {
         val started = System.nanoTime()
         try {
             timeline.positionChanged(value)
             metadata.recoverMissingTrack()
+            metadata.observeCurrent()
         } finally { positionLatency.record(System.nanoTime() - started, 0, diagnosticProfile) }
     }
     fun seekChanged(value: Long) {
@@ -106,14 +112,23 @@ class IslandRuntime : AutoCloseable {
 
     private fun playbackActions(): PlaybackActions = object : PlaybackActions {
         override fun previous() = safely("playback.previous") {
-            if (external.current != null) check(external.client.control("previous")) else WorkshopApi.playback.previous()
+            val track = external.current
+            if (track != null) check(external.client.control(track, "previous")) {
+                "外部来源未接受上一曲操作，请确认当前歌曲和来源能力。"
+            } else WorkshopApi.playback.previous()
         }
         override fun toggle() = safely("playback.toggle") {
-            if (external.current != null) check(external.client.control(if (external.snapshot().playing) "pause" else "play"))
+            val track = external.current
+            if (track != null) check(external.client.control(track, if (external.snapshot().playing) "pause" else "play")) {
+                "外部来源未接受播放操作，请确认当前歌曲和来源能力。"
+            }
             else if (timeline.snapshot().playing) WorkshopApi.playback.pause() else WorkshopApi.playback.play()
         }
         override fun next() = safely("playback.next") {
-            if (external.current != null) check(external.client.control("next")) else WorkshopApi.playback.next()
+            val track = external.current
+            if (track != null) check(external.client.control(track, "next")) {
+                "外部来源未接受下一曲操作，请确认当前歌曲和来源能力。"
+            } else WorkshopApi.playback.next()
         }
         override fun seek(positionMs: Long) = safely("playback.seek") {
             val track = external.current
@@ -121,7 +136,7 @@ class IslandRuntime : AutoCloseable {
                 WorkshopApi.playback.seekTo(positionMs)
                 timeline.seek(positionMs)
             } else {
-                check(external.client.seek(track, positionMs)) { "Spotify 跳转未被接受，请确认当前歌曲。" }
+                check(external.client.seek(track, positionMs)) { "外部来源未接受跳转，请确认当前歌曲和来源能力。" }
                 external.seekPreview(track, positionMs)
             }
         }
