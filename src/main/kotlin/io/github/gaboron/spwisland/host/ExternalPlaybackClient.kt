@@ -20,7 +20,7 @@ internal class ExternalPlaybackClient {
         val value = server.getAttribute(name, "Snapshot") as? CompositeData ?: return null
         if (value["active"] != true) return null
         val updated = value.number("updatedAtNanos")
-        if (updated > 0 && System.nanoTime() - updated > 15_000_000_000L) return null
+        if (updated != 0L && System.nanoTime() - updated !in 0L..15_000_000_000L) return null
         ExternalPlayback(
             sourceName = name, activatedAtNanos = value.number("activatedAtNanos"),
             provider = value.text("provider"), sessionId = value.text("sessionId"),
@@ -30,7 +30,7 @@ internal class ExternalPlaybackClient {
             durationMs = value.number("durationMs").coerceAtLeast(0),
             positionMs = value.number("positionMs").coerceAtLeast(0),
             sampledAtNanos = value.number("sampledAtNanos"), playing = value["playing"] == true,
-            volumePercent = value.number("volumePercent").toInt().coerceIn(0, 100),
+            volumePercent = value.number("volumePercent").coerceIn(0, 100).toInt(),
             playbackSpeed = (if (value.containsKey("playbackSpeed")) value["playbackSpeed"] as? Number else null)
                 ?.toDouble()?.takeIf { it.isFinite() && it in .1..8.0 } ?: 1.0,
         ).takeIf { it.provider.isNotBlank() && it.sessionId.isNotBlank() && it.uri.isNotBlank() }
