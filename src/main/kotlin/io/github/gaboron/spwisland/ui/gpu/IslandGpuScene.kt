@@ -60,5 +60,5 @@ internal class IslandGpuScene : AutoCloseable {
         controls.draw(canvas, frame, contentX, contentY, contentWidth, lyricHeight, layout.infoInset, scaleY)
     }
 
-    override fun close() { controls.close(); lyrics.adaptiveContrast.close(); background.close(); resources.close() }
+    override fun close() { lyrics.adaptiveContrast.close(); background.close(); resources.close() }
 }

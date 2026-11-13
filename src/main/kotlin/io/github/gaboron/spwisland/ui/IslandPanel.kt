@@ -11,6 +11,7 @@ import io.github.gaboron.spwisland.ui.gpu.IslandGpuFrame
 
 interface PlaybackActions {
     fun previous(); fun toggle(); fun next(); fun seek(positionMs: Long) {}
+    fun cyclePlaybackMode() {}
     fun adjustVolume(delta: Double, completed: (Double?) -> Unit) { completed(null) }
     fun setVolume(value: Double, completed: (Double?) -> Unit) { completed(null) }
 }
@@ -77,6 +78,8 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
     private val previous = control("上一首", PlaybackIcon.PREVIOUS) { actions.previous() }
     private val play = control("播放或暂停", PlaybackIcon.PLAY) { actions.toggle() }
     private val next = control("下一首", PlaybackIcon.NEXT) { actions.next() }
+    private val mode = control("播放模式", PlaybackIcon.SEQUENTIAL) { actions.cyclePlaybackMode() }
+    private val playbackControls = listOf(previous, play, next, mode)
 
     init {
         isOpaque = false; getAccessibleContext().accessibleName = ApplicationIdentity.NAME
@@ -135,7 +138,7 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
     internal fun gpuFrame(): IslandGpuFrame {
         val reveal = expansion ?: if (expanded) 1.0 else 0.0
         val animation = if (settings.performance.animateLayout) transition else 1.0
-        val controls = if (reveal > .08) listOf(previous, play, next).map {
+        val controls = if (reveal > .08) playbackControls.map {
             IslandGpuFrame.Control(it.bounds, it.icon as PlaybackIcon, it.foreground.rgb,
                 it.model.isPressed && it.model.isArmed)
         } else emptyList()
@@ -179,13 +182,21 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
         progress.setBounds((width - PlaybackProgress.FIXED_WIDTH) / 2,
             lyricAreaBottom + 60, PlaybackProgress.FIXED_WIDTH, 28)
         progress.foreground = IslandPalette.from(settings, snapshot.metadata.coverRgb).lyric
-        val buttons = listOf(previous, play, next)
-        buttons.forEachIndexed { index, button ->
+        playbackControls.forEachIndexed { index, button ->
             button.setBounds(width / 2 - 81 + index * 56, lyricAreaBottom + 26, 50, 30)
         }
         play.icon = if (snapshot.playing) PlaybackIcon.PAUSE else PlaybackIcon.PLAY
         val tooltip = if (snapshot.playing) "暂停" else "播放"
         if (play.toolTipText != tooltip) play.toolTipText = tooltip
+        mode.icon = PlaybackIcon.forMode(snapshot.playbackMode)
+        mode.isEnabled = snapshot.playbackMode != null
+        mode.foreground = if (mode.isEnabled) Color(223, 228, 237) else Color(110, 118, 132)
+        val modeTip = snapshot.playbackMode?.let { "${it.label}；点击切换为${it.next().label}" }
+            ?: "当前来源不支持切换播放模式"
+        if (mode.toolTipText != modeTip) {
+            mode.toolTipText = modeTip
+            mode.accessibleContext.accessibleName = modeTip
+        }
     }
     private fun paintBackground(g: Graphics2D, shape: Shape) {
         val materialSettings = if (compositorGlass) settings.copy(opacity = maxOf(1, settings.opacity / 2)) else settings

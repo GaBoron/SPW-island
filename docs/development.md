@@ -36,7 +36,7 @@ Windows 界面运行在 SPW JVM 中，使用 Skia / Direct3D。Linux 界面运�
 | GPU 绘制 | `ui/gpu/IslandGpuRenderer`、`IslandGpuScene`、`IslandGpuResources` |
 | Windows 玻璃 | `IslandGlassShaders`、`LiquidGlassSurface`、`native/glass/` |
 | Linux 玻璃与指针 | `LinuxCompositorGlass`、`LinuxGlobalPointer`、`src/linux/resources/native/` |
-| 播放控制与音量 | `PlaybackProgress`、`IslandVolumeFeedback`、`HostVolumeControl` |
+| 播放控制、模式与音量 | `PlaybackProgress`、`HostPlaybackMode`、`IslandVolumeFeedback`、`HostVolumeControl` |
 | 封面、频谱与配色 | `LocalTrackMetadata`、`SpectrumSource`、`ProcessSpectrum`、`LinuxProcessSpectrum`、`IslandPalette` |
 | 设置与字体 | `IslandSettings`、`HostSettings`、`IslandConfigFile`、`ComposeFontPickerWindow` |
 | Linux 进程通信 | `LinuxIslandProcess`、`LinuxIslandMain`、`IslandWire` |

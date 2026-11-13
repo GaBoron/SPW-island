@@ -22,13 +22,20 @@ data class LyricLine(val startMs: Long, val endMs: Long, val text: String,
 }
 
 enum class PlaybackStatus { IDLE, BUFFERING, READY, ENDED }
+enum class PlaybackMode(val label: String) {
+    SEQUENTIAL("顺序播放"), REPEAT_ALL("列表循环"), REPEAT_ONE("单曲循环"), SHUFFLE("随机播放");
+
+    fun next(): PlaybackMode = entries[(ordinal + 1) % entries.size]
+}
+
 data class PlaybackSnapshot(val track: Track?, val line: LyricLine?, val positionMs: Long,
                             val playing: Boolean, val status: PlaybackStatus,
                             val metadata: TrackMetadata = TrackMetadata(),
                             val lyrics: List<LyricLine> = emptyList(),
                             val playbackRate: Double = 1.0,
                             val usesWordTiming: Boolean = lyrics.ifEmpty { listOfNotNull(line) }
-                                .any { it.hasWordTimingEvidence }) : java.io.Serializable
+                                .any { it.hasWordTimingEvidence },
+                            val playbackMode: PlaybackMode? = null) : java.io.Serializable
 
 class CoverArtwork(val width: Int, val height: Int, internal val argb: IntArray) : java.io.Serializable
 data class TrackMetadata(val durationMs: Long = 0, val coverRgb: Int? = null,

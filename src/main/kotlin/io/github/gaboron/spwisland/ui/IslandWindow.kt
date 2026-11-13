@@ -71,7 +71,7 @@ class IslandWindow(private val timeline: PlaybackSource, private val store: Sett
     private val globalPointer = if (Platform.isLinux()) LinuxGlobalPointer() else null
     private val compositorGlass = if (Platform.isLinux()) LinuxCompositorGlass() else null
     private val stableTranslucentCanvas = Platform.isWindows() || window.graphicsConfiguration.isTranslucencyCapable
-    private val menu = IslandMenu(store, report, window) {
+    private val menu = IslandMenu(store, report, window, actions, timeline::snapshot) {
         IslandRuntimeStatus.describe(store.read(), timeline.snapshot(), window.isVisible,
             surface.hoverPose.reveal < .01, fullscreen, inputRegion != null || native.supportsClickThrough && nativeAvailable,
             if (globalPointer != null) globalPointer.location() != null else

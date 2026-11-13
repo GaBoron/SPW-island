@@ -122,6 +122,7 @@ internal class LinuxIslandProcess(private val timeline: PlaybackSource, private 
                 "previous" -> actions.previous()
                 "toggle" -> actions.toggle()
                 "next" -> actions.next()
+                "playback_mode" -> actions.cyclePlaybackMode()
                 "seek" -> actions.seek(a.single().toLong())
                 "volume", "set_volume" -> {
                     val completed: (Double?) -> Unit = { value ->

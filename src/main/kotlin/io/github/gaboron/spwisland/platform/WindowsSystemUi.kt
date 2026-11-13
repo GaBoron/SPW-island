@@ -49,7 +49,7 @@ internal class WindowsSystemUi(private val changed: () -> Unit) : AutoCloseable 
             if (event == SWITCH_END) switching = false
             if (event < OBJECT_DESTROY) requestCheck()
             else if (objectId.toInt() == 0 && childId.toInt() == 0 && window != null &&
-                (window == protectedWindow || user.GetAncestor(window, 2) == window && className(window) in overlayClasses)) {
+                (window == protectedWindow || user.GetAncestor(window, 2) == window && overlayCandidate(window))) {
                 requestCheck()
             }
         }
@@ -165,7 +165,7 @@ internal class WindowsSystemUi(private val changed: () -> Unit) : AutoCloseable 
         val type = className(window)
         if (type.isEmpty() || type in ordinaryWindows) return null
         // Most window events belong to ordinary applications. Do not query their process images.
-        if (!foreground && type !in overlayClasses) return null
+        if (!foreground && !overlayCandidate(window, type)) return null
         val pid = IntByReference()
         if (user.GetWindowThreadProcessId(window, pid) == 0 || pid.value == 0) return null
         val process = processes.getOrPut(pid.value) {
@@ -177,12 +177,19 @@ internal class WindowsSystemUi(private val changed: () -> Unit) : AutoCloseable 
         }
         return when {
             process == "screenclippinghost.exe" -> "system_capture"
-            process == "snippingtool.exe" && (foreground || type == "Microsoft-Windows-SnipperToolbar") -> "system_capture"
+            process == "snippingtool.exe" && (foreground || type == "Microsoft-Windows-SnipperToolbar" || topmost(window)) -> "system_capture"
             foreground && process in shellProcesses -> "system_shell"
             process == "explorer.exe" && type in switchClasses -> "system_switcher"
             else -> null
         }
     }
+
+    // Recording controls stay visible without owning focus and can use a different window class.
+    // Restrict the extra candidates by native style, then verify the owning capture process.
+    private fun topmost(window: HWND): Boolean = user.GetWindowLong(window, -20) and 0x00000008 != 0
+
+    private fun overlayCandidate(window: HWND, type: String = className(window)): Boolean =
+        type in overlayClasses || topmost(window)
 
     private fun className(window: HWND): String {
         val name = CharArray(256)

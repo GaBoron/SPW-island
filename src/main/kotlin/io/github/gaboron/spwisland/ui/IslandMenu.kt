@@ -3,6 +3,7 @@ package io.github.gaboron.spwisland.ui
 
 import com.sun.jna.Platform
 import io.github.gaboron.spwisland.core.SettingsStore
+import io.github.gaboron.spwisland.core.PlaybackSnapshot
 import io.github.gaboron.spwisland.platform.SystemTheme
 import io.github.gaboron.spwisland.diagnostics.IslandLog
 import java.awt.*
@@ -10,11 +11,12 @@ import javax.swing.*
 
 /** Recovery controls remain available in SPW settings even if the tray is unavailable. */
 class IslandMenu(private val store: SettingsStore, private val report: (Throwable) -> Unit,
-                 private val owner: Window, status: () -> List<IslandStatusEntry> = { emptyList() }) : AutoCloseable {
+                 private val owner: Window, actions: PlaybackActions, playback: () -> PlaybackSnapshot,
+                 status: () -> List<IslandStatusEntry> = { emptyList() }) : AutoCloseable {
     private var tray: TrayIcon? = null
     private var windowsTray: WindowsTray? = null
     private var linuxTray: GtkTray? = null
-    private val commands = IslandMenuCommands(store, ::about)
+    private val commands = IslandMenuCommands(store, ::about, actions, playback)
     private val popup = if (Platform.isLinux()) null else LightweightPopupMenu(owner, report, store::read)
     private val aboutDialog = AboutDialog(owner, report, status, store::read)
     val aboutVisible: Boolean get() = aboutDialog.isVisible

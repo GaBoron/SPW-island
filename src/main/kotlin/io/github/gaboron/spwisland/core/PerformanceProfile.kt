@@ -17,6 +17,7 @@ enum class PerformanceProfile(
     val visibilityCheckIntervalMs: Long,
     val metadataRecoveryIntervalMs: Long,
     val externalPlaybackIntervalMs: Long,
+    val playbackModeIntervalMs: Long,
     val diagnosticSampleIntervalNs: Long,
     val diagnosticStallTimeoutNs: Long,
     val performanceReportIntervalNs: Long
@@ -28,6 +29,7 @@ enum class PerformanceProfile(
         visibilityCheckIntervalMs = 1_000L,
         metadataRecoveryIntervalMs = 2_000L,
         externalPlaybackIntervalMs = 500L,
+        playbackModeIntervalMs = 1_000L,
         diagnosticSampleIntervalNs = 1_000_000_000L,
         diagnosticStallTimeoutNs = 5_000_000_000L,
         performanceReportIntervalNs = 10_000_000_000L),
@@ -38,6 +40,7 @@ enum class PerformanceProfile(
         visibilityCheckIntervalMs = 5_000L,
         metadataRecoveryIntervalMs = 10_000L,
         externalPlaybackIntervalMs = 1_000L,
+        playbackModeIntervalMs = 5_000L,
         diagnosticSampleIntervalNs = 5_000_000_000L,
         diagnosticStallTimeoutNs = 15_000_000_000L,
         performanceReportIntervalNs = 30_000_000_000L)

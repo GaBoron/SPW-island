@@ -60,6 +60,7 @@ object LinuxIslandMain {
                                 override fun previous() { send("previous") }
                                 override fun toggle() { send("toggle") }
                                 override fun next() { send("next") }
+                                override fun cyclePlaybackMode() { send("playback_mode") }
                                 override fun seek(positionMs: Long) = timeline.seek(positionMs) { send("seek", it.toString()) }
                                 override fun adjustVolume(delta: Double, completed: (Double?) -> Unit) = volume.adjust(delta, completed)
                                 override fun setVolume(value: Double, completed: (Double?) -> Unit) = volume.set(value, completed)

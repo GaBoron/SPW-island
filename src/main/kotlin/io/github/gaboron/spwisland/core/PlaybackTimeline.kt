@@ -19,6 +19,7 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
     private var anchor = nanoTime()
     private var playing = false
     private var status = PlaybackStatus.IDLE
+    private var playbackMode: PlaybackMode? = null
     private var metadata = TrackMetadata()
     private var generation = 0L
     private var pendingSeek: Long? = null
@@ -60,6 +61,7 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
     }
     @Synchronized fun trackGeneration(): Long = generation
     @Synchronized fun externalPlaybackRate(value: Double) { rateTracker.useRate(value) }
+    @Synchronized fun playbackModeChanged(value: PlaybackMode?) { playbackMode = value }
 
     @Synchronized fun missingTrackGeneration(allowIdle: Boolean = false): Long? = generation.takeIf {
         track == null && status != PlaybackStatus.ENDED && (allowIdle || status != PlaybackStatus.IDLE)
@@ -183,7 +185,7 @@ class PlaybackTimeline(private val nanoTime: () -> Long = System::nanoTime) : Pl
         val now = currentPosition()
         val currentLine = line ?: mergedLyrics.lastStarted(now)
         val current = PlaybackSnapshot(track, currentLine, now, playing && status == PlaybackStatus.READY, status, metadata,
-            mergedLyrics.lines, rateTracker.rate, mergedLyrics.usesWordTiming)
+            mergedLyrics.lines, rateTracker.rate, mergedLyrics.usesWordTiming, playbackMode)
         val paused = pausedPresentation
         return if (!current.playing && paused != null && paused.track == track) current.copy(
             line = paused.line, positionMs = paused.positionMs, lyrics = paused.lyrics.lines,

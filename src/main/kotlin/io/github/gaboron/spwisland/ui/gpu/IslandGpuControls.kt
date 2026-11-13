@@ -8,21 +8,6 @@ import kotlin.math.roundToInt
 
 internal class IslandGpuControls(private val resources: IslandGpuResources, private val lyrics: IslandGpuLyrics) {
     private val timeFont = SystemUiFont.derive(Font.PLAIN, 10f)
-    private val icons = PlaybackIcon.entries.associateWith { icon -> PathBuilder().use { builder ->
-        fun rectangle(x: Float, y: Float, w: Float, h: Float) {
-            builder.moveTo(x, y).lineTo(x + w, y).lineTo(x + w, y + h).lineTo(x, y + h).closePath()
-        }
-        fun triangle(x1: Float, y1: Float, x2: Float, y2: Float, x3: Float, y3: Float) {
-            builder.moveTo(x1, y1).lineTo(x2, y2).lineTo(x3, y3).closePath()
-        }
-        when (icon) {
-            PlaybackIcon.PLAY -> triangle(5f, 3f, 5f, 15f, 15f, 9f)
-            PlaybackIcon.PREVIOUS -> { rectangle(3f, 3f, 2f, 12f); triangle(15f, 3f, 15f, 15f, 5f, 9f) }
-            PlaybackIcon.NEXT -> { rectangle(13f, 3f, 2f, 12f); triangle(3f, 3f, 3f, 15f, 13f, 9f) }
-            PlaybackIcon.PAUSE -> Unit
-        }
-        builder.detach()
-    } }
 
     fun draw(canvas: Canvas, frame: IslandGpuFrame, contentX: Float, contentY: Float, contentWidth: Float,
              lyricHeight: Float, infoInset: Float, scaleY: Double) {
@@ -46,7 +31,7 @@ internal class IslandGpuControls(private val resources: IslandGpuResources, priv
                 if (control.icon == PlaybackIcon.PAUSE) {
                     canvas.drawRRect(RRect.makeXYWH(4f, 3f, 4f, 12f, .5f), paint)
                     canvas.drawRRect(RRect.makeXYWH(11f, 3f, 4f, 12f, .5f), paint)
-                } else canvas.drawPath(icons.getValue(control.icon), paint)
+                } else canvas.drawPath(resources.path(control.icon.shape), paint)
             }
             val progress = frame.progress
             val bounds = frame.progressBounds
@@ -81,6 +66,4 @@ internal class IslandGpuControls(private val resources: IslandGpuResources, priv
         canvas.translate(x, 18f + offset)
         canvas.drawPath(resources.path(LyricTypography.shape(text, timeFont).outline), resources.fill(color))
     }
-
-    fun close() { icons.values.forEach(Path::close) }
 }

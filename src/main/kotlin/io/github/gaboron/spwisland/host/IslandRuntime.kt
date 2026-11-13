@@ -93,6 +93,8 @@ class IslandRuntime : AutoCloseable {
     }, ::report) else null
     private val shortcut = IslandShortcut { safely { settings.set("enabled", !settings.read().enabled) } }
     private val volume = HostVolumeControl(::report)
+    private val playbackMode = HostPlaybackMode({ settings.read() }, { external.current == null },
+        timeline::playbackModeChanged, ::report)
     fun start() {
         playerVisibility = HostPlayerVisibility({ settings.read() }) { if (!closed) ui?.reload() }
             .also { it.refresh() }
@@ -100,6 +102,7 @@ class IslandRuntime : AutoCloseable {
         IslandLog.timed("runtime.shortcut.register") { shortcut.start() }
         IslandLog.timed("runtime.metadata.enqueue") { metadata.start() }
         external.start()
+        playbackMode.refresh()
         IslandLog.timed("runtime.ui.enqueue") {
             if (Platform.isLinux()) {
                 linuxWindow?.start()
@@ -140,6 +143,7 @@ class IslandRuntime : AutoCloseable {
                 external.seekPreview(track, positionMs)
             }
         }
+        override fun cyclePlaybackMode() { if (!closed && external.current == null) playbackMode.cycle() }
         override fun adjustVolume(delta: Double, completed: (Double?) -> Unit) {
             if (external.current == null) volume.adjust(delta, completed)
             else completed(external.changeVolume(delta, absolute = false))
@@ -153,6 +157,7 @@ class IslandRuntime : AutoCloseable {
         if (closed) return
         val current = settings.read()
         playerVisibility?.refresh()
+        playbackMode.refresh()
         diagnosticProfile = current.performance
         IslandLog.cadence(current.performance.diagnosticSampleIntervalNs, current.performance.performanceReportIntervalNs)
         spectrum.setEnabled(current.enabled && current.performance.spectrumMode == SpectrumMode.LIVE &&
@@ -252,7 +257,7 @@ class IslandRuntime : AutoCloseable {
         desktopSetupThread?.interrupt()
         positionLatency.close(); lineLatency.close()
         ui?.close()
-        listOfNotNull(external, playerVisibility, shortcut, volume, linuxWindow, fontPicker, metadata, settings, spectrum).forEach { resource ->
+        listOfNotNull(playbackMode, external, playerVisibility, shortcut, volume, linuxWindow, fontPicker, metadata, settings, spectrum).forEach { resource ->
             try { IslandLog.timed("runtime.close.${resource.javaClass.simpleName}") { resource.close() } } catch (error: Throwable) {
                 IslandLog.failure("IslandRuntime", "caught.error", error); report(error) }
         }

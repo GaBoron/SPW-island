@@ -22,7 +22,18 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
     private data class Palette(val background: Color, val text: Color, val muted: Color,
                                val accent: Color, val hover: Color, val border: Color)
 
-    private val surface = MenuSurface()
+    private val rows = JPanel().apply {
+        isOpaque = false
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+    }
+    private val scroll = JScrollPane(rows).apply {
+        isOpaque = false
+        viewport.isOpaque = false
+        border = EmptyBorder(0, 0, 0, 0)
+        horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+        verticalScrollBar.unitIncrement = 32
+    }
+    private val surface = MenuSurface().apply { add(scroll, BorderLayout.CENTER) }
     private val alphaFrame = WindowAlphaFrame(32.0)
     private val window = object : JWindow(owner) {
         override fun update(graphics: Graphics) = paint(graphics)
@@ -65,6 +76,15 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
         command = selected
         update(entries, useDark)
         val work = workArea(anchor)
+        val insets = surface.insets
+        val availableHeight = (work.height - insets.top - insets.bottom).coerceAtLeast(1)
+        val content = rows.preferredSize
+        val scrollbarWidth = if (content.height > availableHeight) scroll.verticalScrollBar.preferredSize.width else 0
+        scroll.preferredSize = Dimension(content.width + scrollbarWidth, minOf(content.height, availableHeight))
+        scroll.verticalScrollBar.value = 0
+        window.pack()
+        applyWindowShape()
+        surface.invalidateGpuContent()
         val x = anchor.x.coerceIn(work.x, (work.x + work.width - window.width).coerceAtLeast(work.x))
         val below = anchor.y + window.height
         val y = (if (below <= work.y + work.height) anchor.y else anchor.y - window.height)
@@ -90,6 +110,7 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
             glass = useGlass
             layoutKey = nextKey
             rebuild(entries, palette(useDark))
+            scroll.preferredSize = null
             window.pack()
             applyWindowShape()
         } else {
@@ -101,7 +122,7 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
     }
 
     private fun rebuild(entries: List<PopupMenuEntry>, colors: Palette) {
-        surface.removeAll()
+        rows.removeAll()
         surface.colors = colors
         toggleMarks.clear()
         buttons.clear()
@@ -113,8 +134,9 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
                 PopupMenuKind.TOGGLE, PopupMenuKind.ACTION -> button(entry, colors)
             }
             component.alignmentX = Component.LEFT_ALIGNMENT
-            surface.add(component)
+            rows.add(component)
         }
+        rows.revalidate()
         surface.revalidate()
     }
 
@@ -226,7 +248,7 @@ internal class LightweightPopupMenu(private val owner: Window, private val repor
         var colors = palette(false)
             set(value) { field = value; background = value.background; surfaceBorder = value.border }
         init {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            layout = BorderLayout()
             border = EmptyBorder(6, 6, 6, 6)
             background = colors.background; surfaceBorder = colors.border
         }
