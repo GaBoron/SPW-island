@@ -16,11 +16,10 @@ internal class IslandMenuCommands(
         val value = store.read()
         val snapshot = playback()
         return buildList {
-            add(action(PLAY_PAUSE, if (snapshot.playing) "暂停" else "播放"))
-            add(action(PREVIOUS, "上一首"))
-            add(action(NEXT, "下一首"))
-            snapshot.playbackMode?.let { add(action(PLAYBACK_MODE, "播放模式：${it.label}（切换）")) }
-            add(separator())
+            snapshot.playbackMode?.let {
+                add(action(PLAYBACK_MODE, "播放模式：${it.label}（切换）"))
+                add(separator())
+            }
             add(toggle(TRANSLATION, "显示翻译", value.translation))
             add(toggle(KARAOKE, "逐字高亮", value.karaoke))
             add(toggle(SCROLL_VOLUME, "滚轮调节音量", value.scrollVolume))
@@ -50,9 +49,6 @@ internal class IslandMenuCommands(
     private fun executeCommand(command: Int) {
         val value = store.read()
         when (command) {
-            PLAY_PAUSE -> actions.toggle()
-            PREVIOUS -> actions.previous()
-            NEXT -> actions.next()
             PLAYBACK_MODE -> if (playback().playbackMode != null) actions.cyclePlaybackMode()
             TRANSLATION -> store.set("translation", !value.translation)
             KARAOKE -> store.set("karaoke", !value.karaoke)
@@ -104,9 +100,6 @@ internal class IslandMenuCommands(
         const val RECOVER = 201
         const val RESET_POSITION = 202
         const val ABOUT = 203
-        const val PLAY_PAUSE = 301
-        const val PREVIOUS = 302
-        const val NEXT = 303
         const val PLAYBACK_MODE = 304
     }
 }

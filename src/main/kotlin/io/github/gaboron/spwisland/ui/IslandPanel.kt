@@ -182,8 +182,13 @@ class IslandPanel(private val actions: PlaybackActions, report: (Throwable) -> U
         progress.setBounds((width - PlaybackProgress.FIXED_WIDTH) / 2,
             lyricAreaBottom + 60, PlaybackProgress.FIXED_WIDTH, 28)
         progress.foreground = IslandPalette.from(settings, snapshot.metadata.coverRgb).lyric
+        val buttonWidth = 50
+        val buttonGap = 6
+        val controlsWidth = playbackControls.size * buttonWidth + (playbackControls.size - 1) * buttonGap
+        val controlsLeft = (width - controlsWidth) / 2
         playbackControls.forEachIndexed { index, button ->
-            button.setBounds(width / 2 - 81 + index * 56, lyricAreaBottom + 26, 50, 30)
+            button.setBounds(controlsLeft + index * (buttonWidth + buttonGap),
+                lyricAreaBottom + 26, buttonWidth, 30)
         }
         play.icon = if (snapshot.playing) PlaybackIcon.PAUSE else PlaybackIcon.PLAY
         val tooltip = if (snapshot.playing) "暂停" else "播放"
