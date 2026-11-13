@@ -2,24 +2,17 @@
 package io.github.gaboron.spwisland.ui
 
 import com.sun.jna.Platform
-import io.github.gaboron.spwisland.core.*
+import io.github.gaboron.spwisland.core.SettingsStore
 import io.github.gaboron.spwisland.diagnostics.IslandLog
 
-/** Shared quick settings and playback commands for the surface menu and native trays. */
+/** Shared quick settings for the surface menu and native trays. */
 internal class IslandMenuCommands(
     private val store: SettingsStore,
-    private val showAbout: () -> Unit,
-    private val actions: PlaybackActions,
-    private val playback: () -> PlaybackSnapshot
+    private val showAbout: () -> Unit
 ) {
     fun entries(): List<PopupMenuEntry> {
         val value = store.read()
-        val snapshot = playback()
         return buildList {
-            snapshot.playbackMode?.let {
-                add(action(PLAYBACK_MODE, "播放模式：${it.label}（切换）"))
-                add(separator())
-            }
             add(toggle(TRANSLATION, "显示翻译", value.translation))
             add(toggle(KARAOKE, "逐字高亮", value.karaoke))
             add(toggle(SCROLL_VOLUME, "滚轮调节音量", value.scrollVolume))
@@ -49,7 +42,6 @@ internal class IslandMenuCommands(
     private fun executeCommand(command: Int) {
         val value = store.read()
         when (command) {
-            PLAYBACK_MODE -> if (playback().playbackMode != null) actions.cyclePlaybackMode()
             TRANSLATION -> store.set("translation", !value.translation)
             KARAOKE -> store.set("karaoke", !value.karaoke)
             SCROLL_VOLUME -> store.set("scroll_volume", !value.scrollVolume)
@@ -100,6 +92,5 @@ internal class IslandMenuCommands(
         const val RECOVER = 201
         const val RESET_POSITION = 202
         const val ABOUT = 203
-        const val PLAYBACK_MODE = 304
     }
 }
