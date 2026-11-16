@@ -235,7 +235,16 @@ class IslandRuntime : AutoCloseable {
         if (!closed) fontPicker?.show(settings.read())
     }
 
-    fun openSource() { SwingUtilities.invokeLater { IslandLog.guard("IslandRuntime", "invokeLater.callback_failed") { if (!closed) safely { ProjectLinks.openSource() } } } }
+    fun openSource() = openProjectLink(ProjectLinks::openSource)
+    fun openSponsor() = openProjectLink(ProjectLinks::openSponsor)
+
+    private fun openProjectLink(open: () -> Unit) {
+        SwingUtilities.invokeLater {
+            IslandLog.guard("IslandRuntime", "invokeLater.callback_failed") {
+                if (!closed) safely(block = open)
+            }
+        }
+    }
     private fun safely(name: String = "operation", block: () -> Unit) {
         if (closed) return
         val operation = IslandLog.operation("runtime", name)

@@ -211,8 +211,15 @@ internal class AboutDialog(private val owner: Window, private val report: (Throw
     private fun footer(colors: Palette, dialog: JDialog) = JPanel(BorderLayout()).apply {
         isOpaque = false
         border = EmptyBorder(18, 24, 20, 24)
-        add(button("项目源码", colors).apply {
-            addActionListener { runCatching(ProjectLinks::openSource).onFailure(report) }
+        add(JPanel(GridLayout(1, 0, 10, 0)).apply {
+            isOpaque = false
+            add(button("项目源码", colors).apply {
+                addActionListener { runCatching(ProjectLinks::openSource).onFailure(report) }
+            })
+            add(button("赞助支持", colors).apply {
+                toolTipText = "爱发电：${ProjectLinks.sponsor}"
+                addActionListener { runCatching(ProjectLinks::openSponsor).onFailure(report) }
+            })
         }, BorderLayout.WEST)
         add(button("关闭", colors, primary = true).apply {
             addActionListener { dialog.isVisible = false }

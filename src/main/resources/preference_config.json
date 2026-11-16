@@ -338,6 +338,13 @@
         },
         {
           "type": "button",
+          "title": "赞助支持（爱发电）",
+          "summary": "https://afdian.com/a/gaboron",
+          "arrow_type": "link",
+          "on_click": "io.github.gaboron.spwisland.host.IslandPlugin.openSponsor"
+        },
+        {
+          "type": "button",
           "title": "重置设置",
           "summary": "恢复所有设置（含字体和位置）；重新打开设置页以刷新显示。",
           "arrow_type": "none",

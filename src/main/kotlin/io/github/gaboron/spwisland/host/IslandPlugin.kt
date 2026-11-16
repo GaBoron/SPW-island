@@ -66,6 +66,7 @@ class IslandPlugin(context: PluginContext) : SpwPlugin(context) {
         @JvmStatic @JvmName("installGnomePointer") fun installGnomePointer() { runtime?.installGnomePointer() }
         @JvmStatic @JvmName("installGnomeGlass") fun installGnomeGlass() { runtime?.installGnomeGlass() }
         @JvmStatic @JvmName("openSource") fun openSource() { runtime?.openSource() }
+        @JvmStatic @JvmName("openSponsor") fun openSponsor() { runtime?.openSponsor() }
         @JvmStatic @JvmName("openLogs") fun openLogs() { HostDiagnosticActions.openLogs() }
         @JvmStatic @JvmName("exportDiagnostics") fun exportDiagnostics() { HostDiagnosticActions.export() }
     }

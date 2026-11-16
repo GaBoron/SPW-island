@@ -21,6 +21,8 @@
   <a href="docs/README.md">使用文档</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/GaBoron/SPW-island/issues">问题反馈</a>
+  &nbsp;·&nbsp;
+  <a href="https://afdian.com/a/gaboron">赞助支持（爱发电）</a>
 </p>
 
 ## ✨ 功能亮点
