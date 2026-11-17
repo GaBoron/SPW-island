@@ -6,6 +6,8 @@ import java.awt.Shape
 import java.awt.Window
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
+import java.awt.event.WindowAdapter
+import java.awt.event.WindowEvent
 import javax.swing.JPanel
 import javax.swing.JWindow
 
@@ -27,6 +29,7 @@ internal class WindowsGpuInput(private val owner: Window) : AutoCloseable {
         opacity = 1f / 255f
     }
     private var regionKey: Any? = null
+    private val native = WindowsOverlay()
     internal val captureWindow: Window get() = window
     private val visibility = object : ComponentAdapter() {
         override fun componentHidden(event: ComponentEvent) {
@@ -34,8 +37,17 @@ internal class WindowsGpuInput(private val owner: Window) : AutoCloseable {
             if (!owner.isVisible) window.isVisible = false
         }
     }
+    private val activation = object : WindowAdapter() {
+        override fun windowActivated(event: WindowEvent) {
+            // Raising a focusable owner must not leave its transparent input peer behind the canvas.
+            if (window.isVisible) window.toFront()
+        }
+    }
 
-    init { owner.addComponentListener(visibility) }
+    init {
+        owner.addComponentListener(visibility)
+        owner.addWindowListener(activation)
+    }
 
     fun update(key: Any, clickThrough: Boolean, shape: () -> Shape) {
         if (clickThrough || !owner.isVisible) {
@@ -49,5 +61,15 @@ internal class WindowsGpuInput(private val owner: Window) : AutoCloseable {
 
     fun hide() { window.isVisible = false }
 
-    override fun close() { owner.removeComponentListener(visibility); window.dispose() }
+    fun verifyNativeState() {
+        if (owner.isVisible && window.isVisible) {
+            check(native.reinforceTopmost(window)) { "辅助窗口输入层不可用" }
+        }
+    }
+
+    override fun close() {
+        owner.removeComponentListener(visibility)
+        owner.removeWindowListener(activation)
+        window.dispose()
+    }
 }

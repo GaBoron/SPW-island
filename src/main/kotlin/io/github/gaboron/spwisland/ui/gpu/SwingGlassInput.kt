@@ -14,8 +14,8 @@ import javax.swing.AbstractButton
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
 
-/** Route the native input peer to the original Swing buttons, header drags and scroll panes. */
-internal class SwingGlassInput(private val source: Component, private val content: JComponent,
+/** Either native peer can receive a hit after activation; both route to the same Swing controls. */
+internal class SwingGlassInput(private val sources: List<Component>, private val content: JComponent,
                                 private val owner: Window, private val changed: () -> Unit) : AutoCloseable {
     private var hovered: Component? = null
     private var pressed: Component? = null
@@ -34,26 +34,38 @@ internal class SwingGlassInput(private val source: Component, private val conten
         override fun mouseEntered(e: MouseEvent) = move(e)
         override fun mouseMoved(e: MouseEvent) = move(e)
         override fun mouseExited(e: MouseEvent) {
+            if (closed) return
             hovered?.let { send(it, e, MouseEvent.MOUSE_EXITED) }; hovered = null; changed()
         }
         override fun mousePressed(e: MouseEvent) {
-            owner.requestFocus()
+            if (closed) return
+            if (!owner.isFocused) owner.requestFocus()
             move(e); pressed = target(e)
             pressed?.let { it.requestFocusInWindow(); send(it, e) }
             changed()
         }
         override fun mouseReleased(e: MouseEvent) {
+            if (closed) return
             pressed?.let { send(it, e) }
             if (closed) return
             pressed = null; move(e); changed()
         }
-        override fun mouseClicked(e: MouseEvent) { target(e)?.let { send(it, e) }; changed() }
-        override fun mouseDragged(e: MouseEvent) { pressed?.let { send(it, e) }; changed() }
+        override fun mouseClicked(e: MouseEvent) {
+            if (closed) return
+            target(e)?.let { send(it, e) }
+            changed()
+        }
+        override fun mouseDragged(e: MouseEvent) {
+            if (closed) return
+            pressed?.let { send(it, e) }
+            changed()
+        }
         override fun mouseWheelMoved(e: MouseWheelEvent) {
+            if (closed) return
             var target = deepest(e)
             while (target != null && target.mouseWheelListeners.isEmpty()) target = target.parent
             target?.let {
-                val p = SwingUtilities.convertPoint(source, e.point, it)
+                val p = SwingUtilities.convertPoint(e.component, e.point, it)
                 it.dispatchEvent(MouseWheelEvent(it, e.id, e.`when`, e.modifiersEx, p.x, p.y,
                     e.xOnScreen, e.yOnScreen, e.clickCount, e.isPopupTrigger, e.scrollType,
                     e.scrollAmount, e.wheelRotation, e.preciseWheelRotation))
@@ -63,14 +75,17 @@ internal class SwingGlassInput(private val source: Component, private val conten
     }
 
     init {
-        source.addMouseListener(listener); source.addMouseMotionListener(listener)
-        source.addMouseWheelListener(listener)
+        sources.forEach { source ->
+            source.addMouseListener(listener)
+            source.addMouseMotionListener(listener)
+            source.addMouseWheelListener(listener)
+        }
         focus.addKeyEventPostProcessor(keyboard)
         focus.addPropertyChangeListener("focusOwner", focusChanged)
     }
 
     private fun deepest(e: MouseEvent): Component? {
-        val p = SwingUtilities.convertPoint(source, e.point, content)
+        val p = SwingUtilities.convertPoint(e.component, e.point, content)
         return SwingUtilities.getDeepestComponentAt(content, p.x, p.y)
     }
 
@@ -91,23 +106,29 @@ internal class SwingGlassInput(private val source: Component, private val conten
             changed()
         }
         next?.let { send(it, e, MouseEvent.MOUSE_MOVED) }
-        source.cursor = next?.cursor ?: Cursor.getDefaultCursor()
-        (source as? JComponent)?.toolTipText = (next as? JComponent)?.toolTipText
+        sources.forEach { source ->
+            source.cursor = next?.cursor ?: Cursor.getDefaultCursor()
+            (source as? JComponent)?.toolTipText = (next as? JComponent)?.toolTipText
+        }
     }
 
     private fun send(target: Component, e: MouseEvent, id: Int = e.id) {
-        val p = SwingUtilities.convertPoint(source, e.point, target)
+        val p = SwingUtilities.convertPoint(e.component, e.point, target)
         target.dispatchEvent(MouseEvent(target, id, e.`when`, e.modifiersEx, p.x, p.y,
             e.xOnScreen, e.yOnScreen, e.clickCount, e.isPopupTrigger, e.button))
     }
 
     override fun close() {
         closed = true
-        source.removeMouseListener(listener); source.removeMouseMotionListener(listener)
-        source.removeMouseWheelListener(listener)
+        sources.forEach { source ->
+            source.removeMouseListener(listener)
+            source.removeMouseMotionListener(listener)
+            source.removeMouseWheelListener(listener)
+            source.cursor = Cursor.getDefaultCursor()
+            (source as? JComponent)?.toolTipText = null
+        }
         focus.removeKeyEventPostProcessor(keyboard)
         focus.removePropertyChangeListener("focusOwner", focusChanged)
-        (source as? JComponent)?.toolTipText = null
         (pressed as? AbstractButton)?.model?.apply { isArmed = false; isPressed = false }
         pressed = null; hovered = null
     }

@@ -38,6 +38,7 @@ internal class SwingGlassMaterial(private val owner: Window, private val surface
         Thread(task, "island-dialog-frames").apply { isDaemon = true }
     }
     private var tick: ScheduledFuture<*>? = null
+    private var nextInputCheck = 0L
     private var layer: SkiaLayer? = null
     private var bridge: WindowsGpuTextureImport? = null
     private var backdrop: WindowsDesktopBackdrop? = null
@@ -95,7 +96,8 @@ internal class SwingGlassMaterial(private val owner: Window, private val surface
         created.renderImmediately()
         backdrop = WindowsDesktopBackdrop(::failLater, gpu) { draw() }
         inputPeer = WindowsGpuInput(owner)
-        input = SwingGlassInput(checkNotNull(inputPeer).component, surface, owner, ::invalidateContent)
+        input = SwingGlassInput(listOf(checkNotNull(inputPeer).component, created.canvas),
+            surface, owner, ::invalidateContent)
     }
 
     private fun resize() {
@@ -121,6 +123,11 @@ internal class SwingGlassMaterial(private val owner: Window, private val surface
             resize()
             inputPeer?.update(listOf(next.width, next.height, next.arc, owner.graphicsConfiguration), false) {
                 RoundRectangle2D.Double(0.0, 0.0, next.width.toDouble(), next.height.toDouble(), next.arc, next.arc)
+            }
+            val now = System.nanoTime()
+            if (owner.isVisible && now >= nextInputCheck) {
+                nextInputCheck = now + PerformanceProfile.STANDARD.topmostCheckIntervalNs
+                inputPeer?.verifyNativeState()
             }
             val p = SwingUtilities.convertPoint(surface, Point(), owner)
             val padding = IslandGlassShaders.CAPTURE_PADDING
