@@ -100,6 +100,7 @@ tasks.register<Zip>("sourceArchive") {
         into("native")
         exclude("**/bin/**", "**/obj/**")
     }
+    from("test") { into("test") }
     from("gradle") { into("gradle") }
     from("tools/build-glass.ps1") { into("tools") }
     from("licenses") { into("licenses") }
@@ -170,4 +171,21 @@ tasks.named<Zip>("plugin") {
     into("licenses") { from("licenses") }
     into("source") { from(tasks.named("sourceArchive")); from(metadataSources) }
     from("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "README.md")
+}
+
+// Keep regression checks independent of a host process and a test framework.
+kotlin.sourceSets.named("test") { kotlin.setSrcDirs(listOf("test")) }
+dependencies { testImplementation(kotlin("stdlib")) }
+configurations.testCompileOnly { extendsFrom(configurations.compileOnly.get()) }
+val regressionTest = tasks.register<JavaExec>("regressionTest") {
+    group = "verification"
+    description = "Run deterministic regression checks without SPW or network access"
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets["test"].runtimeClasspath + sourceSets["main"].compileClasspath
+    mainClass.set("io.github.gaboron.spwisland.core.PlaybackRateRegression")
+}
+tasks.test {
+    dependsOn(regressionTest)
+    // Assertions execute above; there are no JUnit tests to discover.
+    enabled = false
 }
