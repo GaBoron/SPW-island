@@ -22,6 +22,11 @@ internal object SystemUiFont {
         GraphicsEnvironment.getLocalGraphicsEnvironment().allFonts.toList()
     }
     private val installedFamilies = ConcurrentHashMap<String, List<InstalledFace>>()
+    private data class GlyphKey(val text: String, val style: Int)
+    private val glyphCandidates = ConcurrentHashMap<Int, List<Font>>()
+    private val glyphFaces = object : LinkedHashMap<GlyphKey, Font?>(64, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<GlyphKey, Font?>) = size > 512
+    }
     fun derive(style: Int, size: Float): Font = bundledMiSans.deriveFont(style, size)
 
     fun lyric(family: String, weight: LyricFontWeight, size: Float): Font {
@@ -188,6 +193,27 @@ internal object SystemUiFont {
     fun glyphFallback(reference: Font): Font {
         val style = if (reference.inferredWeight >= 600) Font.BOLD else Font.PLAIN
         return Font(Font.SANS_SERIF, style, reference.size.coerceAtLeast(1)).deriveFont(reference.size2D)
+    }
+
+    /** Logical fonts omit some installed script fonts; keep each grapheme in a single physical face. */
+    fun installedGlyphFallback(text: String, reference: Font): Font? {
+        val style = reference.style
+        val key = GlyphKey(text, style)
+        synchronized(glyphFaces) {
+            // Cache unsupported clusters too, so a missing font never causes a scan on every line.
+            if (glyphFaces.containsKey(key)) return glyphFaces[key]?.deriveFont(style, reference.size2D)
+        }
+        val candidates = glyphCandidates.computeIfAbsent(style) {
+            val weight = if (style and Font.BOLD != 0) 700 else 400
+            val italic = style and Font.ITALIC != 0
+            installedFonts.sortedWith(compareBy<Font>(
+                { if (it.isItalicFace == italic) 0 else 1 },
+                { abs(it.inferredWeight - weight) }
+            ))
+        }
+        val face = candidates.firstOrNull { it.canDisplayUpTo(text) < 0 }
+        synchronized(glyphFaces) { glyphFaces[key] = face }
+        return face?.deriveFont(style, reference.size2D)
     }
 
     private fun belongsToFamily(font: Font, requested: String): Boolean {

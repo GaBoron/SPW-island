@@ -34,7 +34,7 @@ object LyricTypography {
                 font.canDisplayUpTo(cluster) < 0 -> font
                 fallbackFont.canDisplayUpTo(cluster) < 0 -> fallbackFont
                 glyphFallbackFont.canDisplayUpTo(cluster) < 0 -> glyphFallbackFont
-                else -> fallbackFont
+                else -> SystemUiFont.installedGlyphFallback(cluster, glyphFallbackFont) ?: fallbackFont
             }
             attributed.addAttribute(TextAttribute.FONT, selectedFont, start, end)
             start = end
